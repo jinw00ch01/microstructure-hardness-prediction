@@ -13,6 +13,23 @@ SUB_DIR = ROOT / "submissions"
 SEED = 42
 
 
+def create_timm(name, **kw):
+    """timm.create_model that prefers GitHub-release weight URLs when a model has one.
+    The cloud sandbox can reach github.com but not huggingface.co; ~400 timm models
+    (efficientnet*, tf_efficientnetv2*, resnet*, regnet*, swin*, nfnet*) host weights there."""
+    import timm
+    from timm.models import get_pretrained_cfg
+
+    if kw.get("pretrained", False) and os.environ.get("TIMM_PREFER_HF") != "1":
+        try:
+            cfg = get_pretrained_cfg(name)
+            if cfg is not None and cfg.url and "github.com" in cfg.url:
+                kw.setdefault("pretrained_cfg_overlay", {})["hf_hub_id"] = ""
+        except Exception:
+            pass
+    return timm.create_model(name, **kw)
+
+
 def load_train():
     df = pd.read_csv(DATA_DIR / "train.csv")
     folds = pd.read_csv(DATA_DIR / "folds.csv")

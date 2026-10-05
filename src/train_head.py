@@ -1,5 +1,5 @@
 """Ridge/SVR head on cached embeddings (+ optional handcrafted features).
-python -m src.train_head --emb convnext_small.fb_in22k_ft_in1k_256 --head svr [--with-feats]"""
+python -m src.train_head --emb tf_efficientnetv2_s.in21k_ft_in1k_256 --head svr [--with-feats]"""
 import argparse
 
 import numpy as np

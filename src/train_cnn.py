@@ -1,14 +1,13 @@
 """End-to-end CNN regression, 5-fold, D4 augmentation + TTA.
-python -m src.train_cnn --backbone convnext_tiny.fb_in22k_ft_in1k --epochs 40 --name cnn_cnxt_t"""
+python -m src.train_cnn --backbone efficientnet_b0.ra_in1k --epochs 40 --name cnn_effb0"""
 import argparse
 
 import numpy as np
-import timm
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-from .common import SEED, load_test, load_train, read_img, save_experiment
+from .common import SEED, create_timm, load_test, load_train, read_img, save_experiment
 
 
 def d4(x, k):  # x: (..., H, W); 8 dihedral transforms
@@ -58,7 +57,7 @@ def main(a):
             continue
         trn, val = (tr.fold != f).values, (tr.fold == f).values
         mu, sd = y[trn].mean(), y[trn].std()
-        m = timm.create_model(a.backbone, pretrained=not a.scratch, num_classes=1, in_chans=1,
+        m = create_timm(a.backbone, pretrained=not a.scratch, num_classes=1, in_chans=1,
                               drop_path_rate=a.drop_path).to(dev)
         opt = torch.optim.AdamW(m.parameters(), lr=a.lr, weight_decay=0.05)
         dl = DataLoader(DS(tr.ID[trn].tolist(), (y[trn] - mu) / sd, train=True, crop=a.crop),
@@ -91,7 +90,7 @@ def main(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--backbone", default="convnext_tiny.fb_in22k_ft_in1k")
+    ap.add_argument("--backbone", default="efficientnet_b0.ra_in1k")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--bs", type=int, default=16)
     ap.add_argument("--lr", type=float, default=2e-4)

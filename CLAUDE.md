@@ -11,6 +11,11 @@ Unzip `open.zip` into `data/` (git-ignored) or point `DATA_DIR` at it:
 data/train/TRAIN_xxxxxx.png  data/test/TEST_xxxxxx.png  data/train.csv  data/sample_submission.csv
 ```
 
+## Environment notes
+- Cloud sandbox: 4 CPU, no GPU; github.com and PyPI reachable, huggingface.co / dl.fbaipublicfiles.com
+  / download.pytorch.org blocked. Use `src.common.create_timm` for pretrained weights (GitHub releases).
+- Remote-API models (e.g. hosted LLM/decision APIs) are banned by competition rule 2.
+
 ## Experiment protocol (every agent follows this)
 - Folds: `python -m src.folds` writes `data/folds.csv` (5-fold, target-binned stratified, seed 42).
   Every model uses these same folds so OOF predictions are comparable and stackable.

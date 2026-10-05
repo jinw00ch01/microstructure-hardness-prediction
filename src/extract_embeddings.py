@@ -1,19 +1,18 @@
-"""Frozen pretrained backbone embeddings with flip/rot TTA. Needs internet for timm weights (run on a
-machine that can reach huggingface.co). python -m src.extract_embeddings --backbone convnext_small.fb_in22k_ft_in1k"""
+"""Frozen pretrained backbone embeddings with flip/rot TTA. Weights come from GitHub releases where
+timm has them (see common.create_timm). python -m src.extract_embeddings --backbone tf_efficientnetv2_s.in21k_ft_in1k"""
 import argparse
 
 import numpy as np
 import pandas as pd
-import timm
 import torch
 
-from .common import DATA_DIR, load_test, read_img
+from .common import DATA_DIR, create_timm, load_test, read_img
 
 
 @torch.no_grad()
 def embed(backbone, ids, size=256, bs=32, device=None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    m = timm.create_model(backbone, pretrained=True, num_classes=0).eval().to(device)
+    m = create_timm(backbone, pretrained=True, num_classes=0).eval().to(device)
     cfg = m.pretrained_cfg
     mean = torch.tensor(cfg["mean"], device=device).view(1, 3, 1, 1)
     std = torch.tensor(cfg["std"], device=device).view(1, 3, 1, 1)
