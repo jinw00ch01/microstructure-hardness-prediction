@@ -5,3 +5,4 @@ data/
 __pycache__/
 submissions/*.csv
 !submissions/.gitkeep
+logs/
