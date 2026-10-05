@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.902086490589495,
+  "fold_rmse": [
+    15.00397780090417,
+    12.775027656375194,
+    14.212192660521476,
+    14.005745167134288,
+    13.41163840034067
+  ],
+  "notes": "krr head (inner-CV hp per fold: {\"gamma_mult\": 0.0625, \"alpha\": 0.04642}; {\"gamma_mult\": 0.0625, \"alpha\": 0.04642}; {\"gamma_mult\": 0.0625, \"alpha\": 0.04642}; {\"gamma_mult\": 0.0625, \"alpha\": 0.04642}; {\"gamma_mult\": 0.0625, \"alpha\": 0.04642}) on resnet18.a1_in1k (apache-2.0, 256px, 4 views); stages=1,2,3 pools=mean,std view_mode=mean view_std=False transform=none block_norm=False pca=0 feats=features.parquet x1.0; licenses: apache-2.0"
+}

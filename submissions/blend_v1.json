@@ -1,0 +1,39 @@
+{
+  "exps": [
+    "cnn_r18_c224_e30",
+    "emb_effv2s_256_ridge_aug",
+    "emb_r18_256_krr_feats",
+    "emb_r18_256_ridge_aug",
+    "feat2_lgb",
+    "feat2_lgb_v1v2",
+    "feat2_ridge",
+    "feat2_v123_fwd",
+    "feat2_v23_lgb",
+    "feat2_v23_ridge",
+    "feat2_v3_fwd",
+    "feat2_v3_lgb",
+    "feat2_v3_ridge",
+    "feat_lgb",
+    "feat_ridge",
+    "feat_svr"
+  ],
+  "weights": [
+    0.14314472213565885,
+    0.20251564653270931,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.08901909258380596,
+    0.0494678775604915,
+    0.0,
+    0.20662123177720107,
+    0.3092314294101334,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "nested_cv_rmse": 13.151220137039495
+}

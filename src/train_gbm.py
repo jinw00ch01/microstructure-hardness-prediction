@@ -1,62 +1,203 @@
-"""GBM / linear models on handcrafted features. python -m src.train_gbm --model lgb --name feat_lgb"""
+"""GBM / linear models on handcrafted features.
+
+python -m src.train_gbm --model lgb --name feat_lgb                               (v1 baseline)
+python -m src.train_gbm --feat features_v2.parquet --model lgb --name feat2_lgb
+python -m src.train_gbm --feat features_v2.parquet,features.parquet --model cat --name feat2_cat_v1v2
+python -m src.train_gbm --feat features_v2.parquet --model ridge --cols physics --name feat2_ridge_phys
+
+Honest CV: hyper-parameters are fixed a priori; the validation fold is never used for early stopping
+(unless --es is passed, which is flagged in the notes). Any feature selection happens inside the fold
+on training rows only. Threads are limited to 1 (shared machine).
+"""
 import argparse
+import os
+import re
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import RidgeCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
-from .common import DATA_DIR, SEED, load_test, load_train, save_experiment
+from .common import DATA_DIR, EXP_DIR, SEED, load_test, load_train, save_experiment
+
+N_THREADS = int(os.environ.get("N_THREADS", "1"))
+
+# compact physics-motivated column set (v2 features); regexes matched against column names
+PHYSICS_COLS = [
+    r"^seg_fd(12|15|20)$", r"^dk_frac$", r"^ph_rel(90|92)$", r"^ph_deficit2?$",
+    r"^pore(60|70)_(frac|n|n_round|n_elong)$",
+    r"^seg_inv_sqrt_d$", r"^seg_L_inv_sqrt$", r"^seg_count_density$", r"^ac50_gm$",
+    r"^seg_asp_wmean$", r"^seg_ori_R$", r"^seg_elong_align$", r"^segdk_asp_wmean$", r"^dk_asp_wmean$",
+    r"^dk_ori_R$", r"^ac50_aspect$", r"^st[12]_coh$", r"^seg_L_aniso$", r"^seg_area_cv$",
+    r"^q_noise$", r"^q_ridge_snr$", r"^q_spec_slope_hi$",
+]
 
 
-def make_model(kind):
+def make_model(kind, seed=SEED):
     if kind == "lgb":
+        return lgb.LGBMRegressor(n_estimators=700, learning_rate=0.02, num_leaves=15, min_child_samples=15,
+                                 subsample=0.8, subsample_freq=1, colsample_bytree=0.5, reg_lambda=2.0,
+                                 random_state=seed, verbose=-1, n_jobs=N_THREADS)
+    if kind == "lgbs":  # small trees, heavy subsampling: better for noisy targets / many correlated features
+        return lgb.LGBMRegressor(n_estimators=1500, learning_rate=0.01, num_leaves=4, min_child_samples=20,
+                                 subsample=0.7, subsample_freq=1, colsample_bytree=0.3, reg_lambda=5.0,
+                                 random_state=seed, verbose=-1, n_jobs=N_THREADS)
+    if kind == "lgb_es":  # legacy: early stopping on the validation fold (optimistic)
         return lgb.LGBMRegressor(n_estimators=2000, learning_rate=0.02, num_leaves=15, min_child_samples=10,
                                  subsample=0.8, subsample_freq=1, colsample_bytree=0.6, reg_lambda=1.0,
-                                 random_state=SEED, verbose=-1)
+                                 random_state=seed, verbose=-1, n_jobs=N_THREADS)
     if kind == "cat":
-        return CatBoostRegressor(iterations=3000, learning_rate=0.03, depth=6, l2_leaf_reg=3,
-                                 random_seed=SEED, verbose=0)
+        return CatBoostRegressor(iterations=1500, learning_rate=0.03, depth=5, l2_leaf_reg=5, rsm=0.5,
+                                 random_seed=seed, verbose=0, thread_count=N_THREADS)
     if kind == "ridge":
-        return make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 25)))
+        return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), RidgeCV(alphas=np.logspace(-2, 4, 40)))
     if kind == "svr":
-        return make_pipeline(StandardScaler(), SVR(C=30.0, epsilon=1.0, gamma="scale"))
+        return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
+                             SVR(C=30.0, epsilon=1.0, gamma="scale"))
     raise ValueError(kind)
 
 
-def run(model, name, feat_file="features.parquet"):
+def load_features(feat_files):
+    out = None
+    for k, ff in enumerate(feat_files.split(",")):
+        d = pd.read_parquet(DATA_DIR / ff)
+        if out is not None:
+            dup = [c for c in d.columns if c != "ID" and c in out.columns]
+            d = d.rename(columns={c: f"f{k}_{c}" for c in dup})
+            out = out.merge(d, on="ID")
+        else:
+            out = d
+    return out
+
+
+def select_columns(cols, spec):
+    if not spec:
+        return list(cols)
+    pats = PHYSICS_COLS if spec == "physics" else spec.split(",")
+    keep = [c for c in cols if any(re.search(p, c) for p in pats)]
+    return keep
+
+
+def corr_select(X, y, k):
+    """Univariate |spearman| ranking on training rows only."""
+    r = X.rank().corrwith(pd.Series(y, index=X.index).rank()).abs().fillna(0)
+    return list(r.sort_values(ascending=False).index[:k])
+
+
+def _std_matrix(Xtr, *others):
+    """Median-impute + standardize using training-fold statistics only."""
+    med = Xtr.median()
+    A = Xtr.fillna(med)
+    mu, sd = A.mean(), A.std().replace(0, 1.0)
+    out = [((A - mu) / sd).values]
+    for o in others:
+        out.append(((o.fillna(med) - mu) / sd).values)
+    return out
+
+
+def forward_select(X, y, max_k=20, inner_folds=5, alpha=3.0, tol=0.01, seed=SEED):
+    """Greedy forward selection with ridge, scored by inner K-fold CV on the given (training) rows only."""
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import KFold
+    (A,) = _std_matrix(X)
+    cols = list(X.columns)
+    splits = list(KFold(inner_folds, shuffle=True, random_state=seed).split(A))
+    def score(idx):
+        err = 0.0
+        for a, b in splits:
+            m = Ridge(alpha=alpha).fit(A[a][:, idx], y[a])
+            err += ((m.predict(A[b][:, idx]) - y[b]) ** 2).sum()
+        return np.sqrt(err / len(y))
+    sel, best = [], np.inf
+    for _ in range(max_k):
+        cand = [(score(sel + [j]), j) for j in range(len(cols)) if j not in sel]
+        sc, j = min(cand)
+        if sc > best - tol:
+            break
+        sel.append(j)
+        best = sc
+    return [cols[j] for j in sel]
+
+
+def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=0, es=False, drop=None, fwd=0):
     tr, te = load_train(), load_test()
-    feats = pd.read_parquet(DATA_DIR / feat_file)
-    X = tr[["ID"]].merge(feats, on="ID").drop(columns="ID")
-    Xt = te[["ID"]].merge(feats, on="ID").drop(columns="ID")
+    feats = load_features(feat_file)
+    use = select_columns([c for c in feats.columns if c != "ID"], cols)
+    if drop:
+        use = [c for c in use if not any(re.search(p, c) for p in drop.split(","))]
+    X = tr[["ID"]].merge(feats, on="ID")[use]
+    Xt = te[["ID"]].merge(feats, on="ID")[use]
+    X = X.replace([np.inf, -np.inf], np.nan)
+    Xt = Xt.replace([np.inf, -np.inf], np.nan)
     y = tr.hardness.values
     oof, pred = np.zeros(len(tr)), np.zeros(len(te))
-    imp = np.zeros(X.shape[1])
+    imp = pd.Series(0.0, index=use)
+    kind = "lgb_es" if (model == "lgb" and es) else model
+    sel_log = []
     for f in range(5):
-        trn, val = tr.fold != f, tr.fold == f
-        m = make_model(model)
-        if model == "lgb":
-            m.fit(X[trn], y[trn], eval_set=[(X[val], y[val])], callbacks=[lgb.early_stopping(200, verbose=False)])
-            imp += m.feature_importances_
-        elif model == "cat":
-            m.fit(X[trn], y[trn], eval_set=(X[val], y[val]), early_stopping_rounds=300)
-        else:
-            m.fit(X[trn], y[trn])
-        oof[val] = m.predict(X[val])
-        pred += m.predict(Xt) / 5
+        trn, val = (tr.fold != f).values, (tr.fold == f).values
+        cols_f = corr_select(X[trn], y[trn], select_k) if select_k else use
+        if fwd:
+            cols_f = forward_select(X.loc[trn, cols_f], y[trn], max_k=fwd)
+            print(f"fold {f}: forward-selected {cols_f}", flush=True)
+            sel_log.append(cols_f)
+        if kind in ("ridge_fs", "fwd"):
+            from sklearn.linear_model import RidgeCV
+            A, Av, At = _std_matrix(X.loc[trn, cols_f], X.loc[val, cols_f], Xt[cols_f])
+            m = RidgeCV(alphas=np.logspace(-2, 3, 30)).fit(A, y[trn])
+            oof[val] = m.predict(Av)
+            pred += m.predict(At) / 5
+            imp[cols_f] += np.abs(m.coef_)
+            continue
+        for s in range(seeds):
+            m = make_model(kind, SEED + s)
+            if kind == "lgb_es":
+                m.fit(X.loc[trn, cols_f], y[trn], eval_set=[(X.loc[val, cols_f], y[val])],
+                      callbacks=[lgb.early_stopping(200, verbose=False)])
+            elif kind == "cat" and es:
+                m.fit(X.loc[trn, cols_f], y[trn], eval_set=(X.loc[val, cols_f], y[val]), early_stopping_rounds=300)
+            else:
+                m.fit(X.loc[trn, cols_f], y[trn])
+            if hasattr(m, "feature_importances_"):
+                imp[cols_f] += np.asarray(m.feature_importances_, float) / seeds
+            elif hasattr(m, "get_feature_importance"):
+                imp[cols_f] += m.get_feature_importance() / seeds
+            oof[val] += m.predict(X.loc[val, cols_f]) / seeds
+            pred += m.predict(Xt[cols_f]) / (5 * seeds)
     if imp.any():
-        print(pd.Series(imp, X.columns).sort_values(ascending=False).head(20))
-    return save_experiment(name, tr, oof, te, pred, notes=f"{model} on {feat_file}")
+        print((imp / imp.sum()).sort_values(ascending=False).head(30).round(4).to_string())
+    notes = f"{model} on {feat_file}; cols={cols or 'all'}({len(use)})"
+    if select_k:
+        notes += f"; in-fold spearman top{select_k}"
+    if seeds > 1:
+        notes += f"; {seeds} seeds"
+    if es:
+        notes += "; EARLY-STOP ON VAL FOLD (optimistic)"
+    if fwd:
+        notes += f"; in-fold forward selection (ridge inner-CV, max {fwd})"
+    out = save_experiment(name, tr, oof, te, pred, notes=notes)
+    imp.sort_values(ascending=False).to_csv(EXP_DIR / name / "importance.csv", header=["importance"])
+    if sel_log:
+        (EXP_DIR / name / "selected.txt").write_text("\n".join(",".join(c) for c in sel_log))
+    return out
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="lgb", choices=["lgb", "cat", "ridge", "svr"])
+    ap.add_argument("--model", default="lgb", choices=["lgb", "lgbs", "cat", "ridge", "svr", "fwd"])
     ap.add_argument("--name", default=None)
-    ap.add_argument("--feat", default="features.parquet")
+    ap.add_argument("--feat", default="features.parquet", help="comma-separated parquet files in DATA_DIR")
+    ap.add_argument("--cols", default=None, help="'physics' or comma-separated regexes")
+    ap.add_argument("--drop", default=None, help="comma-separated regexes of columns to drop")
+    ap.add_argument("--seeds", type=int, default=1)
+    ap.add_argument("--select_k", type=int, default=0)
+    ap.add_argument("--es", action="store_true", help="early stopping on validation fold (optimistic CV)")
+    ap.add_argument("--fwd", type=int, default=0, help="in-fold greedy forward selection (max features)")
     a = ap.parse_args()
-    run(a.model, a.name or f"feat_{a.model}", a.feat)
+    fwd = a.fwd or (20 if a.model == "fwd" else 0)
+    run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd)

@@ -6,3 +6,4 @@ __pycache__/
 submissions/*.csv
 !submissions/.gitkeep
 logs/
+catboost_info/

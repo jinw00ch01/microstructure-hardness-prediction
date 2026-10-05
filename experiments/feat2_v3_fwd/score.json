@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.72119713209998,
+  "fold_rmse": [
+    14.378456971379503,
+    13.899994138557695,
+    13.692052069419049,
+    13.25389929235119,
+    13.35171357678571
+  ],
+  "notes": "fwd on features_v3.parquet; cols=all(128); in-fold forward selection (ridge inner-CV, max 20)"
+}

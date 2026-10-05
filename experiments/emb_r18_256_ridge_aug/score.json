@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.928386535577756,
+  "fold_rmse": [
+    14.994345819766746,
+    12.559662915597624,
+    14.513845588819398,
+    14.098472609142535,
+    13.3418729801812
+  ],
+  "notes": "ridge head (inner-CV hp per fold: {\"alpha\": 1000.0}; {\"alpha\": 1000.0}; {\"alpha\": 1000.0}; {\"alpha\": 1000.0}; {\"alpha\": 1000.0}) on resnet18.a1_in1k (apache-2.0, 256px, 4 views); stages=1,2,3 pools=mean,std view_mode=aug view_std=False transform=none block_norm=False pca=0 feats=no; licenses: apache-2.0"
+}

@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.675197971804554,
+  "fold_rmse": [
+    14.766722857124144,
+    12.3139975564705,
+    13.6185724723966,
+    14.23261463424226,
+    13.316595757459844
+  ],
+  "notes": "ridge head (inner-CV hp: alpha=562.3 x3 alpha=1000 x1 alpha=316.2 x1) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views); stages=2,3 pools=mean,std view_mode=aug view_std=False transform=none block_norm=False pca=0 feats=no; licenses: apache-2.0"
+}
