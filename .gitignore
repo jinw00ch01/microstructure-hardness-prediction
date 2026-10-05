@@ -1,0 +1,7 @@
+data/
+*.npy
+*.pt
+*.pth
+__pycache__/
+submissions/*.csv
+!submissions/.gitkeep
