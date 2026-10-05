@@ -1,5 +1,8 @@
 # Microstructure Hardness Prediction (DACON)
 
+> **Paused 2026-10-05.** Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
+
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
 Goal: **public LB ≤ 10**. Train 500 images, test 1,000 images. Rules: no external data, test images
 must never be used for training (no pseudo-labels, no test-time fitting of scalers), only openly
