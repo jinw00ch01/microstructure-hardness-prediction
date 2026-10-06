@@ -322,8 +322,8 @@ MIL_SPLINE_VARS = ["c_la", "c_sfd93", "c_pore60", "c_acd", "acr_len50"]
 MIL_NB = 49
 
 
-def mil_table():
-    b = pd.read_parquet(DATA_DIR / "mil_blocks.parquet").sort_values(["ID", "blk"])
+def mil_table(path=None):
+    b = pd.read_parquet(DATA_DIR / (path or "mil_blocks.parquet")).sort_values(["ID", "blk"])
     assert (b.groupby("ID").size() == MIL_NB).all()
     return b.set_index("ID")
 
@@ -464,14 +464,16 @@ def mil_design_fold_extra(B=None, kind="spl"):
 
 
 def mil_run(kind, name, save=True, mil_seeds=1, stack=False, member_pred="mil_wmean", w_fn=None, design=False,
-            **run_kw):
+            blocks_file=None, **run_kw):
     from .common import rmse
     if design:   # additive MIL terms fitted jointly with the member's global features
         form = ("valid-weighted block means of B-splines" if kind == "spl" else
                 "B-splines of the valid-weighted image means (Jensen control)")
-        return run(save=save, name=name, fold_extra=mil_design_fold_extra(kind=kind),
+        B = mil_table(blocks_file) if blocks_file else None
+        return run(save=save, name=name, fold_extra=mil_design_fold_extra(B, kind=kind),
                    extra_note=f"+ MIL {kind} design ({form} of block c_la, c_sfd93, c_pore60, c_acd, acr_len50 + "
-                              "c_sfd93 x spline(c_la), c_sfd93 x spline(c_acd); knots in-fold)", **run_kw)
+                              "c_sfd93 x spline(c_la), c_sfd93 x spline(c_acd); knots in-fold; blocks "
+                              f"{blocks_file or 'mil_blocks.parquet'})", **run_kw)
     tr, te = load_train(), load_test()
     y = tr.hardness.values
     seeds = mil_seeds
@@ -511,13 +513,14 @@ if __name__ == "__main__":
     ap.add_argument("--mil_stack", action="store_true", help="add cross-fitted MIL aggregates to --model/--feat")
     ap.add_argument("--mil_seeds", type=int, default=1)
     ap.add_argument("--mil_design", action="store_true", help="add the spline-mean MIL design itself to --model/--feat")
+    ap.add_argument("--mil_blocks_file", default=None, help="block table for the MIL design (default mil_blocks.parquet)")
     a = ap.parse_args()
     fwd = a.fwd or (20 if a.model == "fwd" else 0)
     if a.mil:
         kw = dict(model=a.model, feat_file=a.feat, cols=a.cols, seeds=a.seeds, drop=a.drop, hetero=a.hetero,
                   hetero_add=a.hetero_add) if (a.mil_stack or a.mil_design) else {}
         mil_run(a.mil, a.name or f"mil_{a.mil}", save=not a.no_save, mil_seeds=a.mil_seeds, stack=a.mil_stack,
-                design=a.mil_design, **kw)
+                design=a.mil_design, blocks_file=a.mil_blocks_file, **kw)
         raise SystemExit
     run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd,
         a.hetero, a.mono, not a.no_save, a.hetero_add)

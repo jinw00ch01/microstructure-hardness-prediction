@@ -1,26 +1,75 @@
-# feature-engineer handoff (updated 2026-10-06, session 6 in progress: restored-image features)
+# feature-engineer handoff (updated 2026-10-06, session 6: restored-image features)
 
-## Session 6 (in progress)
+## Session 6 summary
 1. Calibrated block-mean phase/pore columns for the lgbs: `data/features_v5blk.parquet`
    (`python -m src.features --v5_blockmeans`).
    - Columns: `v5m_` valid-weighted mean, `v5s_` sd and `v5q_` q90 over blocks of c_sfd93, c_sfd91, c_fdo93,
      c_deficit, c_pore60.
-   - Fold-paired against feat3_v23cal_lgbs_het_spat (12.789):
+   - Fold-paired against feat3 lgbs (12.789):
      - means only: 12.767 (-0.022, 3/5 folds)
      - all 15 columns: 12.774 (-0.015, 3/5)
-   - Neither reaches 4/5 folds, so nothing was saved.
-2. Restored images (cnn-trainer's `src/restore.py` -> `data_restored/`): waiting for the coordinator's signal.
-   - Prepared, all core 3:
-     - driver `restored_all.sh` in my session scratchpad (summary in `logs/restored_summary.log`)
-     - restoration-bias test on the restorer's 11 held-out sources (fresh `_degrade_v2` copies)
-     - v3 / v5 blocks / v2 rebuilt with `DATA_DIR=data_restored`
-     - cal_, v4 and MIL calibrations fitted on degraded originals and applied to the restored tables
-       (`cal_apply(apply_v3=...)`, `v4_apply(apply_file=...)`, `mil_blocks(apply_file=...)`; applied to the
-       original tables they reproduce the current files exactly)
-     - fold-paired screens of replacement / addition variants against feat5 splmean ridge and feat3 lgbs
-   - Only the restorer's 11 validation sources were not used to train it. So an honest refit of the cal_ maps on
-     restored degraded copies would need a restorer cross-fitted over sources.
+   - Not saved.
+2. Restored images (cnn-trainer's U-Net, `data_restored/`).
+   - I rebuilt, with `DATA_DIR=data_restored`:
+     - `features_v3`, `features_v2` and `v5_blocks_real` (`.parquet`)
+     - the transferred calibrations `features_cal`, `features_v4` and `mil_blocks`: fitted on degraded originals
+       and applied with `cal_apply(apply_v3=...)`, `v4_apply(apply_file=...)` and `mil_blocks(apply_file=...)`
+     - gated `*_g.parquet` copies: images with raw ic_ridge_snr < 0.08 (65 images: 23 train, 42 test) take their
+       raw-image values
+   - Restoration bias test on the restorer's 11 held-out sources. These are the only sources it never trained on.
+     I made 12 fresh `_degrade_v2` copies of each and measured R² against the clean source's v3 value:
 
+     | measure | degraded | degraded + cal | restored | restored + cal |
+     |---|---|---|---|---|
+     | ic_seg_fd93 | 0.43 | 0.80 | 0.78 | **0.93** |
+     | ic_seg_fd93, noise >= 13 | -0.14 | 0.59 | 0.57 | **0.89** |
+     | ic_fdo_93 | 0.06 | 0.65 | 0.85 | **0.92** |
+     | ic_gmm_w | 0.34 | 0.70 | 0.84 | **0.93** |
+     | ic_acg_len50_perp | -0.98 | 0.86 | 0.75 | **0.93** |
+     | ic_seg_nfrac91 | -2.18 | 0.76 | 0.30 | **0.93** |
+     | ic_pore60_frac | 0.04 | **0.40** | -0.84 | 0.30 |
+
+     - On synthetic data, restoration plus the existing cal_ maps is the most accurate for everything except pores.
+     - The maps still help on restored images, although restored noisy images fall outside their training range
+       (ic_noise 0.7 vs 1.2-17; ridge SNR 6.1 vs q95 3.5).
+     - Refitting is not needed for transfer on synthetic data. An honest refit would anyway need a restorer that
+       never saw the source images, i.e. one cross-fitted over sources.
+     - Pores: keep the raw-image pore features.
+   - Real-image screens (fold-paired, saved OOFs as bases) show no consistent gain:
+
+     | variant | CV | delta | folds better | T1 / T2 / T3 |
+     |---|---|---|---|---|
+     | ridge base + restored v3+cal (add) | 12.525 | -0.070 | 3/5 | 14.647 / 11.587 / 11.032 |
+     | ridge, restored v3+cal replace raw (raw v4/MIL) | 12.579 | -0.016 | 2/5 | |
+     | ridge, all restored (v3, cal, v4, MIL design) | 12.530 | -0.065 | 3/5 | 14.774 / 11.445 / 11.0x |
+     | ridge, all restored, no cal | 12.535 | -0.060 | 2/5 | |
+     | lgbs base + restored v3+cal (add) | 12.769 | -0.020 | 3/5 | 15.171 / 11.516 / 11.231 |
+     | lgbs, restored v3+cal replace raw (raw v2) | 12.884 | +0.096 | 1/5 | |
+     | lgbs, all restored (v3, v2, cal) | 12.899 | +0.110 | 2/5 | 15.366 / 11.385 / 11.541 |
+     | lgbs, all restored, no cal | 12.912 | +0.124 | 2/5 | |
+     | gated (snr < 0.08 -> raw): ridge add / ridge all-restored / lgbs add | 12.634 / 12.803 / 12.826 | +0.04 / +0.21 / +0.04 | 2/5 / 1/5 / 2/5 | |
+
+     Bases: ridge = feat5 splmean 12.595 (T1 14.748 / T2 11.881 / T3 10.823); lgbs = feat3 12.789.
+   - Pattern: restored features help the mid-noise tercile T2 a lot (ridge 11.88 -> 11.45-11.59, lgbs
+     11.86 -> 11.39-11.52). They hurt the clean tercile and do not help the noisiest. Gains concentrate in fold 1
+     (-0.2 to -0.7) and folds 2/4 lose.
+   - Nested NNLS on OOFs (my quick version: 12.504 for the blend_v5 members):
+     - + ridge all-restored: 12.458 (3/5 folds, weight 0.43)
+     - + ridge add: -0.022 (3/5)
+     - + lgbs add: -0.011 (3/5)
+     - + lgbs all-restored: worse
+   - Nothing qualified fold-paired. At the coordinator's request (for a per-tercile blend and the submission test of
+     whether restoration carries over), the all-restored ridge was saved anyway as **feat6_rest_ridge_all**:
+     - CV 12.5304, folds 12.989 11.394 12.963 12.664 12.575
+     - T1 14.774 / T2 11.445 / T3 11.028 (raw-SNR terciles, like every other member)
+     - test predictions come from the restored test features
+     - command (`R=data_restored` absolute path):
+       `taskset -c 0 python -W ignore -m src.train_gbm --mil splmean --mil_design --mil_blocks_file $R/mil_blocks.parquet --feat $R/features_v3.parquet,$R/features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,$R/features_v4.parquet --model ridge --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --hetero ic_acg_len50_gm --name feat6_rest_ridge_all`
+   - Restored features only for mid-SNR images (train tercile cuts 0.283-0.774; raw values elsewhere; `*_m.parquet`):
+     12.854 (+0.259, 0/5 folds). Mixing raw and restored values in the same columns hurts. Use the tercile pattern
+     at blend level instead.
+   - Scripts are in the session scratchpad: `restored_par.sh`, `restore_bias.py`, `screen_restored.py`,
+     `diag_restored.py`. Logs: `logs/restored_*.log`.
 
 ## Session 5 summary: block-level MIL (tests the "local nonlinearity / Jensen term" reading)
 Result: the local (Jensen) term is not supported once the global and spread features are in the model. A nonlinear
