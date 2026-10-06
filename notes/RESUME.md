@@ -4,6 +4,21 @@ Goal: public LB RMSE <= 10.
 First LB result (2026-10-06): `blend_v2` (nested CV 12.963) scored **public 12.3454**, so this public split runs about
 0.6 below CV. LB #1 at that time was **9.2442**, which shows the morning "label-noise floor" verdict below was wrong.
 
+## Pause 2026-10-06 07:05 UTC (usage limit; user asked to resume at 16:40 KST = 07:40 UTC)
+- Agents were stopped mid-task. In the same cloud session they resume with SendMessage to their id:
+  embedding-modeler `a17d1308e2e18c0a9` (adding sample weights, in-fold heteroscedastic weights and top-k hp averaging to
+  gridge3 in `src/train_head.py`), cnn-trainer `aab6d7892b973e0dc` (restoration net `src/restore.py`), feature-engineer
+  `a0d02955f85b35994` (restored-image rebuild and screening scripts, waits for the restorer weights), eda-analyst
+  `ae89e4e26800bfe41` (audit against the official PDF's five factors: `experiments/eda/a43-a45`; its `a34_grains2.py`
+  test run was killed and must be re-run).
+- CPU jobs left running (no Claude usage): `src.restore train` (2 cores, writes `data/restore_cache/restore_unet.pt`,
+  log `logs/restore_train.log`) and the embedding-modeler's screen loop (1 core, output `scratchpad/w4.out`).
+- Uncommitted agent work is backed up in `/mnt/project-files/work/hardness-cache/wip/2026-10-06-0705/`
+  (`tracked.patch`, `untracked.tgz`); the git bundle there is current to 1255f59. A fresh session restores both and
+  re-briefs the agents from `notes/handoff/*.md` instead.
+- Still blocked: the repo was still public at 07:00 UTC (the 2 h visibility poll ended; check on each wake), and the
+  laptop GPU wrapper approval. Next delivery: a re-blend (blend_v5 nested 12.4855) once the embedding results land.
+
 ## Where we are
 | model family | best saved experiment | CV RMSE |
 |---|---|---|
