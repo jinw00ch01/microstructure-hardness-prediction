@@ -12,6 +12,25 @@ is replaced by one of K synthetic degradations of itself (same label), made with
 calibration-v2 degradation model (src.features._degrade_v2: noise/blur/dark-contrast/shading matched to the
 real images per noise band). Build the bank once with --build-deg. Train images only; validation-fold
 copies are never used in that fold. At assembly the OOF RMSE per train ic_ridge_snr tercile is reported.
+--input raw+rest | raw+nlm+rest: adds the restored image of src.restore's original restorer (a fixed per-image
+transform of train and test alike, trained on synthetic pairs of clean train images only, nothing fitted on test),
+read from --rest-dir (default data_restored/, written by `python -m src.restore apply`). Like nlm it is a denoised
+channel: crop/D4/brightness/contrast are shared, blur and noise touch only the raw channel. With --deg-p every
+degraded bank copy gets its own restored channel: the same restorer (data/restore_cache/restore_unet.pt) applied to
+the degraded raw copy, cached in data/cnn_cache/_pre/deg2_k{K}_snr{S}_rest.npz by
+  python -m src.train_cnn --build-deg --input raw+nlm+rest --deg-k 8 --deg-snr-min 0.5 [--device cuda]
+That file also keeps the restorer's output for 8 real noisy train images, which must match --rest-dir (checked when
+it is built and whenever it is loaded), so a bank and a --rest-dir made by different restorers are never mixed.
+Old --input values run exactly as before.
+--full: one model per seed on ALL train images (same fixed schedule and epochs, no validation fold, nothing
+selected), predicting the test images with the same TTA; the degradation bank uses every train image that passes the
+SNR rule. Writes only test predictions (experiments/<name>/test.csv + full.json, no OOF, no score.json), so it needs
+its own --name; pair it with the fold run of the same recipe for the OOF.
+--scale S: bilinear upsampling (on the device) of each augmented training crop and of every TTA view by S; --crop
+stays in native pixels (S=2, crop 224: 448 px crops and 512 px views, about 4x compute; crop 112: same training
+cost as now). Default 1.0 skips it entirely.
+  python -m src.train_cnn <recipe> --full --seeds 6 --no-save --train-seeds 0 --name X_full6   # ... seeds 1..5
+  python -m src.train_cnn <recipe> --full --seeds 6 --name X_full6                             # assemble + save
 CPU-friendly: bf16 autocast + channels_last (uses AMX on Sapphire/Emerald Rapids), threads capped
 at 2 on CPU, no DataLoader workers. --device auto|cpu|cuda: on a GPU, autocast uses bf16 when the card
 supports it, else fp16 with a GradScaler. Per-fold predictions are cached in data/cnn_cache/<name>/ so a run
@@ -25,16 +44,20 @@ can be resumed; experiments/<name>/ is written only when all 5 folds exist.
   python -m src.train_cnn --seeds 2 --name X
 """
 import argparse
+import hashlib
 import json
 import math
+import os
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from PIL import Image
 
-from .common import DATA_DIR, SEED, create_timm, load_test, load_train, read_img, rmse, save_experiment
+from .common import DATA_DIR, EXP_DIR, ROOT, SEED, create_timm, load_test, load_train, read_img, rmse, save_experiment
 
 CACHE = DATA_DIR / "cnn_cache"
 RT = {"dev": torch.device("cpu"), "dtype": torch.bfloat16}  # runtime device / autocast dtype
@@ -98,6 +121,100 @@ def deg_bank(k=8, snr_min=0.5, build=False):
     return dict(zip(src, out))
 
 
+REST_CHECK_N = 8  # real train images whose restorer output is stored with the restored bank (consistency check)
+
+
+def _rest_dir(a):
+    p = Path(a.rest_dir)
+    return p if p.is_absolute() else ROOT / p
+
+
+def _rest_u8(i, rest_dir):
+    fp = rest_dir / ("train" if i.startswith("TRAIN") else "test") / f"{i}.png"
+    if not fp.exists():
+        raise SystemExit(f"{fp} missing: write the restored images first (python -m src.restore apply; "
+                         "notes/handoff/laptop-gpu.md section 8)")
+    return np.asarray(Image.open(fp).convert("L"), dtype=np.uint8)
+
+
+def _rest_check_ids(n=REST_CHECK_N):
+    """Fixed real train images for the --rest-dir consistency check, spread over the upper two thirds of the noise
+    range (clean images pass through any restorer almost unchanged, so they cannot tell restorers apart)."""
+    import pandas as pd
+    ids = load_train().ID.tolist()
+    nz = pd.read_parquet(DATA_DIR / "features_v3.parquet", columns=["ID", "ic_noise"]).set_index("ID")
+    nz = nz.loc[ids, "ic_noise"]
+    order = nz.sort_values(kind="stable").index.tolist()
+    return [order[j] for j in np.linspace(len(order) // 3, len(order) - 1, n).round().astype(int)]
+
+
+def _rest_match(ids, imgs, rest_dir):
+    """Does --rest-dir hold this restorer output for `ids`? Allows the rare 1-grey-level rounding flips of a rerun of
+    the same model (other batch layout or GPU kernels), not another restorer or another precision."""
+    d = np.abs(np.stack([_rest_u8(i, rest_dir) for i in ids]).astype(np.int16) - imgs.astype(np.int16))
+    mean, frac, mx = float(d.mean()), float((d > 1).mean()), int(d.max())
+    return (mean < 0.05 and frac < 1e-3), (f"vs {rest_dir.name}/ on {len(ids)} noisy train images: mean |diff| "
+                                           f"{mean:.4f} grey levels, {100 * frac:.3f}% of pixels off by >1, max {mx}")
+
+
+def _restore_u8(R, model, imgs8):
+    """uint8 (N, H, W) -> restored uint8, as `python -m src.restore apply` writes its PNGs (8-view TTA, rounded)."""
+    imgs8 = np.ascontiguousarray(imgs8)
+    r = R.restore(model, torch.from_numpy(imgs8), [R._sigma(x) for x in imgs8], tta=8).numpy()
+    return np.clip(np.round(r), 0, 255).astype(np.uint8)
+
+
+def rest_bank(k=8, snr_min=0.5, rest_dir=None, build=False):
+    """Restored channel of the degradation bank -> ({ID: uint8 (k, 256, 256)}, restorer sha). Each degraded raw copy
+    is restored by the original restorer (src.restore, data/restore_cache/restore_unet.pt) exactly as `src.restore
+    apply` made --rest-dir, so a degraded training copy gets its own restored channel. Train images only."""
+    fp = CACHE / "_pre" / f"deg2_k{k}_snr{snr_min}_rest.npz"
+    hint = f"--build-deg --input raw+nlm+rest --deg-k {k} --deg-snr-min {snr_min} --device <the device used for apply>"
+    if fp.exists():
+        with np.load(fp) as z:
+            ids, img, sha, info = z["ids"].tolist(), z["img"], str(z["model_sha"]), f"{z['device']} {z['precision']}"
+            ok, msg = _rest_match(z["chk_ids"].tolist(), z["chk_img"], rest_dir)
+        if ok:
+            print(f"restored deg bank {fp.name} (restorer {sha}, {info}): {msg}", flush=True)
+            return dict(zip(ids, img)), sha
+        if not build:
+            raise SystemExit(f"{fp} was made by another restorer than {rest_dir} ({msg}). Rebuild it with {hint}")
+        print(f"{fp.name} does not match {rest_dir} ({msg}): rebuilding", flush=True)
+    elif not build:
+        raise SystemExit(f"{fp} missing: build it first with {hint} (needs data/restore_cache/restore_unet.pt)")
+    from . import restore as R
+    mp = R.paths("")["model"]
+    if not mp.exists():
+        raise SystemExit(f"{mp} missing: train the restorer first (python -m src.restore bank / train / apply)")
+    R.set_device(RT["dev"].type)  # strict fp32 on a GPU; on the CPU the restorer's own precision (original: bf16)
+    model = R.load_model("")
+    sha = hashlib.sha256(mp.read_bytes()).hexdigest()[:12]
+    prec = "fp32" if (RT["dev"].type != "cpu" or not model.amp) else "bf16"
+    chk_ids = _rest_check_ids()
+    chk_img = _restore_u8(R, model, np.stack([_raw_u8(i) for i in chk_ids]))
+    ok, msg = _rest_match(chk_ids, chk_img, rest_dir)
+    print(f"restorer {mp.name} ({sha}, {RT['dev'].type} {prec}) {msg}", flush=True)
+    if not ok:
+        raise SystemExit(f"{rest_dir} was not written by this restorer at this device/precision: rewrite it with "
+                         f"`python -m src.restore apply --device {RT['dev'].type}` or build with the --device "
+                         "used there")
+    b = deg_bank(k, snr_min)
+    ids = list(b)
+    out = np.zeros((len(ids), k, 256, 256), np.uint8)
+    t = time.time()
+    for n, i in enumerate(ids):
+        out[n] = _restore_u8(R, model, b[i][:, 0])  # restored from the degraded raw copy (bank channel 0)
+        if n % 50 == 0:
+            print(f"restored deg bank {n}/{len(ids)} {time.time() - t:.0f}s", flush=True)
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    tmp = fp.with_name(fp.stem + "_tmp.npz")
+    np.savez(tmp, ids=np.array(ids), img=out, chk_ids=np.array(chk_ids), chk_img=chk_img, model_sha=sha,
+             device=RT["dev"].type, precision=prec)
+    os.replace(tmp, fp)
+    print(f"restored deg bank: {len(ids)} sources x {k} copies -> {fp} in {time.time() - t:.0f}s", flush=True)
+    return dict(zip(ids, out)), sha
+
+
 def snr_tercile_rmse(tr, oof):
     """OOF RMSE per tercile of train ic_ridge_snr (noisy, mid, clean); None if features_v3 is missing."""
     import pandas as pd
@@ -108,6 +225,24 @@ def snr_tercile_rmse(tr, oof):
     t = np.digitize(s, np.quantile(s, [1 / 3, 2 / 3]))
     y = tr.hardness.values
     return [rmse(oof[t == k], y[t == k]) for k in range(3)]
+
+
+def cell_rmse(tr, te, oof):
+    """OOF RMSE inside / outside the blend's 'fine_noisy' cell (src.blend_cells.cell_masks: log cal_seg_count_density
+    and raw ic_noise above their train medians; no labels), over the images that have an OOF prediction.
+    -> ((rmse_in, n_in, rmse_out, n_out, {fold: rmse_in}), None), or (None, reason) when the cell cannot be computed
+    here (e.g. data/features_cal.parquet missing)."""
+    try:
+        from .blend_cells import cell_masks
+        m = np.asarray(cell_masks(tr.ID, te.ID)[0], bool)
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+    y, ok, fo = tr.hardness.values, ~np.isnan(oof), tr.fold.values
+    ci, co = m & ok, ~m & ok
+    if not ci.any() or not co.any():
+        return None, "no OOF images in the cell"
+    by_fold = {int(f): round(rmse(oof[ci & (fo == f)], y[ci & (fo == f)]), 3) for f in np.unique(fo[ci])}
+    return (rmse(oof[ci], y[ci]), int(ci.sum()), rmse(oof[co], y[co]), int(co.sum()), by_fold), None
 
 
 def _cached(kind, ids):
@@ -130,11 +265,14 @@ def _cached(kind, ids):
     return np.stack([have[i] for i in ids])
 
 
-def load_u8(ids, mode="raw"):
-    """-> uint8 tensor (N, C, 256, 256); channel 0 is raw when mode contains 'raw'."""
+def load_u8(ids, mode="raw", rest_dir=None):
+    """-> uint8 tensor (N, C, 256, 256); channel 0 is raw when mode contains 'raw'; 'rest' is read from rest_dir."""
     ids = list(ids)
     chans = []
     for kind in mode.split("+"):
+        if kind == "rest":
+            chans.append(np.stack([_rest_u8(i, rest_dir) for i in ids]))
+            continue
         chans.append(np.stack([_raw_u8(i) for i in ids]) if kind == "raw" else _cached(kind, ids))
     return torch.from_numpy(np.stack(chans, 1))
 
@@ -196,7 +334,7 @@ class Net(nn.Module):
 class Aug:
     """Label-preserving augmentation on a (C, H, W) float image in [0, 1] (before normalization).
     Geometry / brightness / contrast are shared by all channels; blur and noise touch only the
-    raw channel (channel 0), never a denoised one."""
+    raw channel (channel 0), never a denoised one (nlm, rest)."""
 
     def __init__(self, a, seed):
         self.a, self.rng = a, np.random.default_rng(seed)
@@ -251,13 +389,23 @@ def to_input(x, mu, sd):  # x: (B, C, H, W) float in [0,1]; mu, sd: (1, C, 1, 1)
     return ((x - mu) / sd).contiguous(memory_format=torch.channels_last)
 
 
+def upscale(x, s):
+    """--scale: bilinear upsampling of a normalised batch on its device (thin 1-2 px boundaries survive the early
+    downsampling of pretrained stems). s == 1.0 returns x itself, so the default path is unchanged."""
+    if s == 1.0:
+        return x
+    h, w = x.shape[-2:]
+    return F.interpolate(x, size=(round(h * s), round(w * s)), mode="bilinear",
+                         align_corners=False).contiguous(memory_format=torch.channels_last)
+
+
 @torch.no_grad()
-def predict(model, X, mu, sd, tta=8, bs=32, bf16=True, views=False):
-    """Mean over the first `tta` D4 views; views=True returns all views (tta, N)."""
+def predict(model, X, mu, sd, tta=8, bs=32, bf16=True, views=False, scale=1.0):
+    """Mean over the first `tta` D4 views; views=True returns all views (tta, N). scale: --scale."""
     model.eval()
     out = []
     for i in range(0, len(X), bs):
-        x = to_input(X[i:i + bs].float() / 255.0, mu, sd).to(RT["dev"], non_blocking=True)
+        x = upscale(to_input(X[i:i + bs].float() / 255.0, mu, sd).to(RT["dev"], non_blocking=True), scale)
         ps = []
         for k in range(tta):
             with amp(bf16):
@@ -283,8 +431,10 @@ def param_groups(model, a):
 
 def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
     """Train one model with a fixed schedule; return predictions of the chosen weights.
-    bank: uint8 tensor (Nb, K, C, H, W) of degraded copies; bidx[i] = bank row of training image i or -1."""
+    bank: uint8 tensor (Nb, K, C, H, W) of degraded copies; bidx[i] = bank row of training image i or -1.
+    Xva None (--full, f = FULL_F): no validation fold; only the test predictions are returned."""
     seed = SEED + 1000 * s + f
+    lab = f"fold {f}" if Xva is not None else "full"
     torch.manual_seed(seed)
     aug = Aug(a, seed)
     rng = np.random.default_rng(seed + 7)  # batch order
@@ -335,7 +485,7 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
                     xi = bank[bidx[i], int(drng.integers(bank.shape[1]))]
                 xs.append(aug(xi.float() / 255.0))
             x = torch.stack(xs + xd)
-            x = to_input(x, mu, sd).to(RT["dev"], non_blocking=True)
+            x = upscale(to_input(x, mu, sd).to(RT["dev"], non_blocking=True), a.scale)
             with amp(a.bf16):
                 p = model(x)
             p = p.float()
@@ -357,29 +507,102 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
             if ema is not None:
                 ema.update(model, step=step)
             tl += loss.item()
-        msg = f"fold {f} seed {s} ep {ep + 1:3d}/{a.epochs} loss {tl / spe:.4f} lr {sch.get_last_lr()[0]:.2e}"
-        if (a.monitor and (ep + 1) % a.monitor == 0) or ep + 1 == a.epochs:  # monitoring only, never selection
-            r = rmse(predict(model, Xva, mu, sd, tta=1, bf16=a.bf16) * ysd + ymu, yva)
+        msg = f"{lab} seed {s} ep {ep + 1:3d}/{a.epochs} loss {tl / spe:.4f} lr {sch.get_last_lr()[0]:.2e}"
+        if Xva is not None and ((a.monitor and (ep + 1) % a.monitor == 0) or ep + 1 == a.epochs):  # monitoring only
+            r = rmse(predict(model, Xva, mu, sd, tta=1, bf16=a.bf16, scale=a.scale) * ysd + ymu, yva)
             msg += f" | val(tta1) {r:.3f}"
             if ema is not None:
-                r = rmse(predict(ema.module, Xva, mu, sd, tta=1, bf16=a.bf16) * ysd + ymu, yva)
+                r = rmse(predict(ema.module, Xva, mu, sd, tta=1, bf16=a.bf16, scale=a.scale) * ysd + ymu, yva)
                 msg += f" ema {r:.3f}"
         print(msg + f" | {time.time() - t0:.0f}s", flush=True)
 
     res = {}
     final_model = ema.module if (ema is not None and a.use == "ema") else model
-    pv = predict(final_model, Xva, mu, sd, tta=a.tta, bf16=a.bf16, views=True) * ysd + ymu
+    if Xva is None:  # --full: final weights predict the test images only
+        res["test"] = predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
+        print(f"full seed {s}: trained on {len(Xtr)} images ({total} steps), test predicted (tta{a.tta}) "
+              f"| {time.time() - t0:.0f}s", flush=True)
+        return res
+    pv = predict(final_model, Xva, mu, sd, tta=a.tta, bf16=a.bf16, views=True, scale=a.scale) * ysd + ymu
     res["val"] = pv.mean(0)
     print(f"fold {f} seed {s} per-view val rmse {[round(rmse(v, yva), 2) for v in pv]} "
           f"view-pred sd {pv.std(0).mean():.2f}", flush=True)
     if ema is not None:  # diagnostics only: the other weights' val score (not used for OOF)
         other = model if a.use == "ema" else ema.module
-        res["val_other"] = predict(other, Xva, mu, sd, tta=a.tta, bf16=a.bf16) * ysd + ymu
-    res["test"] = predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16) * ysd + ymu if Xte is not None else None
+        res["val_other"] = predict(other, Xva, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
+    res["test"] = (predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
+                   if Xte is not None else None)
     print(f"fold {f} seed {s} final val(tta{a.tta}) {rmse(res['val'], yva):.3f}"
           + (f" | other {rmse(res['val_other'], yva):.3f}" if "val_other" in res else "")
           + f" | {time.time() - t0:.0f}s", flush=True)
     return res
+
+
+FULL_F = 5  # seed offset of --full models (fold models use 0..4)
+
+
+def _check_name(a):
+    """Fold runs and --full runs never share a --name (cache files and experiments/<name>/ would mix)."""
+    c, e = CACHE / a.name, EXP_DIR / a.name
+    fold_art = any(c.glob("fold*_seed*.npz")) or (e / "oof.csv").exists() or (e / "score.json").exists()
+    full_art = any(c.glob("full_seed*.npz")) or (e / "full.json").exists()
+    if a.full and fold_art:
+        raise SystemExit(f"--name {a.name} holds a fold run; give the --full run its own name (e.g. {a.name}_full)")
+    if not a.full and full_art:
+        raise SystemExit(f"--name {a.name} holds a --full run; give the fold run another name")
+    if a.full and (a.folds or a.no_test):
+        raise SystemExit("--full trains on all train images and predicts the test images: drop --folds / --no-test")
+
+
+def recipe_notes(a, rest_dir=None, rest_sha=None):
+    """Recipe part of the experiment notes (fold and --full runs)."""
+    notes = (f"{a.backbone} in={a.input} norm={a.norm} ep{a.epochs} bs{a.bs} crop{a.crop} lr{a.lr} hlr{a.head_lr_mult} wd{a.wd} "
+             f"{a.loss} pool={a.pool} drop{a.drop} dp{a.drop_path} ema{a.ema}->{a.use} seeds{a.seeds} "
+             f"aug(b{a.bright} c{a.contrast} n{a.noise}@{a.noise_p} blur{a.blur}@{a.blur_p}) tta{a.tta}; "
+             f"fixed schedule, no val checkpoint selection")
+    if rest_dir is not None:
+        notes += f"; restored channel from {rest_dir.name}/" + (
+            f" (deg copies restored by the same restorer, sha {rest_sha})" if rest_sha else "")
+    if a.deg_p > 0:
+        notes += f"; deg_v2 aug p{a.deg_p} k{a.deg_k} src snr>{a.deg_snr_min}" + (f" cons{a.cons}" if a.cons > 0 else "")
+    if a.scale != 1.0:
+        notes += f"; input x{a.scale} bilinear ({round(a.crop * a.scale)} px crops, {round(256 * a.scale)} px views)"
+    return notes
+
+
+def assemble_full(a, te, cache, rest_dir=None, rest_sha=None):
+    """--full: mean test prediction of seeds 0..--seeds-1 -> experiments/<name>/test.csv (git-ignored) + full.json + a
+    LEADERBOARD line. No oof.csv and deliberately no score.json: src.ensemble discovers experiments by */score.json
+    and reads their oof.csv. The OOF of the matching fold run stays the member's OOF."""
+    import pandas as pd
+    fs = [cache / f"full_seed{s}.npz" for s in range(a.seeds)]
+    have = [p.name for p in fs if p.exists()]
+    if len(have) < a.seeds or a.no_save:
+        print(f"full-data run: {len(have)}/{a.seeds} seeds cached ({', '.join(have) or 'none'})"
+              f"{' --no-save' if len(have) == a.seeds else ''}; experiments/ not written", flush=True)
+        return
+    zs = []
+    for p in fs:
+        with np.load(p) as z:
+            zs.append(dict(z))
+    preds = np.stack([z["test"] for z in zs])
+    if preds.shape[1] != len(te):
+        raise SystemExit(f"cached full-data test predictions have {preds.shape[1]} rows, expected {len(te)}")
+    n = int(zs[0]["n_train"])
+    pred = preds.mean(0)
+    sd = float(preds.std(0).mean()) if len(preds) > 1 else float("nan")
+    notes = (f"FULL-DATA: all {n} train images, no validation fold, no OOF (CV n/a); test = mean of {a.seeds} seeds "
+             f"(between-seed sd {sd:.2f}); " + recipe_notes(a, rest_dir, rest_sha))
+    out = EXP_DIR / a.name
+    out.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"ID": te.ID, "hardness": pred}).to_csv(out / "test.csv", index=False)
+    (out / "full.json").write_text(json.dumps({"mode": "full-data", "cv_rmse": None, "n_train": n, "seeds": a.seeds,
+                                               "test_seed_sd": None if np.isnan(sd) else sd,
+                                               "test_mean": float(pred.mean()), "notes": notes}, indent=2))
+    with open(EXP_DIR / "LEADERBOARD.md", "a") as fh:
+        fh.write(f"| {a.name} | full-data, no CV |  | {notes} |\n")
+    print(f"[{a.name}] full-data test predictions ({a.seeds} seeds, {len(pred)} images, mean {pred.mean():.3f}, "
+          f"between-seed sd {sd:.2f}) -> {out / 'test.csv'}; no OOF", flush=True)
 
 
 def main(a):
@@ -395,30 +618,59 @@ def main(a):
         torch.set_num_interop_threads(1)
     except RuntimeError:
         pass
+    kinds = a.input.split("+")
+    rest_dir = _rest_dir(a) if "rest" in kinds else None
     if a.build_deg:
         deg_bank(a.deg_k, a.deg_snr_min, build=True)
+        if rest_dir is not None:  # + the restored channel of every degraded copy
+            rest_bank(a.deg_k, a.deg_snr_min, rest_dir, build=True)
         return
+    _check_name(a)
     tr, te = load_train(), load_test()
     y = tr.hardness.values.astype(np.float64)
     folds = a.folds if a.folds else list(range(5))
-    bank_t, row = None, {}
+    bank_t, row, rest_sha = None, {}, None
     if a.deg_p > 0:
         b = deg_bank(a.deg_k, a.deg_snr_min)
-        ch = DEG_CHANNELS[a.input]
         bank_ids = list(b)
-        bank_t = torch.from_numpy(np.stack([b[i][:, ch] for i in bank_ids]))
+        if rest_dir is None:
+            ch = DEG_CHANNELS[a.input]
+            bank_t = torch.from_numpy(np.stack([b[i][:, ch] for i in bank_ids]))
+        else:  # bank channels (raw, nlm) + each degraded copy's own restored channel, in --input order
+            br, rest_sha = rest_bank(a.deg_k, a.deg_snr_min, rest_dir)
+            miss = [i for i in bank_ids if i not in br or br[i].shape[0] != b[i].shape[0]]
+            if miss:
+                raise SystemExit(f"restored deg bank misses {len(miss)} bank sources: rebuild it with --build-deg")
+            pick = {"raw": lambda i: b[i][:, 0], "nlm": lambda i: b[i][:, 1], "rest": lambda i: br[i]}
+            bank_t = torch.from_numpy(np.stack([np.stack([pick[c](i) for c in kinds], 1) for i in bank_ids]))
+            del br
         row = {i: r for r, i in enumerate(bank_ids)}
         del b
         print(f"degradation bank: {len(bank_ids)} train sources x {bank_t.shape[1]} copies, p={a.deg_p}", flush=True)
     cache = CACHE / a.name
     cache.mkdir(parents=True, exist_ok=True)
-    (cache / "args.json").write_text(json.dumps(vars(a), indent=2))
+    used = {"rest_dir": rest_dir is not None, "full": a.full, "scale": a.scale != 1.0}  # new options only when used
+    args = {k: v for k, v in vars(a).items() if used.get(k, True)}
+    (cache / "args.json").write_text(json.dumps(args, indent=2))
     t_all = time.time()
-    Xall = load_u8(tr.ID, a.input)
-    Xte = None if a.no_test else load_u8(te.ID, a.input)
+    Xall = load_u8(tr.ID, a.input, rest_dir)
+    Xte = None if a.no_test else load_u8(te.ID, a.input, rest_dir)
     print(f"loaded {len(Xall)} train / {0 if Xte is None else len(Xte)} test images "
           f"in {time.time() - t_all:.0f}s; device={RT['dev']} amp={RT['dtype'] if a.bf16 else 'off'} "
-          f"threads={a.threads}", flush=True)
+          f"threads={a.threads}" + (f"; restored channel from {rest_dir}" if rest_dir is not None else ""), flush=True)
+
+    if a.full:  # all train images, no validation fold; bank sources = every train image passing the SNR rule
+        bidx = np.array([row.get(i, -1) for i in tr.ID.values]) if bank_t is not None else None
+        for s in (a.train_seeds if a.train_seeds is not None else range(a.seeds)):
+            fp = cache / f"full_seed{s}.npz"
+            if fp.exists() and not a.overwrite:
+                print(f"full seed {s}: cached", flush=True)
+                continue
+            r = train_one(a, FULL_F, s, Xall, y, None, None, Xte, bank=bank_t, bidx=bidx)
+            np.savez(fp, test=r["test"], n_train=len(y))
+        assemble_full(a, te, cache, rest_dir, rest_sha)
+        print(f"total wall time {time.time() - t_all:.0f}s", flush=True)
+        return
 
     for f in folds:
         trn, val = np.where(tr.fold.values != f)[0], np.where(tr.fold.values == f)[0]
@@ -455,15 +707,19 @@ def main(a):
     terc = snr_tercile_rmse(tr, oof) if len(done) == 5 else None
     if terc is not None:
         print(f"OOF rmse by train ic_ridge_snr tercile (noisy/mid/clean): {terc[0]:.3f} / {terc[1]:.3f} / {terc[2]:.3f}")
+    cell, why = cell_rmse(tr, te, oof) if done else (None, None)
+    if cell is not None:  # the blend uses the CNN only in this cell (orchestrator, blend_v16)
+        print(f"OOF rmse in the fine_noisy blend cell: {cell[0]:.3f} on {cell[1]} images (outside: {cell[2]:.3f} on "
+              f"{cell[3]}); cell by fold {cell[4]}" + ("" if len(done) == 5 else f"; done folds {done} only"),
+              flush=True)
+    elif done:
+        print(f"fine_noisy cell rmse n/a ({why})", flush=True)
     if len(done) == 5 and have_test and not a.no_save:
-        notes = (f"{a.backbone} in={a.input} norm={a.norm} ep{a.epochs} bs{a.bs} crop{a.crop} lr{a.lr} hlr{a.head_lr_mult} wd{a.wd} "
-                 f"{a.loss} pool={a.pool} drop{a.drop} dp{a.drop_path} ema{a.ema}->{a.use} seeds{a.seeds} "
-                 f"aug(b{a.bright} c{a.contrast} n{a.noise}@{a.noise_p} blur{a.blur}@{a.blur_p}) tta{a.tta}; "
-                 f"fixed schedule, no val checkpoint selection")
-        if a.deg_p > 0:
-            notes += f"; deg_v2 aug p{a.deg_p} k{a.deg_k} src snr>{a.deg_snr_min}" + (f" cons{a.cons}" if a.cons > 0 else "")
+        notes = recipe_notes(a, rest_dir, rest_sha)
         if terc is not None:
             notes += f"; snr-tercile rmse noisy/mid/clean {terc[0]:.2f}/{terc[1]:.2f}/{terc[2]:.2f}"
+        if cell is not None:
+            notes += f"; fine_noisy cell rmse {cell[0]:.2f} (n={cell[1]})"
         save_experiment(a.name, tr, oof, te, pred, notes=notes)
     else:
         m = ~np.isnan(oof)
@@ -492,14 +748,23 @@ def parse(argv=None):
     ap.add_argument("--drop-path", type=float, default=0.0)
     ap.add_argument("--ema", type=float, default=0.0, help="EMA decay (0 = off)")
     ap.add_argument("--use", choices=["final", "ema"], default="final", help="weights used for OOF/test")
-    ap.add_argument("--input", default="raw", choices=["raw", "nlm", "raw+nlm"])
+    ap.add_argument("--input", default="raw", choices=["raw", "nlm", "raw+nlm", "raw+rest", "raw+nlm+rest"])
+    ap.add_argument("--rest-dir", default="data_restored",
+                    help="raw+rest / raw+nlm+rest: folder with {train,test}/<ID>.png written by `python -m src.restore "
+                         "apply` (relative to the repo root)")
     ap.add_argument("--norm", default="global", choices=["global", "image"],
                     help="global: fold-level pixel mean/std; image: standardize each image/channel")
     ap.add_argument("--crop", type=int, default=224)
+    ap.add_argument("--scale", type=float, default=1.0,
+                    help="bilinear upsampling of the network input after augmentation and of every TTA view; "
+                         "--crop stays in native pixels, so the network sees crop*scale px crops and 256*scale px "
+                         "test views (1.0 = off, bit-identical to before)")
     ap.add_argument("--deg-p", type=float, default=0.0, help="prob. of using a synthetic degraded copy (0 = off)")
     ap.add_argument("--deg-k", type=int, default=8, help="degraded copies per source image in the bank")
     ap.add_argument("--deg-snr-min", type=float, default=0.5, help="bank sources: train ic_ridge_snr above this")
-    ap.add_argument("--build-deg", action="store_true", help="build the degradation bank and exit")
+    ap.add_argument("--build-deg", action="store_true",
+                    help="build the degradation bank and exit; with a 'rest' input also its restored channel "
+                         "(needs data/restore_cache/restore_unet.pt and --rest-dir from the same restorer)")
     ap.add_argument("--cons", type=float, default=0.0,
                     help="consistency weight: degraded twin (prob --deg-p) is trained on the label and pulled "
                          "towards the stop-grad prediction of its original under identical augmentation")
@@ -514,6 +779,11 @@ def parse(argv=None):
     ap.add_argument("--train-seeds", type=int, nargs="*",
                     help="train only these seed indices (run seeds in parallel processes; assemble later)")
     ap.add_argument("--no-save", action="store_true", help="do not write experiments/ even if complete")
+    ap.add_argument("--full", action="store_true",
+                    help="train on all train images (no validation fold, same fixed schedule) and write only test "
+                         "predictions: experiments/<name>/test.csv + full.json, no OOF. Seeds are cached as "
+                         "data/cnn_cache/<name>/full_seed{s}.npz (--seeds/--train-seeds as for fold runs). Needs its "
+                         "own --name")
     ap.add_argument("--monitor", type=int, default=1, help="log val rmse every N epochs (no selection)")
     ap.add_argument("--threads", type=int, default=2)
     ap.add_argument("--no-bf16", dest="bf16", action="store_false", help="disable mixed precision")

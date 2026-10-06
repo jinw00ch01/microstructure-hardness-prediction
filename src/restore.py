@@ -35,6 +35,18 @@ ic_noise (data/features_v3.parquet) passes a fixed cut and copies the rest from 
   python -m src.restore apply --tag hn --apply-noise-min 11.92 --fill-from data_restored --part P --nparts 4  # P=0..3
   python -m src.restore check --tag hn --fill-from data_restored
 The specialist is much worse than the original on low-noise inputs (never trained there): use it only above the cut.
+
+GPU (--device auto|cpu|cuda, default auto = cuda when available): train / apply / validate / compare run the U-Net on
+the GPU in strict fp32 (no autocast, TF32 off). On the CPU nothing changes (the original restorer keeps bf16 autocast).
+bank and check are numpy/OpenCV only. A non-default untagged training run (GPU or --fp32) writes
+data/restore_cache/meta.json so that apply uses the precision the model was trained in. --report-dir sends reports and
+montages to another folder (e.g. a git-ignored one under data/) instead of experiments/restore/[<tag>/].
+Rebuilding the original restorer on another machine (same bank and settings as data_restored/; the weights are a new
+training run, not the cloud's file) and applying it to all 1500 images:
+  python -m src.restore bank --part 0 --nparts 2;  python -m src.restore bank --part 1 --nparts 2      # CPU
+  python -m src.restore train --device cuda --threads 4 --patch 96 --bs 16 --steps 5000 --report-dir data/restore_cache/report
+  python -m src.restore apply --device cuda --threads 4
+  python -m src.restore check --report-dir data/restore_cache/report
 """
 import argparse
 import json
@@ -59,15 +71,31 @@ SRC_SNR, N_VAL, K_TRAIN, K_VAL = 0.9, 11, 32, 6
 MU, SD, SIG_SCALE = 0.55, 0.10, 20.0  # input normalisation (pixel/255) and noise-channel scale (grey levels)
 BASE_CH = (32, 64, 96, 128)
 CHECK_FEATS = ["ic_seg_fd93", "ic_fdo_93", "ic_gmm_w", "ic_acg_len50_perp", "ic_seg_nfrac91"]
+DEV = {"dev": torch.device("cpu")}  # runtime device (--device); the CPU keeps the original behaviour
+REPORT_OVERRIDE = {"dir": None}  # --report-dir
+
+
+def set_device(name="auto"):
+    """--device: 'auto' = cuda when available. On CUDA the U-Net runs in strict fp32 (no autocast, no TF32)."""
+    if name == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("--device cuda, but torch.cuda.is_available() is False")
+    dev = torch.device("cuda" if name == "cuda" or (name == "auto" and torch.cuda.is_available()) else "cpu")
+    if dev.type == "cuda":
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        print(f"device cuda ({torch.cuda.get_device_name(dev)}), strict fp32", flush=True)
+    DEV["dev"] = dev
+    return dev
 
 
 def paths(tag=""):
     """'' = the original restorer's locations (unchanged); a tag gets its own model, checkpoint, report and images."""
+    rep = REPORT_OVERRIDE["dir"]
     if not tag:
         return {"cache": CACHE, "model": CACHE / "restore_unet.pt", "ckpt": CACHE / "restore_ckpt.pt",
-                "report": REPORT_DIR, "out": OUT_DIR}
+                "report": rep or REPORT_DIR, "out": OUT_DIR}
     c = CACHE / tag
-    return {"cache": c, "model": c / "restore_unet.pt", "ckpt": c / "restore_ckpt.pt", "report": REPORT_DIR / tag,
+    return {"cache": c, "model": c / "restore_unet.pt", "ckpt": c / "restore_ckpt.pt", "report": rep or REPORT_DIR / tag,
             "out": ROOT / f"data_restored_{tag}"}
 
 
@@ -294,19 +322,24 @@ def d4_inv(x, k):
 
 @torch.no_grad()
 def restore(model, imgs8, sigmas, tta=8, bs=8, amp=None):
-    """imgs8: uint8 tensor (N, H, W) -> float restored (N, H, W) in grey levels (mean over D4 views).
-    amp: bf16 autocast; None = the model's own setting (model.amp, True for the original restorer)."""
+    """imgs8: uint8 tensor (N, H, W) -> float restored (N, H, W) on the CPU, in grey levels (mean over D4 views).
+    Runs on the model's device. amp: bf16 autocast on the CPU; None = the model's own setting (model.amp, True for
+    the original restorer). On a GPU always fp32."""
+    dev = next(model.parameters()).device
     amp = getattr(model, "amp", True) if amp is None else amp
+    amp = amp and dev.type == "cpu"
     model.eval()
     out = []
     for s in range(0, len(imgs8), bs):
         x = to_input(imgs8[s:s + bs], sigmas[s:s + bs])
+        if dev.type != "cpu":
+            x = x.to(dev)
         acc = 0
         for k in range(tta):
             with torch.autocast("cpu", dtype=torch.bfloat16, enabled=amp):
                 y = model(d4(x, k).contiguous(memory_format=torch.channels_last))
             acc = acc + d4_inv(y.float(), k)
-        out.append(from_output(acc / tta))
+        out.append(from_output(acc / tta).cpu())
     return torch.cat(out)
 
 
@@ -317,6 +350,7 @@ def psnr(a, b):
 # ----------------------------------------------------------------------------------------------- training
 def train(a):
     pth = paths(a.tag)
+    dev = DEV["dev"]
     torch.set_num_threads(_threads(a))
     torch.manual_seed(0)
     rng = np.random.default_rng(0)
@@ -335,9 +369,10 @@ def train(a):
             tgt_cache[j] = torch.from_numpy(photometric_target(clean[b["id"][j]], b["coef"][j])).half()
         return tgt_cache[j].float()
 
-    amp = not a.fp32
+    fp32 = a.fp32 or dev.type != "cpu"  # a GPU always trains in strict fp32
+    amp = not fp32
     ch = tuple(int(round(c * a.width)) for c in BASE_CH)
-    model = UNet(ch=ch)
+    model = UNet(ch=ch)  # initialised on the CPU (same weights on every device)
     if a.init:
         sd0 = torch.load(_root_path(a.init), map_location="cpu")
         if _ch_from_state(sd0) == ch:
@@ -345,6 +380,8 @@ def train(a):
         else:
             widen_init(model, sd0)
         print(f"init from {a.init} (channels {_ch_from_state(sd0)} -> {ch})", flush=True)
+    if dev.type != "cpu":
+        model = model.to(dev)
     model = model.to(memory_format=torch.channels_last)
     model.amp = amp
     print(f"UNet params {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M", flush=True)
@@ -357,8 +394,9 @@ def train(a):
     ckpt, start = pth["ckpt"], 1
     cfg = {k: getattr(a, k) for k in ("steps", "bs", "patch", "lr", "grad_w", "identity")}
     extra = {"tag": a.tag, "banks": ",".join(n or "main" for n in names), "train_q_min": a.train_q_min,
-             "init": a.init, "width": a.width, "fp32": a.fp32, "pct_start": a.pct_start}
-    dflt = {"tag": "", "banks": "main", "train_q_min": 0.0, "init": "", "width": 1.0, "fp32": False, "pct_start": 0.05}
+             "init": a.init, "width": a.width, "fp32": fp32, "pct_start": a.pct_start, "device": dev.type}
+    dflt = {"tag": "", "banks": "main", "train_q_min": 0.0, "init": "", "width": 1.0, "fp32": False, "pct_start": 0.05,
+            "device": "cpu"}
     cfg.update({k: v for k, v in extra.items() if v != dflt[k]})  # default runs keep the original cfg (and checkpoint)
     if ckpt.exists() and not a.fresh:
         st = torch.load(ckpt, map_location="cpu", weights_only=False)
@@ -402,6 +440,8 @@ def train(a):
             sg.append(s)
         xin = to_input(torch.stack(xs), sg)
         yt = (torch.stack(ys)[:, None] / 255.0 - MU) / SD
+        if dev.type != "cpu":
+            xin, yt = xin.to(dev), yt.to(dev)
         with torch.autocast("cpu", dtype=torch.bfloat16, enabled=amp):
             out = model(xin)
         out = out.float()
@@ -428,10 +468,17 @@ def train(a):
             save_ckpt(step)
     pth["cache"].mkdir(parents=True, exist_ok=True)
     tmp = pth["model"].with_suffix(".tmp")
-    torch.save(model.state_dict(), tmp)
+    torch.save(model.state_dict() if dev.type == "cpu" else {k: v.detach().cpu() for k, v in model.state_dict().items()},
+               tmp)
     os.replace(tmp, pth["model"])
-    if a.tag:
-        (pth["cache"] / "meta.json").write_text(json.dumps({"ch": list(ch), "amp": amp, "cfg": cfg}, indent=2))
+    meta = pth["cache"] / "meta.json"
+    if a.tag or fp32 or dev.type != "cpu":  # untagged: only non-default runs (GPU / --fp32) record their precision
+        m = {"ch": list(ch), "amp": amp, "cfg": cfg}
+        if dev.type != "cpu":
+            m["device"] = dev.type
+        meta.write_text(json.dumps(m, indent=2))
+    elif meta.exists():  # an untagged default (bf16) run must not inherit the precision of an earlier run
+        meta.unlink()
     print(f"saved {pth['model']} after {time.time() - t0:.0f}s", flush=True)
     if not a.no_validate:
         validate(model, b, va, target, pth["report"])
@@ -497,14 +544,18 @@ def validate(model, b, va, target, report_dir=REPORT_DIR):
 
 
 # ----------------------------------------------------------------------------------------------- apply / checks
-def load_model(tag=""):
-    """The original restorer ('') or a tagged specialist (channels from the weights, bf16 setting from meta.json)."""
+def load_model(tag="", device=None):
+    """The original restorer ('') or a tagged specialist (channels from the weights, bf16 setting from meta.json; the
+    original restorer has no meta.json unless it was trained with non-default settings, e.g. on a GPU), on --device."""
     pth = paths(tag)
     sd = torch.load(pth["model"], map_location="cpu")
     m = UNet(ch=_ch_from_state(sd))
     m.load_state_dict(sd)
     meta = pth["cache"] / "meta.json"
-    m.amp = bool(json.loads(meta.read_text()).get("amp", True)) if tag and meta.exists() else True
+    m.amp = bool(json.loads(meta.read_text()).get("amp", True)) if meta.exists() else True
+    dev = torch.device(device) if device is not None else DEV["dev"]
+    if dev.type != "cpu":
+        m = m.to(dev)
     return m.to(memory_format=torch.channels_last).eval()
 
 
@@ -570,9 +621,12 @@ def apply(a):
 
 def check(a):
     """Pass-through on clean real images, change by SNR tercile, and before/after montages."""
+    rdir = paths("")["report"]
     ids = load_train().ID.tolist() + load_test().ID.tolist()
     miss = [i for i in ids if not (OUT_DIR / ("train" if i.startswith("TRAIN") else "test") / f"{i}.png").exists()]
     assert not miss, f"{len(miss)} restored images missing"
+    print(f"{OUT_DIR}: all {len(ids)} restored images present (train {sum(i.startswith('TRAIN') for i in ids)}, "
+          f"test {sum(not i.startswith('TRAIN') for i in ids)})", flush=True)
     v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet", columns=["ID", "ic_ridge_snr", "ic_noise"]).set_index("ID")
     trn_src, val_src = sources()
     rows = []
@@ -590,8 +644,8 @@ def check(a):
     print(summ.to_string())
     cl = df[df.snr > 0.9]
     print("clean (snr > 0.9) by role:", cl.groupby("role")[["mad", "lowpass_mad", "psnr"]].median().round(2).to_dict())
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(REPORT_DIR / "apply_change.csv", index=False)
+    rdir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(rdir / "apply_change.csv", index=False)
     # montages: real noisy (snr < 0.3) and real clean
     def montage(sel, fn, crop=160):
         tiles = []
@@ -601,7 +655,7 @@ def check(a):
             cv2.putText(row, f"{i[-4:]} snr{v3.loc[i, 'ic_ridge_snr']:.2f}", (3, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, 255, 1)
             tiles.append(np.pad(row, ((0, 6), (0, 6)), constant_values=255))
         rows_ = [np.concatenate(tiles[k:k + 2], 1) for k in range(0, len(tiles), 2)]
-        cv2.imwrite(str(REPORT_DIR / fn), np.concatenate(rows_, 0))
+        cv2.imwrite(str(rdir / fn), np.concatenate(rows_, 0))
     noisy = df[df.snr < 0.3].sort_values("snr")
     pick = noisy.iloc[np.linspace(0, len(noisy) - 1, 8).round().astype(int)].ID.tolist()
     montage(pick, "montage_noisy_before_after.png")
@@ -619,8 +673,8 @@ def check(a):
         row = np.concatenate([o, sep, r, sep, res], 1)
         cv2.putText(row, f"{i[-4:]} snr{v3.loc[i, 'ic_ridge_snr']:.2f}", (3, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, 255, 1)
         tiles.append(np.pad(row, ((0, 5), (0, 0)), constant_values=255))
-    cv2.imwrite(str(REPORT_DIR / "montage_method_noise.png"), np.concatenate(tiles, 0))
-    print("montages:", REPORT_DIR / "montage_noisy_before_after.png", REPORT_DIR / "montage_mid_clean_before_after.png")
+    cv2.imwrite(str(rdir / "montage_method_noise.png"), np.concatenate(tiles, 0))
+    print("montages:", rdir / "montage_noisy_before_after.png", rdir / "montage_mid_clean_before_after.png")
 
 
 def _boot_ci(stat, groups, n_boot=2000, seed=0):
@@ -913,8 +967,16 @@ if __name__ == "__main__":
     ap.add_argument("--jobs", type=int, default=1, help="compare: processes for metrics / feature extraction")
     ap.add_argument("--apply-noise-min", type=float, default=0.0, help="apply: restore only raw ic_noise >= this")
     ap.add_argument("--fill-from", default="", help="apply/check: directory the other images are copied from")
+    ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"],
+                    help="train/apply/validate/compare: auto = cuda when available. CUDA runs the U-Net in strict fp32 "
+                         "(no autocast, no TF32); cpu keeps the original behaviour. bank/check/bench are CPU-only")
+    ap.add_argument("--report-dir", default="", help="reports and montages go here instead of experiments/restore/[<tag>/]")
     a = ap.parse_args()
     torch.set_num_threads(_threads(a))
+    if a.report_dir:
+        REPORT_OVERRIDE["dir"] = _root_path(a.report_dir)
+    if a.cmd in ("train", "apply", "validate", "compare"):
+        set_device(a.device)
     {"bank": lambda: build_bank(a.part, a.nparts, a.bank_name, a.q_min, a.k_train, a.k_val, a.seed_base),
      "train": lambda: train(a), "validate": lambda: validate_saved(a), "compare": lambda: compare(a),
      "apply": lambda: apply(a), "check": lambda: check_tag(a) if a.tag else check(a), "bench": lambda: bench(a)}[a.cmd]()

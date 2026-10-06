@@ -1,4 +1,4 @@
-# cnn-trainer handoff (updated 2026-10-06 16:20 UTC; nothing of mine is running)
+# cnn-trainer handoff (updated 2026-10-06 ~20:35 UTC; nothing of mine is running)
 
 ## Saved experiments (shared folds; experiments/<name>/ + LEADERBOARD line; fold RMSE order 0..4)
 SNR terciles: OOF RMSE by train `ic_ridge_snr` tercile (cuts 0.283 / 0.774), noisy / mid / clean.
@@ -43,7 +43,8 @@ Fold-paired against raw+nlm with 2 seeds (same seeds; image-bootstrap 90% CI, wh
   per fold; input mean/std from the training fold only.
 - CPU: bf16 autocast + channels_last (about 3x faster than fp32 on this AMX Xeon). `--threads` capped at 2 on CPU,
   no DataLoader workers. `--device auto|cpu|cuda` (orchestrator's addition).
-- Inputs/aug: `--input raw|nlm|raw+nlm`; `--bright 0.03 --contrast 0.1 --noise 0.03 --noise-p 0.5` defaults; `--norm global|image`.
+- Inputs/aug: `--input raw|nlm|raw+nlm|raw+rest|raw+nlm+rest` (`--rest-dir`); `--bright 0.03 --contrast 0.1 --noise 0.03
+  --noise-p 0.5` defaults; `--norm global|image`; `--scale S` (bilinear input upsampling, 1.0 = off).
 - Degradation: `--deg-p P` replaces (or with `--cons`, pairs) a training image from the cleaner half of train
   (ic_ridge_snr > `--deg-snr-min` 0.5) with one of `--deg-k` 8 cached degradations made by the feature-engineer's
   calibration-v2 model `src.features._degrade_v2` (imported read-only). Train images only. Validation-fold copies are
@@ -53,6 +54,8 @@ Fold-paired against raw+nlm with 2 seeds (same seeds; image-bootstrap 90% CI, wh
 - Pooling: `--pool avg|gem|avgstd|avgstd2`.
 - Runs: `--seeds N`, `--train-seeds`, `--folds`, `--no-save`, `--no-test`. Per fold/seed results are cached in
   `data/cnn_cache/<name>/fold{f}_seed{s}.npz` and runs resume. Assembly prints and appends the SNR-tercile RMSE to the notes.
+  It also prints the OOF RMSE in the blend's fine_noisy cell (and adds it to the notes) when `src.blend_cells` and
+  data/features_cal.parquet are available. `--full`: all-train models, test predictions only (section below).
   Training is deterministic for a given seed and thread count.
 
 ## Insights
@@ -194,3 +197,60 @@ Fold-paired against raw+nlm with 2 seeds (same seeds; image-bootstrap 90% CI, wh
 - Next: the feature-engineer's restored features + ridge screen on `data_restored_hn/`, especially the noisy tercile.
   If the restored features help, a wider model (`--width 1.5`, zero-expanded from hn) or more steps is the next lever.
   At fp32 on this host it costs about 1.6 s/step at patch 128 (2x).
+
+## Restored-image channel, full-data mode, --scale (2026-10-07 KST, cnn-trainer; code and CPU smoke tests only)
+- `src/train_cnn.py`:
+  - `--input raw+rest | raw+nlm+rest`: the original restorer's output read from `--rest-dir` (default `data_restored/`).
+    It is a fixed per-image transform of train and test, and a denoised channel like nlm (no blur/noise jitter).
+    Normalisation stats come from the training fold only, as before.
+  - Degraded bank copies get their own restored channel. The same restorer (`data/restore_cache/restore_unet.pt`) is
+    applied to each degraded raw copy exactly as `src.restore apply` does (8-view TTA, uint8).
+    Build: `--build-deg --input raw+nlm+rest --deg-k 8 --deg-snr-min 0.5 [--device cuda]` writes
+    `data/cnn_cache/_pre/deg2_k8_snr0.5_rest.npz` (138 MB).
+  - That file stores the restorer's output on 8 noisy train images. They must match `--rest-dir` (mean |diff| < 0.05,
+    < 0.1% of pixels off by > 1), checked at build time and at every load. A bank and a rest-dir from different
+    restorers or precisions are refused, e.g. data_restored_hn: mean |diff| 0.82.
+  - `--full`: one model per seed on all 500 train images (same epochs, so 31 instead of 25 steps per epoch). No
+    validation, nothing selected, test predictions only. Bank sources are all train images passing the SNR rule.
+    - Output: `experiments/<name>/test.csv` + `full.json` + a LEADERBOARD line ("full-data, no CV"). There is no oof.csv
+      and deliberately no score.json, because `src.ensemble` globs `*/score.json` and reads oof.csv.
+    - Seeds are cached as `data/cnn_cache/<name>/full_seed{s}.npz` (seed = SEED + 1000 s + 5). Fold and full runs
+      cannot share a name (guarded).
+  - `--scale S`: bilinear upsampling (on the device) of each augmented crop and of every TTA view; `--crop` stays in
+    native px. 1.0 is a no-op.
+  - Fine_noisy cell RMSE at assembly (see the State section).
+  - The new options appear in args.json and the notes only when used.
+- `src/restore.py`:
+  - `--device auto|cpu|cuda` for train/apply/validate/compare. CUDA runs in strict fp32 (no autocast, TF32 off); the
+    CPU path is unchanged.
+  - `--report-dir`.
+  - Untagged non-default runs (GPU or --fp32) write `data/restore_cache/meta.json`, which `load_model` reads, so apply
+    uses the training precision. The cloud has no such file, so the original restorer stays bf16.
+- Smoke tests (cloud CPU, fp32, 2 threads, scratch copies of data/ and an isolated repo root; nothing under data/,
+  data_restored/ or experiments/ was written):
+  - Old (HEAD) vs new code with identical args are bit-identical: every saved array (val, val_other, 1000 test
+    predictions), args.json and the logged epoch lines. Runs: raw; raw+nlm + deg + cons; raw+nlm + deg with test.
+  - Restorer old vs new: identical weights, checkpoint cfg and meta.json (bf16 and --fp32 runs), identical held-out
+    report and identical applied PNGs.
+  - New paths:
+    - rest bank build (39 sources x 2 copies, 184 s);
+    - a unit test of the tensors that reach `train_one`: channel order raw/nlm/rest in both train and bank tensors,
+      fold runs use only training-fold bank sources, rest-bank entries recompute exactly;
+    - raw+rest and raw+nlm+rest fold runs, with and without deg/cons and with test;
+    - a 5-fold run with assembly and save;
+    - `--full` with the exact effnetv2-s recipe flags (2 seeds seed by seed, then assembly), with raw+nlm+rest, and
+      with ConvNeXt-tiny (`--scratch`: its weights are not reachable from the cloud);
+    - all guards (missing bank, mismatched rest-dir at load and at build time, which leaves the bank untouched, name
+      clashes, `--full --no-test`).
+- Reference (blend cell, from the saved OOF):
+  | experiment | fine_noisy cell RMSE | cell by fold |
+  |---|---|---|
+  | ev2s_s3 | 11.258 | 10.50 / 10.16 / 11.46 / 10.63 / 13.16 |
+  | ev2s_s6 | 11.261 | |
+  | cnxt_s3 | 11.685 | |
+  | r18 gpu | 12.778 | |
+  132 cell images, 32 / 20 / 26 / 27 / 27 per fold.
+- Single-seed fold scores of one recipe scatter with sd about 0.4 (cloud resnet18 caches), so a one-fold screen only
+  catches gross failures.
+- Laptop plan: `notes/handoff/laptop-gpu.md` section 8 (restorer rebuild on the GPU, rest bank, screen + 3 seeds,
+  full-data effnetv2-s x6 and ConvNeXt x3, optional `--scale 2 --crop 112`).

@@ -80,3 +80,186 @@ d. When everything is done, return the GPU the way the user's mode requires.
 - Blend (two-stage, nested): `_s6` share 0.117, nested 12.413 vs 12.407 with `_s3` (blend_v11); ConvNeXt share 0 next to
   effnetv2-s. Neither moves the blend, so blend_v11 stays the candidate. More CNN seeds or ImageNet backbones of this
   recipe are not worth more GPU time; a change of input (e.g. the high-noise restored images) would be.
+
+## 8. Next GPU run: restored-image channel, then full-data CNNs (prepared 2026-10-07 KST by cnn-trainer)
+Why:
+- The raw+nlm effnetv2-s CNN is the member that helps the public LB (blend_v10 11.8795 -> 11.8267; blend_v14 with CNN
+  share 0.2 scored 11.7960). Since blend_v16 the blend uses the CNN only in the "fine_noisy" cell (fine-grained AND
+  noisy images, `src.blend_cells.cell_masks`: 132 train / 284 test images). There the CNN mix beats every feature
+  model (OOF 11.33; ev2s_s6 11.26). Judge new CNN inputs by the cell RMSE first.
+- Steps c-g: a CNN that also sees the restored image (`--input raw+nlm+rest`); restored-image features helped the
+  mid-noise tercile, and the CNN is weakest on noisy images.
+- Step h: full-data models. Today the CNN test predictions are the mean of 5 fold models trained on 400 images each;
+  `--full` trains on all 500 train images and writes only test predictions.
+- Step i (optional): `--scale 2` (2x bilinear input upsampling, for the 1-2 px boundaries).
+
+Rules for this run:
+- GPU mode only as the user says in the thread for this run. Exclusive: run the [GPU] steps with `--device cuda` as
+  written, and when all GPU work is finished (also when stopping early) return the GPU with
+  `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done`. Shared: prefix every [GPU] command with
+  `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- `.
+  Never touch the robot project in any other way.
+- No commits or pushes. Restorer files (`data\restore_cache\`), `data_restored\`, montages and every `test.csv` stay
+  local (all git-ignored).
+- The laptop rebuilds the restorer from the repo code: the same bank and settings as the cloud's restorer, trained on
+  the GPU in strict fp32. The weights are a new training run, not the cloud's file. That is fine because train and test
+  images pass through the same laptop restorer. Never mix laptop and cloud restorer files or `data_restored` folders.
+- PowerShell at the repo root with the `.venv` active. [CPU] steps do not use the GPU.
+
+a. [CPU] Pull and check (1-2 min)
+   ```powershell
+   git status --short
+   git pull origin claude/lb-under-10-7080jr
+   ```
+   The pull may refuse because of local copies from the earlier GPU runs: ` M experiments/LEADERBOARD.md`, or untracked
+   `experiments/cnn_*_gpu*/` files that the cloud has committed since. In that case back them up and re-sync as in
+   section 1. If any other tracked file shows as modified, stop and ask the cloud session.
+   ```powershell
+   New-Item -ItemType Directory -Force data\laptop_backup | Out-Null
+   Copy-Item experiments\LEADERBOARD.md data\laptop_backup\
+   Copy-Item experiments\cnn_*_gpu* data\laptop_backup\ -Recurse -Force
+   git fetch origin
+   git reset --hard origin/claude/lb-under-10-7080jr
+   ```
+   Then:
+   ```powershell
+   Test-Path data\features_v3.parquet, data\cnn_cache\_pre\nlm.npz, data\cnn_cache\_pre\deg2_k8_snr0.5.npz   # True x3
+   Test-Path data\features_cal.parquet       # True: train_cnn also prints the fine_noisy cell RMSE
+   Test-Path data\restore_cache, data_restored                                                                # False x2
+   ```
+   - If one of the first three is False, build it as in section 2.
+   - If `features_cal.parquet` is missing, the cell lines say n/a. Do not build it for this: the cloud computes the cell
+     numbers from the OOF you send.
+   - If `data\restore_cache` or `data_restored` exist from an interrupted attempt of this plan, just continue: train
+     resumes from its checkpoint and apply overwrites.
+
+b. [CPU] Restorer training pairs (about 7 min)
+   ```powershell
+   python -W ignore -m src.restore bank --part 0 --nparts 2
+   python -W ignore -m src.restore bank --part 1 --nparts 2
+   ```
+   - Each part ends with `part P: 1953 pairs in ...s; median fit rms 2.2x` and writes `data\restore_cache\bank_partP.npz`
+     (about 128 MB). Cloud: 1953 pairs per part, 2.23, about 200 s each on one core.
+   - Sources are the 131 cleanest train images; no labels, no test images.
+
+c. [GPU] CUDA check, then train the restorer in strict fp32 (estimate 3-10 min; the cloud took 23 min on 2 CPU threads)
+   ```powershell
+   python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+   python -W ignore -m src.restore train --device cuda --threads 4 --patch 96 --bs 16 --steps 5000 --report-dir data\restore_cache\report
+   ```
+   - Same settings as the cloud's restorer: steps 5000, bs 16, patch 96, lr 1e-3, grad-w 0.5, identity 0.15.
+   - It logs every 100 steps and checkpoints every 500; rerunning the same command resumes.
+   - Writes `data\restore_cache\restore_unet.pt` (3.6 MB) and `meta.json` (`"amp": false`, `"device": "cuda"`).
+   - The log ends with the held-out table: 66 synthetic pairs of 11 held-out train sources.
+   - Cloud restorer, for comparison: all-band psnr_rest 31.96 (degraded 28.56); low / mid / high band 37.31 / 30.62 /
+     28.10. About 31.6 or more is fine. If it is clearly lower, stop and send the table.
+
+d. [GPU] Restore all 1500 images (1-3 min), then [CPU] check them (1-2 min)
+   ```powershell
+   python -W ignore -m src.restore apply --device cuda --threads 4
+   python -W ignore -m src.restore check --report-dir data\restore_cache\report
+   (Get-ChildItem data_restored\train -Filter *.png).Count    # 500
+   (Get-ChildItem data_restored\test -Filter *.png).Count     # 1000
+   Get-ChildItem data_restored -File -Name                    # folds.csv, sample_submission.csv, train.csv
+   ```
+   - check prints `... all 1500 restored images present (train 500, test 1000)` and the median change by SNR band.
+   - Cloud values: MAD noisy 11.62 / mid 5.22 / 0.77-0.9 1.02 / clean 0.00 (n 491 / 517 / 110 / 382). Expect similar
+     values.
+
+e. [GPU] Restored channel of the degradation bank (2-4 min)
+   ```powershell
+   python -W ignore -m src.train_cnn --build-deg --deg-k 8 --deg-snr-min 0.5 --input raw+nlm+rest --device cuda
+   ```
+   - It first restores 8 noisy train images and compares them with `data_restored\`. The line
+     `restorer restore_unet.pt (<sha>, cuda fp32) vs data_restored/ on 8 noisy train images: mean |diff| ...` needs a
+     mean |diff| below 0.05; the cloud test gave 0.0012, max 1.
+   - If the check fails, the command stops. Run d's apply again, then e, both with `--device cuda`.
+   - Then it restores 263 train sources x 8 degraded copies -> `data\cnn_cache\_pre\deg2_k8_snr0.5_rest.npz` (about
+     138 MB). Every training start re-checks that file against `data_restored\`.
+
+f. [CPU] Reference, then [GPU] screen (fold 0, seed 0)
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 1e-3 --device cpu --name cnn_ev2s_rawnlm_degcons_gpu_s3 --folds 0 --seeds 1 --no-save
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm+rest --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 1e-3 --device cuda --name cnn_ev2s_rawnlmrest_degcons_gpu_s3 --folds 0 --seeds 1 --no-save
+   ```
+   - The first call trains nothing. It reads the cached raw+nlm seed-0 models and prints their fold RMSEs (fold 0 =
+     13.635) and, with features_cal, the cell RMSE by fold. Use fold 0 as the paired reference.
+   - The second call is the screen (3-6 min including warm-up). It keeps its test predictions, so g reuses this
+     fold-seed.
+   - Fold 0 holds only 32 cell images, and single-seed fold scores of one recipe scatter with sd about 0.4. So the
+     screen only catches a gross failure.
+   - Go on to g unless fold 0 is more than 1.0 worse than the reference overall and also in the cell (or overall
+     only, if the cell is n/a). If it is, send the numbers, continue with h, and run g only if the cloud session says so.
+
+g. [GPU] 3 seeds of the restored-channel CNN, seed by seed (20-50 min plus warm-ups)
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm+rest --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 1e-3 --device cuda --name cnn_ev2s_rawnlmrest_degcons_gpu_s3 --seeds 3 --no-save --train-seeds 0
+   ```
+   - Then the same command with `--train-seeds 1`, then with `--train-seeds 2`.
+   - Then run it once more without `--no-save --train-seeds 0` to assemble and save. That call trains nothing.
+   - The run writes `experiments\cnn_ev2s_rawnlmrest_degcons_gpu_s3\` and prints the fold RMSEs, the CV, the SNR
+     terciles and the cell RMSE.
+   - Raw+nlm 3 seeds for comparison: CV 13.246, terciles 15.08 / 12.27 / 12.18, cell 11.26 (cell by fold 10.50 /
+     10.16 / 11.46 / 10.63 / 13.16).
+   - Per fold-seed about 80 s - 3.5 min; the third input channel costs a little.
+
+h. [GPU] Full-data models: all 500 train images, test predictions only
+   - `--full` trains one model per seed on all train images with the same recipe and epochs (31 instead of 25 steps per
+     epoch). There is no validation and nothing is selected.
+   - The degradation bank uses all of its train sources.
+   - It writes `experiments\<name>\test.csv` and `full.json` (no oof.csv, no score.json) plus a LEADERBOARD line.
+   - Each seed is cached in `data\cnn_cache\<name>\full_seed<s>.npz` as soon as it is done. So one call runs all seeds,
+     and if a run is cut, rerunning the same command skips the finished seeds and then saves.
+   - Seed-by-seed calls (`--no-save --train-seeds s`, then one call to assemble) also work, but each call pays the CUDA
+     warm-up again (up to about 4 min).
+   - A full-data model costs about 1.25x a fold-seed: effnetv2-s about 1.5-4 min, ConvNeXt-tiny about 6 min.
+   - A `--full` run needs its own name. Names of fold runs are refused.
+
+   h1. effnetv2-s raw+nlm, 6 seeds (15-30 min):
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 1e-3 --device cuda --full --seeds 6 --name cnn_ev2s_rawnlm_degcons_gpu_full6
+   ```
+   h2. ConvNeXt-tiny raw+nlm, 3 seeds (about 20 min):
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone convnext_tiny.fb_in22k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 3e-4 --device cuda --full --seeds 3 --name cnn_cnxt_rawnlm_degcons_gpu_full3
+   ```
+   h3. Only if the cloud session asks for it after g: the same for raw+nlm+rest (`--input raw+nlm+rest --lr 1e-3
+   --full --seeds 3 --name cnn_ev2s_rawnlmrest_degcons_gpu_full3`).
+
+i. [GPU] Second fold experiment, run it right after g and before h (orchestrator's order, 2026-10-07): 2x input
+   (`--scale 2 --crop 112`)
+   - `--scale S` upsamples each augmented training crop and every TTA view bilinearly by S on the GPU. `--crop` stays
+     in native pixels.
+   - With `--crop 112` the network sees 224 px crops, so training costs as now; the 512 px TTA views make inference
+     about 4x. Estimate about 1.7-4 min per fold-seed.
+   - The literal `--scale 2` with crop 224 (448 px crops) costs about 4x per step (5-12 min per fold-seed). With the
+     consistency twins at bs 16 it probably does not fit in 8 GB, so it is not planned.
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 1e-3 --scale 2 --crop 112 --device cuda --name cnn_ev2s_rawnlm_degcons_x2c112_gpu_s3 --folds 0 --seeds 1 --no-save
+   ```
+   - Screen and go rule as in f, against the same raw+nlm reference.
+   - If it goes on: 3 seeds seed by seed and assemble, as in g (same flags with `--seeds 3 --no-save --train-seeds 0/1/2`,
+     then without `--no-save --train-seeds`).
+
+j. Send the results back without pushing, as in sections 4 and 6c, one file per message:
+   - restorer: the held-out table of c, the check table of d and the check line of e (text);
+   - screens: the fold-0 lines of f (reference and screen: overall, and the cell if printed) and of i;
+   - fold runs: `score.json`, then `oof.csv` and `test.csv` as 2-decimal values in ID order with checksums;
+   - full-data runs: `full.json`, then `test.csv` the same way (there is no oof.csv).
+
+k. Return the GPU the way the user's mode requires (exclusive: the done file above).
+
+Order and time (exclusive mode, estimates):
+| steps | time |
+|---|---|
+| a-b (CPU) | about 10 min |
+| c-e | 10-20 min |
+| f | about 5 min |
+| g | 25-55 min |
+| h1 | 15-30 min |
+| h2 | about 20 min |
+| i, optional | screen about 5 min; 3 seeds 30-60 min |
+
+About 2-3.5 h in all (1.5-2.5 h without i). Run order g, i, h1, h2 (orchestrator, 2026-10-07): g and i are fold runs
+whose OOF the cloud can check in the fine_noisy cell; h1 and h2 only change test predictions. If time runs short,
+stop after any finished experiment.
