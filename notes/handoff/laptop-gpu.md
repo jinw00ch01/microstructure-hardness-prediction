@@ -71,3 +71,12 @@ b. ConvNeXt-tiny (MIT) for diversity: `--backbone convnext_tiny.fb_in22k_ft_in1k
      then assemble), `--name cnn_cnxt_rawnlm_degcons_gpu_s3`. Otherwise stop after the screen.
 c. Send each finished experiment as before (score.json, then oof and test as 2-decimal values in ID order with checksums).
 d. When everything is done, return the GPU the way the user's mode requires.
+
+## 7. Result of the 2026-10-07 run (exclusive GPU 23:59-01:23 KST, returned with the done file)
+- `cnn_ev2s_rawnlm_degcons_gpu_s6` (6 seeds, seeds 0-2 shared with `_s3`): CV 13.191; seeds 3-5 alone 13.242. About
+  3 min per fold-seed this time (vs 76 s on 2026-10-06).
+- ConvNeXt-tiny lr screen, fold 0, 1 seed: 1e-4 14.550, 3e-4 13.631. `cnn_cnxt_rawnlm_degcons_gpu_s3` (lr 3e-4, 3 seeds):
+  CV 13.286, about 270 s per fold-seed.
+- Blend (two-stage, nested): `_s6` share 0.117, nested 12.413 vs 12.407 with `_s3` (blend_v11); ConvNeXt share 0 next to
+  effnetv2-s. Neither moves the blend, so blend_v11 stays the candidate. More CNN seeds or ImageNet backbones of this
+  recipe are not worth more GPU time; a change of input (e.g. the high-noise restored images) would be.
