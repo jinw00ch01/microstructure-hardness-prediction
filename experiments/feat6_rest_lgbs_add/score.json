@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.76845296464569,
+  "fold_rmse": [
+    13.198603820212993,
+    12.610874853643924,
+    13.185430470864011,
+    12.624121904714748,
+    12.19449128121172
+  ],
+  "notes": "lgbs on features_v3.parquet,features_v2.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,eda_feats_lf.parquet,/home/claude/microstructure-hardness-prediction/data_restored/features_v3.parquet,/home/claude/microstructure-hardness-prediction/data_restored/features_cal.parquet; cols=all(527); drop=/cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv/; 3 seeds; hetero weights ~ log-var(log ic_acg_len50_gm) in-fold"
+}

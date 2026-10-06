@@ -65,6 +65,14 @@
      - test predictions come from the restored test features
      - command (`R=data_restored` absolute path):
        `taskset -c 0 python -W ignore -m src.train_gbm --mil splmean --mil_design --mil_blocks_file $R/mil_blocks.parquet --feat $R/features_v3.parquet,$R/features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,$R/features_v4.parquet --model ridge --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --hetero ic_acg_len50_gm --name feat6_rest_ridge_all`
+   - After blend_v7 (feat6_rest_ridge_all at weight 0.43) improved public LB from 11.9248 to 11.8795, two more
+     restored members were saved (both reproduce their screens exactly; test predictions use restored test features):
+     - **feat6_rest_ridge_add**: feat5 splmean config + restored v3 + cal next to the raw ones (MIL design from raw
+       blocks). CV 12.5249, folds 13.039 11.814 12.819 12.691 12.224, T1 14.647 / T2 11.587 / T3 11.032.
+     - **feat6_rest_lgbs_add**: feat3 config (3 seeds) + restored v3 + cal next to the raw ones.
+       CV 12.7685, folds 13.199 12.611 13.185 12.624 12.194, T1 15.171 / T2 11.516 / T3 11.231.
+     - Commands: the saved feat5 / feat3 commands with `$R/features_v3.parquet,$R/features_cal.parquet` appended to
+       `--feat` (`R` = absolute path of data_restored).
    - Restored features only for mid-SNR images (train tercile cuts 0.283-0.774; raw values elsewhere; `*_m.parquet`):
      12.854 (+0.259, 0/5 folds). Mixing raw and restored values in the same columns hurts. Use the tercile pattern
      at blend level instead.
