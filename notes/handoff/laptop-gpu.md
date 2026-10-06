@@ -22,12 +22,12 @@ Never touch the robot project in any other way.
 Base flags (best CPU config, `notes/handoff/cnn-trainer.md`):
 `--input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30`
 
-a. Wrapped CUDA check.
+a. CUDA check.
 b. lr screen, folds 0 and 1, 1 seed, `--no-save`:
    - `--backbone tf_efficientnetv2_s.in21k_ft_in1k` (Apache-2.0) at `--lr 1e-3` and `--lr 3e-4`
    - `--backbone resnet18 --lr 1e-3` as the reference (CPU fold scores are in the cnn-trainer handoff)
 c. Best setting: `--seeds 3` on all 5 folds, saved with `--name cnn_<backbone>_rawnlm_degcons_gpu`.
-   One wrapped command per fold if `train_cnn` merges per-fold outputs, otherwise one wrapped command for the run.
+   One command for the run, or one per fold if `train_cnn` merges per-fold outputs.
 
 ## 4. Return the results without pushing
 Send the cloud orchestrator session (the one you already message) the contents of that experiment's `oof.csv`,
