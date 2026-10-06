@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.038317676417053,
+  "fold_rmse": [
+    14.5660404951404,
+    11.617310538841728,
+    13.288035075499645,
+    13.338708163119444,
+    12.180483884695045
+  ],
+  "notes": "gridge3 head (inner-CV hp: lam_view=16,lam_cell=0,lam_aug=4,alpha=0.1 x3 lam_view=16,lam_cell=0,lam_aug=4,alpha=1 x1 lam_view=16,lam_cell=0,lam_aug=16,alpha=0.3162 x1 lam_view=16,lam_cell=0,lam_aug=4,alpha=3.162 x1 lam_view=4,lam_cell=0,lam_aug=0,alpha=31.62 x2 lam_view=4,lam_cell=0,lam_aug=4,alpha=31.62 x3 lam_view=4,lam_cell=0,lam_aug=16,alpha=10 x1 lam_view=4,lam_cell=0,lam_aug=16,alpha=31.62 x2 lam_view=4,lam_cell=0,lam_aug=4,alpha=100 x3 lam_view=16,lam_cell=0,lam_aug=0,alpha=100 x5 lam_view=16,lam_cell=0,lam_aug=4,alpha=10 x1 lam_view=16,lam_cell=0,lam_aug=0,alpha=316.2 x3 lam_view=16,lam_cell=0,lam_aug=4,alpha=31.62 x3 lam_view=16,lam_cell=0,lam_aug=0,alpha=31.62 x1 lam_view=16,lam_cell=0,lam_aug=16,alpha=31.62 x1 lam_view=4,lam_cell=0,lam_aug=0,alpha=100 x2 lam_view=16,lam_cell=0,lam_aug=4,alpha=100 x2) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views); emb=tf_efficientnetv2_s.in21k_ft_in1k_256_c248n_rest [DATA_DIR=data_restored: cnn-trainer UNet-restored images]; stages=1,2,3 pools=mean,std view_mode=aug cells=global augs=True extra_rows=- view_std=False cellstats=std@gbag[2;4;8;2,4;2,8;4,8;2,4,8]:orig:s0,1,2:mean,std:none:log:w1.0 transform=none block_norm=False pca=0 feats=no; licenses: apache-2.0"
+}

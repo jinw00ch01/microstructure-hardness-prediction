@@ -597,7 +597,8 @@ if __name__ == "__main__":
         name = a.name or f"emb_{a.emb.split('.')[0]}_{a.head}"
         hp_s = [",".join(f"{k}={float(v):.4g}" for k, v in h.items()) for h in chosen]
         hp_txt = " ".join(f"{h} x{hp_s.count(h)}" for h in dict.fromkeys(hp_s))
-        notes = (f"{a.head} head (inner-CV hp: {hp_txt}) on {' + '.join(lic)}; stages={a.stages} "
+        data_note = "" if DATA_DIR.name == "data" else f" [DATA_DIR={DATA_DIR.name}]"
+        notes = (f"{a.head} head (inner-CV hp: {hp_txt}) on {' + '.join(lic)}; emb={a.emb}{data_note}; stages={a.stages} "
                  f"pools={a.pools} view_mode={a.view_mode} cells={a.cells} augs={a.use_augs}{':' + a.aug_filter if a.aug_filter else ''} "
                  f"extra_rows={a.extra_rows or '-'} "
                  f"view_std={a.view_std} "

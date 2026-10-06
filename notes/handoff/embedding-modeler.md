@@ -7,6 +7,8 @@ Every backbone is timm weights from GitHub releases, licensed Apache-2.0.
 ## Best saved experiments (CV = shared 5 folds; all hyperparameters chosen by inner CV inside each outer fold)
 | exp | CV RMSE | fold RMSE | what |
 |---|---|---|---|
+| emb_effv2s_256_gridge3_noise_csbag_rawrest | **12.842** | 13.986 11.419 13.110 13.356 12.181 | fixed 0.5/0.5 average of csbag (raw) and csbag_rest (restored); not fitted |
+| emb_effv2s_256_gridge3_noise_csbag_rest | 13.038 | 14.566 11.617 13.288 13.339 12.180 | same 7-spec csbag on c248n_rest (cnn-trainer UNet-restored images, `DATA_DIR=data_restored`) |
 | emb_effv2s_256_gridge3_noise_csbag | **12.909** | 13.763 11.544 13.123 13.590 12.397 | equal-weight bag of 7 full CV runs, one per cellstat grid spec (2;4;8;2,4;2,8;4,8;2,4,8) on c248n |
 | emb_effv2s_256_gridge3_noise_cs24 | 13.020 | 13.860 11.924 13.010 13.776 12.422 | effv2s noise model + cross-cell std on grids 2 and 4 (c24n, `--cs-rows orig`) |
 | emb_effv2s_256_gridge3_noise_cs2 | 13.134 | 14.172 11.780 13.631 13.503 12.442 | effv2s noise model + cross-cell std on grid 2 (g2a + augs2 noise rows) |
@@ -41,6 +43,26 @@ $H --emb $E --extra-rows $EX --pools mean,std --stages 1,2,3 --head gridge3 --au
 $H --emb $E --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --name emb_effv2s_256_gridge3_aug
 $H --emb $E --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --with-feats --feats features_v3.parquet --name emb_effv2s_256_gridge3_aug_featv3
 ```
+
+## Restored images (2026-10-06 evening)
+`data_restored/` holds all 1500 images passed through cnn-trainer's restoration UNet. That UNet was trained on degraded copies of clean train images only. The c248n cache was rebuilt from these images with the same flags. Run the extractor and the head with `DATA_DIR=/home/claude/microstructure-hardness-prediction/data_restored`; the cache goes to `data_restored/emb/`. Extraction took 2 shards x ~640 s on cores 0-1. The full queue is `logs/queue_rest.sh`.
+
+The rawrest average is saved by a small script, `save_avg.py` in this agent's scratchpad: it loads both experiments' oof/test CSVs, averages them, and calls `common.save_experiment`.
+
+Comparisons:
+- **rest vs raw:** 13.038 vs 12.909. ΔRMSE +0.129 (CI [-0.210, +0.481]); rest is better on only 2/5 folds. Residual correlation is 0.960, which is more diverse than any two raw variants (0.98-0.99).
+- **rawrest vs the singles:** 12.842 beats both.
+  - vs raw: ΔRMSE -0.067 (CI [-0.238, +0.111]); better on 4/5 folds.
+  - vs rest: ΔRMSE -0.196 (CI [-0.370, -0.024]).
+- **RMSE by SNR tercile** (`ic_ridge_snr` from `data/features_v3.parquet`, which is computed on raw images; noisy / mid / clean):
+
+  | model | noisy | mid | clean |
+  |---|---|---|---|
+  | raw | 15.092 | 12.028 | 11.286 |
+  | rest | 14.965 | 12.325 | 11.577 |
+  | rawrest | **14.902** | 12.046 | 11.290 |
+
+  Restoration helps the noisy third but costs on mid and clean images. Averaging keeps most of both.
 
 ## Key finding 2 (2026-10-06 afternoon): keep the spatial-heterogeneity signal (cross-cell std, "cellstats")
 For each view row, the extractor stores stage 0-2 feature maps pooled (mean and std) over GxG grid cells. `--cellstats std` appends, for each channel, the std across cells of each grid. These values get a sign*log1p transform and go into the same gridge3 head. The cross-cell std is the second-order (Jensen) term of a per-cell nonlinearity, i.e. the zoned grain-size heterogeneity that eda-analyst found.
@@ -142,11 +164,11 @@ Defaults are unchanged: with no `--hetero` and `--hp-avg 1`, the outputs are bit
 | tf_efficientnetv2_s.in21k_ft_in1k_256_ic_v2n | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 2 --pools mean,std --prep ic --augs noise0.03,noise0.06 --tag <tag>` | 651 |
 | _img_nlm_1500, _img_ic_1500 | image caches, built automatically by `--prep nlm` / `--prep ic` | ~100 / ~150 |
 
-## Status at hand-back (2026-10-06 ~07:50 UTC)
-Nothing of mine is running. The container restart at 07:38 killed only the not-yet-started queue items.
+## Status at hand-back (2026-10-06, after the restored-image run)
+Nothing of mine is running. Score.json notes now record `emb=<tags>`, plus `[DATA_DIR=...]` when it is not `data`. I added this by hand to `emb_effv2s_256_gridge3_noise_csbag_rest/score.json`. That run's LEADERBOARD line was written before the change, so it lacks the tag; its name carries `_rest`.
 
 ## Next steps (prioritized)
-1. Blend: give `emb_effv2s_256_gridge3_noise_csbag` (12.909) to the ensembler as the embedding family's representative. It supersedes cs2 and cs24, with residual correlation 0.98-0.99.
+1. Blend: give the ensembler the two singles, `emb_effv2s_256_gridge3_noise_csbag` (12.909, raw) and `emb_effv2s_256_gridge3_noise_csbag_rest` (13.038, restored). Their residual correlation is 0.960. Alternatively use the fixed average `emb_effv2s_256_gridge3_noise_csbag_rawrest` (12.842). These supersede cs2 and cs24.
 2. Cheap follow-up (~10-17 min on 1 core): the same bag with `--hetero ic_acg_len50_gm` or `--hp-avg 5`. Each was about -0.03 on a single spec, which is within noise.
 3. Bigger ideas, uncertain:
    - Per-cell nonlinear MIL: the mean over cells of random Fourier or quadratic features of an in-fold PCA of the cell vectors. This generalises the cross-cell std, which is only the 2nd-order Jensen term.

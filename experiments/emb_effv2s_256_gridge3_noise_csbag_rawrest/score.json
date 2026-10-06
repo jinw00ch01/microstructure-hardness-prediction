@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.842051849692606,
+  "fold_rmse": [
+    13.985778259194799,
+    11.418762601373498,
+    13.109600373064895,
+    13.355535394560942,
+    12.18069776623003
+  ],
+  "notes": "fixed equal-weight (0.5/0.5, not fitted) average of emb_effv2s_256_gridge3_noise_csbag (raw images) and emb_effv2s_256_gridge3_noise_csbag_rest (cnn-trainer UNet-restored images, data_restored/); both gridge3 csbag heads on tf_efficientnetv2_s.in21k_ft_in1k c248n caches; licenses: apache-2.0"
+}
