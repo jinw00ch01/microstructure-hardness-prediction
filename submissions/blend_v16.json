@@ -1,0 +1,48 @@
+{
+  "exps": [
+    "feat6_rest_ridge_all",
+    "feat5_v3cal_ridge_het_spat_v4_milspl",
+    "feat3_v23cal_lgbs_het_spat",
+    "feat2_v23cal_lgbs_hetN",
+    "emb_effv2s_256_gridge3_noise_cs24",
+    "cnn_ev2s_rawnlm_degcons_gpu_s6",
+    "cnn_cnxt_rawnlm_degcons_gpu_s3"
+  ],
+  "mode": "nnls",
+  "weights_cell": {
+    "feat6_rest_ridge_all": 0.0,
+    "feat5_v3cal_ridge_het_spat_v4_milspl": 0.0,
+    "feat3_v23cal_lgbs_het_spat": 0.06811169637594698,
+    "feat2_v23cal_lgbs_hetN": 0.32059659094244713,
+    "emb_effv2s_256_gridge3_noise_cs24": 0.0,
+    "cnn_mix": 0.6112917126816059
+  },
+  "weights_other": {
+    "feat6_rest_ridge_all": 0.58490219870124,
+    "feat5_v3cal_ridge_het_spat_v4_milspl": 0.0,
+    "feat3_v23cal_lgbs_het_spat": 0.0331191514742929,
+    "feat2_v23cal_lgbs_hetN": 0.0,
+    "emb_effv2s_256_gridge3_noise_cs24": 0.3819786498244671,
+    "cnn_mix": 0.0
+  },
+  "cnn_mix": {
+    "cnn_ev2s_rawnlm_degcons_gpu_s6": 0.7,
+    "cnn_cnxt_rawnlm_degcons_gpu_s3": 0.3
+  },
+  "cell": "fine_noisy",
+  "cell_rule": {
+    "log_cal_seg_count_density_gt": 3.8179144981761786,
+    "ic_noise_gt": 9.195766538510068,
+    "train_n": 132,
+    "test_n": 284
+  },
+  "nested_cv_rmse": 12.142961409635362,
+  "fold_rmse": [
+    12.85811062913105,
+    11.360354073446691,
+    12.455771842278459,
+    11.890282114789239,
+    12.097265988571325
+  ],
+  "notes": "Separate NNLS weights for fine-grained AND noisy images (log calibrated grain count density and raw ic_noise above their train medians; 132 train / 284 test) and for all other images, over the five nonzero v7-pool members plus the v14 CNN mix (0.7 effnetv2-s s6 + 0.3 ConvNeXt-tiny s3). In the cell: CNN 0.61 + LightGBM 0.39; elsewhere: restored-feature ridge 0.59 + embedding head 0.38 + LightGBM 0.03, no CNN. Weights stable across outer folds. Nested CV 12.143 vs v14 12.425 / v15 12.327; all 25 cut combinations (train quantiles 0.33-0.67) improve on v14; random 132-image cells give +0.03 on average (range -0.05 to +0.12). Test predictions differ from v14 by sd 1.78."
+}
