@@ -1,8 +1,22 @@
-# Resume guide (updated 2026-10-06 ~14:45 UTC = 23:45 KST)
+# Resume guide (updated 2026-10-07 ~02:20 KST)
 
 Goal: public LB RMSE <= 10.
 
-## Late 2026-10-06 (read this first)
+## Night of 2026-10-07 (read this first)
+- **blend_v12** (nested CV 12.162 vs v11 12.407, 5/5 folds, paired bootstrap 90% of the difference [-0.41, -0.09]) is the
+  next submission (delivered ~02:15 KST). New member `feat7_rawn3own_ridge_all` (weight 0.59): the feat6 restored ridge
+  plus "own columns", raw v3+cal copied as n3_* only for images with raw ic_noise > 11.916 (train top-tercile cut; NaN
+  elsewhere, median-imputed in fold), so the noisiest third gets its own slopes (`python -m src.features --n3own`).
+  Member CV 12.53 -> 12.26; random 500-image "own" groups never help, so the gain is specific to the noise split.
+  Gain is mostly in the high-noise tercile (blend 14.85 -> 14.37).
+- Null that night: the high-noise specialist restorer (`src.restore --tag hn`, `data_restored_hn/`) is better on
+  synthetic pairs but its features rank hardness worse on real noisy images; effnetv2-s 6 seeds and ConvNeXt-tiny add
+  nothing to the blend (laptop-gpu.md section 7).
+- Running: own columns for the other ridge members, a mid-noise slope set and a continuous noise interaction
+  (feature-engineer); own columns in the cs24 embedding ridge (embedding-modeler).
+- Two-stage blend script: hardness-cache `scripts/twostage.py` (`--add` extra pool members, `--stage2` CNNs).
+
+## Late 2026-10-06
 - **blend_v10 scored public 11.8267** (user, 23:33 KST), the new best: 0.053 below v7 although the nested CV tied
   (12.4242 vs 12.4254). The CNN direction helps on test more than OOF shows: v10 - v7 on test has sd 0.30, so for a
   0.053 drop it must correlate about -0.19 with v7's public errors (if the public subset looks like the whole test),
