@@ -14,6 +14,9 @@ git-ignored) or figures that show competition images. This session does not comm
   `deg2_k8_snr0.5.npz`. If another cached file is missing, `notes/handoff/feature-engineer.md` has its build command.
 
 ## 3. GPU (only after the user's approval is written in the thread)
+Timing (user, 2026-10-06 18:38 KST): the robot project's last GPU queue ends around 19:10 KST, then the GPU is handed
+to this project. Do steps 1-2 now and start step 3 after that, still through the wrapper. With no paused robot job,
+the full 8 GB of VRAM should be free.
 Wrap every GPU command:
 `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- <command>`
 Add `--device cuda`. The paused robot job may hold about 4 GB of VRAM, so on CUDA out of memory lower `--bs`.
