@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-07 ~04:45 KST)
+# Resume guide (updated 2026-10-07 ~05:20 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -14,10 +14,21 @@ Goal: public LB RMSE <= 10.
   Candidates: overfitting that 5-fold CV cannot see (the member was picked among several own-slope variants on the
   same folds), or luck on the ~300 public images. Keep own-slope members out of submissions until one of these is
   settled. blend_v13 (also uses that member) stays shelved.
-- **Next file: blend_v14** (`submissions/blend_v14.json`, nested CV 12.425): v11's base plus a stronger CNN mix
-  (0.7 effnetv2-s 6 seeds + 0.3 ConvNeXt-tiny 3 seeds) at a FIXED share 0.2, chosen from the public trend, not CV.
-  Test predictions differ from v11 by sd 0.30. If it beats v11, push the CNN share/strength further; if not, the
-  share is near its optimum.
+- **blend_v14 scored public 11.7960** (user, ~04:39 KST), a tie with v11: the global CNN share is at its public optimum
+  (a parabola through v7/v10/v11/v14 bottoms at share 0.18, 11.794). Do not push the global share further.
+- **Next file: blend_v15** (`python -m src.blend_cells ... --share-other 0.2 --share-cell 0.7 --out blend_v15`, nested CV
+  12.327 vs v14 12.425, 4/5 folds): v14 with CNN share 0.7 only for fine-grained AND noisy images (log calibrated grain
+  count density and raw ic_noise above their train medians; 132 train / 284 test images). On OOF the CNN mix beats the
+  base there (11.33 vs 12.04) and loses everywhere else (13.76 vs 12.56; coarse or clean images get LS share <= 0). All
+  25 cut combinations (train quantiles 0.33-0.67) improve on v14; the change correlates -0.23 with v12's failed change.
+  Public SE of the v15 - v14 difference is about 0.06. Smooth gates (share = clip(a + b.grain + c.noise)) reach nested
+  12.28 but switch steeply between 0 and 1 and move test predictions twice as much (sd 2.0): kept as a later option.
+- Full refit on all 500 train images (one model instead of the mean of 5 fold models) is worth little for the ridge
+  members: one model on 400 rows vs the mean of 5 inner models on 320 rows gives -0.035 (feat6_rest_ridge_all) and
+  -0.001 (feat5_v3cal_ridge_het_spat_v4_milspl). LightGBM members and the embedding head are being checked
+  (scratchpad `refit/`, copies in hardness-cache `scripts/refit/`).
+- Averaging gain of the CNN test predictions (mean of 5 fold models vs one fold model on OOF): from the CPU resnet18
+  caches only 2-5% of the OOF MSE, too small to explain why public prefers a CNN share of 0.18 vs the CV fit 0.10.
 - Next GPU candidate: a CNN with a restored-image input channel (cnn-trainer prepares the code and laptop steps,
   `notes/handoff/laptop-gpu.md` section 8). A GPU run needs the user's say-so and mode in the thread first.
 
