@@ -57,7 +57,9 @@ The cloud session blends them for the next submission.
 Why: `blend_v10` (effnetv2-s CNN at 7%) scored public 11.8267 vs v7 11.8795, and a nested two-stage blend gives the
 CNN a 13% share (`blend_v11`, CV 12.407). Stronger CNN members are now the main lever.
 GPU mode: only as the user says in the thread (exclusive: `--device cuda`, then the done file; shared: wrap each command
-with gpu_turn.py). Base flags as in section 3, plus `--device cuda`. PowerShell, repo root.
+with gpu_turn.py). On 2026-10-06 23:59 KST the user granted **exclusive** use in the thread: run with `--device cuda`
+without gpu_turn.py, and when all GPU work below is finished run `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done` in
+PowerShell to return the GPU. Base flags as in section 3, plus `--device cuda`. PowerShell, repo root.
 
 a. effnetv2-s, 3 more seeds (keeps the 3-seed experiment as it is):
    `Copy-Item data\cnn_cache\cnn_ev2s_rawnlm_degcons_gpu_s3 data\cnn_cache\cnn_ev2s_rawnlm_degcons_gpu_s6 -Recurse`
