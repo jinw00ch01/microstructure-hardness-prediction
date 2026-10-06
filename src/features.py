@@ -856,7 +856,9 @@ def _cal_inputs(df):
     return [c for c in df.columns if c.startswith("ic_")]
 
 
-def cal_apply(eval_only=False):
+def cal_apply(eval_only=False, apply_v3=None, out=None):
+    """apply_v3: optional v3 table (path) to apply the maps to, e.g. features of restored images; the maps are
+    always fitted on the degraded ORIGINAL images (cal_pairs) with clean-original targets."""
     from sklearn.model_selection import GroupKFold
     pairs = pd.read_parquet(DATA_DIR / "cal_pairs.parquet")
     v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet")
@@ -870,8 +872,10 @@ def cal_apply(eval_only=False):
     groups = np.concatenate([pairs.src.values, ident.src.values])
     targets = CAL_TARGETS_V3 + CAL_TARGETS_V2
     Y = clean.loc[groups, targets].reset_index(drop=True)
-    Xall = v3[_cal_inputs(v3)]
-    out = pd.DataFrame({"ID": v3.ID})
+    app = v3 if apply_v3 is None else pd.read_parquet(apply_v3)
+    Xall = app[_cal_inputs(v3)]
+    out_path = out
+    out = pd.DataFrame({"ID": app.ID})
     report = {}
     for t in targets:
         y = Y[t].values.astype(float)
@@ -895,8 +899,9 @@ def cal_apply(eval_only=False):
     for t, (r2, rr) in report.items():
         print(f"{t:22s} calibrated R2 on held-out sources {r2:+.3f}   raw degraded-vs-clean corr {rr}")
     if not eval_only:
-        out.to_parquet(DATA_DIR / "features_cal.parquet", index=False)
-        print(out.shape, "-> features_cal.parquet")
+        dest = out_path or (DATA_DIR / "features_cal.parquet")
+        out.to_parquet(dest, index=False)
+        print(out.shape, "->", dest)
 
 
 CAL_FAILED = ["ic_seg_L_par", "ic_seg_L_perp", "ic_seg_L_gm", "ic_seg_mx_area_mean", "seg_area_cv", "segdk_area_cv"]
@@ -1300,7 +1305,8 @@ def _v4_pivot(df, key, col, log=False):
     return v.index, (np.log(np.maximum(a, 1e-3)) if log else a)
 
 
-def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet", out="features_v4.parquet"):
+def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet", out="features_v4.parquet",
+             apply_file=None):
     """Label-free calibration of the local grain-size maps; train sources only, cross-fitted over sources.
 
     Stage 1 (block level): LightGBM maps degraded block measurements + image context -> clean block measurement.
@@ -1309,6 +1315,8 @@ def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet
     Source images are always predicted by the fold model that did not see them; every other image (train and
     test) gets the mean of the 5 fold models. Output columns: v4r_* raw map stats, v4c_* stats of the stage-1
     calibrated map, v4i_* stage-2 calibrated stats.
+    apply_file: optional block table (e.g. of restored images) to apply the maps to; fitting always uses real_file
+    (identity rows and clean targets) and cal_file.
     """
     from sklearn.model_selection import GroupKFold
     real = _v4_add_img_means(pd.read_parquet(DATA_DIR / real_file), "ID")
@@ -1321,6 +1329,8 @@ def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet
     S = S.sort_values(["src", "k", "blk"]).reset_index(drop=True)
     real = real.sort_values(["ID", "blk"]).reset_index(drop=True)
     clean = real.set_index(["ID", "blk"])
+    app = real if apply_file is None else \
+        _v4_add_img_means(pd.read_parquet(DATA_DIR / apply_file), "ID").sort_values(["ID", "blk"]).reset_index(drop=True)
     keys = list(zip(S.src, S.blk))
     groups = S.src.values
     gkf = GroupKFold(5)
@@ -1331,9 +1341,9 @@ def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet
             src_fold[s_] = fi
     deg = S.k.values >= 0
     noise = S.ic_noise.values
-    real_fold = real.ID.map(src_fold).values
-    Xr = real[inputs]
-    by, bx = real.by.values[:49], real.bx.values[:49]
+    real_fold = app.ID.map(src_fold).values
+    Xr = app[inputs]
+    by, bx = app.by.values[:49], app.bx.values[:49]
     report = {}
     maps = {"real_raw": {}, "real_cal": {}, "syn_raw": {}, "syn_cal": {}, "syn_clean": {}}
     lgb_block = lambda: _lgb_cal().set_params(num_leaves=31, min_child_samples=50, n_estimators=400)
@@ -1371,10 +1381,10 @@ def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet
         idx, maps["syn_clean"][tag] = _v4_pivot(Sx, ["src", "k"], "y")
         _, maps["syn_cal"][tag] = _v4_pivot(Sx, ["src", "k"], "p")
         _, maps["syn_raw"][tag] = _v4_pivot(Sx, ["src", "k"], "r")
-        n_img = real.ID.nunique()
+        n_img = app.ID.nunique()
         maps["real_cal"][tag] = pred_real.reshape(n_img, -1)
-        _, maps["real_raw"][tag] = _v4_pivot(real, "ID", t, log=lg)
-    ids = np.sort(real.ID.unique())
+        _, maps["real_raw"][tag] = _v4_pivot(app, "ID", t, log=lg)
+    ids = np.sort(app.ID.unique())
     syn_src = np.array([s_ for s_, _ in idx])
     syn_k = np.array([k_ for _, k_ in idx])
     R_real = _v4_stats_frame(maps["real_raw"], by, bx, "v4r")
@@ -1382,7 +1392,7 @@ def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet
     R_syn = _v4_stats_frame(maps["syn_raw"], by, bx, "v4r")
     C_syn = _v4_stats_frame(maps["syn_cal"], by, bx, "v4c")
     Y_syn = _v4_stats_frame(maps["syn_clean"], by, bx, "v4r")
-    ctx_real = real.groupby("ID")[V4_CTX].first().loc[ids].reset_index(drop=True)
+    ctx_real = app.groupby("ID")[V4_CTX].first().loc[ids].reset_index(drop=True)
     ctx_syn = S.groupby(["src", "k"])[V4_CTX].first().loc[idx].reset_index(drop=True)
     Xi_syn = pd.concat([R_syn, C_syn, ctx_syn], axis=1)
     Xi_real = pd.concat([R_real, C_real, ctx_real], axis=1)
@@ -1430,12 +1440,15 @@ MIL_CAL_TARGETS = {"c_bd": ("bd_ws", True), "c_la": ("la", False), "c_acd": ("ac
                    "c_deficit": ("deficit", False), "c_pore60": ("pore60_frac", False)}
 
 
-def mil_blocks(real_file="v5_blocks_real.parquet", cal_file="v5_blocks_cal.parquet", out="mil_blocks.parquet"):
+def mil_blocks(real_file="v5_blocks_real.parquet", cal_file="v5_blocks_cal.parquet", out="mil_blocks.parquet",
+               apply_file=None):
+    """apply_file: optional block table (e.g. restored images) to apply the maps to; fitting uses real_file + cal_file."""
     from sklearn.model_selection import GroupKFold
     meas = V4_MEAS + V4_EXTRA
     real = pd.read_parquet(DATA_DIR / real_file)
     syn = pd.read_parquet(DATA_DIR / cal_file)
-    for df, key in ((real, "ID"), (syn, ["src", "k"])):
+    app = real if apply_file is None else pd.read_parquet(DATA_DIR / apply_file)
+    for df, key in ((real, "ID"), (syn, ["src", "k"])) + (((app, "ID"),) if apply_file is not None else ()):
         g = df.groupby(key)[meas].transform("mean")
         for c in meas:
             df[f"img_{c}"] = g[c].values
@@ -1446,14 +1459,15 @@ def mil_blocks(real_file="v5_blocks_real.parquet", cal_file="v5_blocks_cal.parqu
     S = pd.concat([syn[["src", "k", "blk"] + inputs], ident[["src", "k", "blk"] + inputs]], ignore_index=True)
     real = real.sort_values(["ID", "blk"]).reset_index(drop=True)
     clean = real.set_index(["ID", "blk"])
+    app = real if apply_file is None else app.sort_values(["ID", "blk"]).reset_index(drop=True)
     keys = list(zip(S.src, S.blk))
     groups = S.src.values
     folds = list(GroupKFold(5).split(S, groups=groups))
     src_fold = {s_: fi for fi, (_, b) in enumerate(folds) for s_ in np.unique(groups[b])}
-    real_fold = real.ID.map(src_fold).values
+    real_fold = app.ID.map(src_fold).values
     deg = S.k.values >= 0
     noise = S.ic_noise.values
-    out_df = real[["ID", "blk", "by", "bx"] + meas + V4_CTX].copy()
+    out_df = app[["ID", "blk", "by", "bx"] + meas + V4_CTX].copy()
     rep = {}
     for name, (t, lg) in MIL_CAL_TARGETS.items():
         y = clean.loc[keys, t].values.astype(float)
@@ -1462,12 +1476,12 @@ def mil_blocks(real_file="v5_blocks_real.parquet", cal_file="v5_blocks_cal.parqu
             y, raw_meas = np.log(np.maximum(y, 1e-3)), np.log(np.maximum(raw_meas, 1e-3))
         ok = np.isfinite(y)
         oof = np.full(len(y), np.nan)
-        pred = np.zeros(len(real))
+        pred = np.zeros(len(app))
         for fi, (a, b) in enumerate(folds):
             ia = a[ok[a]]
             m = _lgb_cal().set_params(num_leaves=31, min_child_samples=50, n_estimators=400).fit(S.iloc[ia][inputs], y[ia])
             oof[b] = m.predict(S.iloc[b][inputs])
-            p = m.predict(real[inputs])
+            p = m.predict(app[inputs])
             pred += np.where(np.isnan(real_fold), p / 5.0, np.where(real_fold == fi, p, 0.0))
         k = deg & ok & np.isfinite(oof) & np.isfinite(raw_meas)
         r = {"R2_cal": 1 - np.mean((oof[k] - y[k]) ** 2) / np.var(y[k]),
@@ -1481,6 +1495,25 @@ def mil_blocks(real_file="v5_blocks_real.parquet", cal_file="v5_blocks_cal.parqu
     rep = pd.DataFrame(rep).T
     print(rep.to_string())
     rep.to_csv(DATA_DIR / out.replace(".parquet", "_report.csv"))
+    out_df.to_parquet(DATA_DIR / out, index=False)
+    print(out_df.shape, "->", out)
+
+
+V5BLK_COLS = ["c_sfd93", "c_sfd91", "c_fdo93", "c_deficit", "c_pore60"]
+
+
+def v5_blockmeans(src="mil_blocks.parquet", out="features_v5blk.parquet"):
+    """Image-level columns from the calibrated block phase / pore values (label-free, per image):
+    v5m_* valid-area-weighted block mean, v5s_* sd over blocks, v5q_* 90th percentile over blocks."""
+    b = pd.read_parquet(DATA_DIR / src).sort_values(["ID", "blk"])
+    ids = np.asarray(b.ID.to_numpy(dtype=object)).reshape(-1, 49)[:, 0]
+    w = np.clip(b.valid_frac.values.astype(float), 0.05, None).reshape(-1, 49)
+    out_df = pd.DataFrame({"ID": ids})
+    for c in V5BLK_COLS:
+        v = b[c].values.astype(float).reshape(-1, 49)
+        out_df[f"v5m_{c}"] = (v * w).sum(1) / w.sum(1)
+        out_df[f"v5s_{c}"] = v.std(1)
+        out_df[f"v5q_{c}"] = np.quantile(v, 0.9, axis=1)
     out_df.to_parquet(DATA_DIR / out, index=False)
     print(out_df.shape, "->", out)
 
@@ -1509,7 +1542,11 @@ if __name__ == "__main__":
     ap.add_argument("--v4_apply", action="store_true")
     ap.add_argument("--v4_extra", action="store_true", help="add V4_EXTRA phase/pore block measures (v5_* files)")
     ap.add_argument("--mil_blocks", action="store_true")
+    ap.add_argument("--v5_blockmeans", action="store_true")
     a = ap.parse_args()
+    if a.v5_blockmeans:
+        v5_blockmeans()
+        raise SystemExit
     if a.v4_cal_build:
         v4_cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, seed0=a.seed0 or 500000,
                      out=a.cal_out or ("v5_blocks_cal.parquet" if a.v4_extra else "v4_blocks_cal.parquet"),

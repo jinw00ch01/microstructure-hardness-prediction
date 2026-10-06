@@ -1,4 +1,26 @@
-# feature-engineer handoff (updated 2026-10-06, session 5: block-level multiple-instance model)
+# feature-engineer handoff (updated 2026-10-06, session 6 in progress: restored-image features)
+
+## Session 6 (in progress)
+1. Calibrated block-mean phase/pore columns for the lgbs: `data/features_v5blk.parquet`
+   (`python -m src.features --v5_blockmeans`).
+   - Columns: `v5m_` valid-weighted mean, `v5s_` sd and `v5q_` q90 over blocks of c_sfd93, c_sfd91, c_fdo93,
+     c_deficit, c_pore60.
+   - Fold-paired against feat3_v23cal_lgbs_het_spat (12.789):
+     - means only: 12.767 (-0.022, 3/5 folds)
+     - all 15 columns: 12.774 (-0.015, 3/5)
+   - Neither reaches 4/5 folds, so nothing was saved.
+2. Restored images (cnn-trainer's `src/restore.py` -> `data_restored/`): waiting for the coordinator's signal.
+   - Prepared, all core 3:
+     - driver `restored_all.sh` in my session scratchpad (summary in `logs/restored_summary.log`)
+     - restoration-bias test on the restorer's 11 held-out sources (fresh `_degrade_v2` copies)
+     - v3 / v5 blocks / v2 rebuilt with `DATA_DIR=data_restored`
+     - cal_, v4 and MIL calibrations fitted on degraded originals and applied to the restored tables
+       (`cal_apply(apply_v3=...)`, `v4_apply(apply_file=...)`, `mil_blocks(apply_file=...)`; applied to the
+       original tables they reproduce the current files exactly)
+     - fold-paired screens of replacement / addition variants against feat5 splmean ridge and feat3 lgbs
+   - Only the restorer's 11 validation sources were not used to train it. So an honest refit of the cal_ maps on
+     restored degraded copies would need a restorer cross-fitted over sources.
+
 
 ## Session 5 summary: block-level MIL (tests the "local nonlinearity / Jensen term" reading)
 Result: the local (Jensen) term is not supported once the global and spread features are in the model. A nonlinear
