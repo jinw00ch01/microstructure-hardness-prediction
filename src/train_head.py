@@ -351,13 +351,13 @@ def build(args, tr, te):
     for tag, xtag, st in zip(tags, extra, stage_specs):
         ids, X, bl, meta, io, rw = load_emb(tag, st, args.pools.split(","), args.views, args.cells,
                                             args.use_augs, args.aug_filter)
-        if xtag:  # append the 'aug:' rows of a second extraction of the same backbone (same columns)
-            ids2, X2, bl2, _, _, rw2 = load_emb(xtag, st, args.pools.split(","), 0, "global", True,
-                                                args.aug_filter)
-            assert [b[1] for b in bl2] == [b[1] for b in bl], f"{xtag}: column layout differs from {tag}"
-            sel = [k for k, (v, c) in enumerate(rw2) if v.startswith("aug:") and (v, c) not in rw]
+        for xt in [t for t in xtag.split("+") if t]:  # append rows of extra extractions of the same backbone
+            ids2, X2, bl2, _, io2, rw2 = load_emb(xt, st, args.pools.split(","), 0, "global", True,
+                                                 args.aug_filter)
+            assert [b[1] for b in bl2] == [b[1] for b in bl], f"{xt}: column layout differs from {tag}"
+            sel = [k for k, r in enumerate(rw2) if r not in rw]  # new orientation views and/or 'aug:' rows
             X = np.concatenate([X, X2[pd.Series(np.arange(len(ids2)), index=ids2)[ids].values][:, sel]], 1)
-            io = np.concatenate([io, np.zeros(len(sel), bool)])
+            io = np.concatenate([io, io2[sel]])
             rw = rw + [rw2[k] for k in sel]
         if base_ids is None:
             base_ids, is_orig, rows = ids, io, rw
@@ -399,8 +399,9 @@ if __name__ == "__main__":
     ap.add_argument("--view-mode", default="mean", choices=["mean", "aug"])
     ap.add_argument("--cells", default="global", choices=["global", "cells", "all"],
                     help="for --grid extractions: rows from global pooling, grid cells, or both")
-    ap.add_argument("--extra-rows", default="", help="comma list (one per --emb tag) of augs-only extractions "
-                    "whose 'aug:' rows are appended (needs --use-augs semantics; implies it)")
+    ap.add_argument("--extra-rows", default="", help="comma list (one per --emb tag; join several with '+') of "
+                    "extra extractions of the same backbone whose new rows (extra orientation views and/or 'aug:' "
+                    "copies) are appended; implies --use-augs")
     ap.add_argument("--aug-filter", default="", help="only aug views containing one of these substrings")
     ap.add_argument("--use-augs", action="store_true",
                     help="include stored 'aug:' nuisance views as training/deviation rows (never predicted on)")

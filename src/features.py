@@ -769,6 +769,56 @@ def _degrade(img8, rng):
     return np.clip(np.round(img), 0, 255).astype(np.uint8), p
 
 
+def _degrade_v2(img8, rng):
+    """Calibration v2 degradation, matched to real train images (descriptor medians per noise band).
+
+    A latent quality level q sets the total noise (4..21). Blur of the grain layer and loss of dark-side
+    contrast grow with q: real noisy images are blurrier, and their dark phase/boundaries sit closer to
+    the matrix level while the bright-side grain-to-grain spread is preserved. Pores are pasted back crisp.
+    """
+    img = img8.astype(np.float32)
+    sig0 = float(restoration.estimate_sigma(img))
+    den = cv2.fastNlMeansDenoising(img8, None, h=float(np.clip(sig0, 2.0, 30.0)), templateWindowSize=5,
+                                   searchWindowSize=21).astype(np.float32)
+    bg = _bg_matrix(den)
+    pore = ndi.binary_dilation(cv2.GaussianBlur(den / bg, (0, 0), 1.0) < 0.68, iterations=1)
+    q = rng.uniform(0.0, 1.0)
+    sig_t = 4.0 + 17.0 * q                                   # total noise 4..21 grey levels
+    sb = rng.uniform(0.0, 0.6 + 2.6 * q ** 2)                # blur grows mainly for the noisiest images
+    c = rng.uniform(max(0.3, 1.0 - 0.8 * q ** 1.5), 1.0)     # dark-side contrast factor
+    d = den - bg
+    grain = bg + np.where(d < 0, c * d, d)                   # compress only the darker-than-matrix side
+    grain = grain + (img - den)                               # keep the source's own residual noise
+    if sb > 0.3:
+        grain = cv2.GaussianBlur(grain, (0, 0), sb)
+    img = np.where(pore, img, grain)
+    a = rng.uniform(0.0, 0.035)
+    field = cv2.GaussianBlur(rng.standard_normal(img.shape).astype(np.float32), (0, 0), 40.0)
+    field /= field.std() + 1e-9
+    img = img * (1 + a * field)
+    gain, off = rng.uniform(0.85, 1.15), rng.uniform(-12, 12)
+    img = (img - img.mean()) * gain + img.mean() + off
+    sn = float(np.sqrt(max(sig_t ** 2 - sig0 ** 2, 0.0)))
+    img = img + rng.normal(0, sn, img.shape)
+    # optional mildly correlated noise component (real noisy images keep more spread after denoising)
+    cn = rng.uniform(0.0, 0.35) * sig_t if rng.uniform() < 0.5 else 0.0
+    if cn > 0:
+        g = cv2.GaussianBlur(rng.standard_normal(img.shape).astype(np.float32), (0, 0), 1.2)
+        img = img + cn * g / (g.std() + 1e-9)
+    return np.clip(np.round(img), 0, 255).astype(np.uint8), {"q": q, "sb": sb, "contrast": c, "noise_t": sig_t,
+                                                               "illum": a, "corr_noise": cn}
+
+
+def _cal_one_v2(i, k, seed):
+    rng = np.random.default_rng(seed)
+    d, p = _degrade_v2(_read8(i), rng)
+    f = extract_v3(i, img=d)
+    f.update({f"aug_{kk}": v for kk, v in p.items()})
+    f["src"] = i
+    f["k"] = k
+    return f
+
+
 def _cal_one(i, k, seed):
     rng = np.random.default_rng(seed)
     img8 = _read8(i)
@@ -789,15 +839,17 @@ def patch_v3_quality(n_jobs=1):
     print(v3.shape)
 
 
-def cal_build(n_aug=8, snr_min=0.9, n_jobs=1):
+def cal_build(n_aug=8, snr_min=0.9, n_jobs=1, version=1, out=None, seed0=0):
     v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet")
     tr = pd.read_csv(DATA_DIR / "train.csv")
     src = v3[v3.ID.isin(tr.ID) & (v3.ic_ridge_snr > snr_min)].ID.tolist()
-    jobs = [(i, k, 1000 * n + k) for n, i in enumerate(src) for k in range(n_aug)]
-    rows = Parallel(n_jobs=n_jobs)(delayed(_cal_one)(*j) for j in jobs)
+    fn = _cal_one if version == 1 else _cal_one_v2
+    jobs = [(i, k, seed0 + 1000 * n + k) for n, i in enumerate(src) for k in range(n_aug)]
+    rows = Parallel(n_jobs=n_jobs)(delayed(fn)(*j) for j in jobs)
     df = pd.DataFrame(rows)
-    df.to_parquet(DATA_DIR / "cal_pairs.parquet", index=False)
-    print(df.shape, "sources", len(src))
+    out = out or ("cal_pairs.parquet" if version == 1 else "cal2_pairs.parquet")
+    df.to_parquet(DATA_DIR / out, index=False)
+    print(df.shape, "sources", len(src), "->", out)
 
 
 def _cal_inputs(df):
@@ -847,6 +899,106 @@ def cal_apply(eval_only=False):
         print(out.shape, "-> features_cal.parquet")
 
 
+CAL_FAILED = ["ic_seg_L_par", "ic_seg_L_perp", "ic_seg_L_gm", "ic_seg_mx_area_mean", "seg_area_cv", "segdk_area_cv"]
+CAL2_BANDS = [(0.0, 8.5), (8.5, 13.0), (13.0, 99.0)]  # applied by the image's own noise estimate (ic_noise)
+DOMAIN_COLS = ["ic_noise", "ic_spec_slope", "ic_spec_32_48", "ic_acg_ac8_perp", "ic_acg_ac8_par", "ic_std",
+               "ic_gmm_sep", "ic_gmm_sd_hi", "ic_gmm_mu_lo", "ic_p2", "ic_p98", "ic_bg_range", "ic_ridge_snr"]
+
+
+def _domain_weights(syn, real, clip=(0.1, 10.0)):
+    """Density-ratio weights making synthetic quality descriptors look like real TRAIN images (no labels)."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    A = pd.concat([syn[DOMAIN_COLS], real[DOMAIN_COLS]], ignore_index=True)
+    A = A.fillna(A.median())
+    z = np.r_[np.zeros(len(syn)), np.ones(len(real))]
+    sc = StandardScaler().fit(A)
+    clf = LogisticRegression(C=1.0, max_iter=2000).fit(sc.transform(A), z)
+    p = clf.predict_proba(sc.transform(A.iloc[: len(syn)]))[:, 1]
+    w = p / (1 - p) * len(syn) / len(real)
+    w = np.clip(w, *clip)
+    return w / w.mean()
+
+
+def _lgb_cal(n_jobs=1):
+    return lgb.LGBMRegressor(n_estimators=500, learning_rate=0.04, num_leaves=15, min_child_samples=10,
+                             subsample=0.8, subsample_freq=1, colsample_bytree=0.5, verbose=-1, n_jobs=n_jobs)
+
+
+def cal_apply_v2(pairs_file="cal2_pairs.parquet", bands=True, reweight=True, out="features_cal2.parquet",
+                 eval_v1=True):
+    from sklearn.model_selection import GroupKFold
+    pairs = pd.read_parquet(DATA_DIR / pairs_file)
+    v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet")
+    v2 = pd.read_parquet(DATA_DIR / "features_v2.parquet")
+    tr_ids = set(pd.read_csv(DATA_DIR / "train.csv").ID)
+    clean = v3.merge(v2[["ID"] + CAL_TARGETS_V2], on="ID").set_index("ID")
+    targets = [t for t in CAL_TARGETS_V3 + CAL_TARGETS_V2 if t not in CAL_FAILED]
+    inputs = _cal_inputs(v3)
+    ident = v3[v3.ID.isin(pairs.src.unique())].copy()
+    ident["src"] = ident.ID
+    S = pd.concat([pairs[inputs + ["src"]], ident[inputs + ["src"]]], ignore_index=True)
+    groups = S.src.values
+    Y = clean.loc[groups, targets].reset_index(drop=True)
+    w_syn = _domain_weights(S, v3[v3.ID.isin(tr_ids)]) if reweight else np.ones(len(S))
+    print(f"domain weights: min {w_syn.min():.2f} max {w_syn.max():.2f} ESS {w_syn.sum() ** 2 / (w_syn ** 2).sum():.0f}/{len(S)}")
+    def band_masks(noise, margin=0.0):
+        return [(noise >= lo - margin) & (noise < hi + margin) for lo, hi in (CAL2_BANDS if bands else [(0, 99)])]
+    tr_masks = band_masks(S.ic_noise.values, margin=1.5)
+    ap_masks_S = band_masks(S.ic_noise.values)
+    ap_masks_all = band_masks(v3.ic_noise.values)
+    n_deg = len(pairs)
+    res = {}
+    out_df = pd.DataFrame({"ID": v3.ID})
+    folds = list(GroupKFold(5).split(S, groups=groups))
+    for t in targets:
+        y = Y[t].values.astype(float)
+        ok = np.isfinite(y)
+        oof = np.full(len(y), np.nan)
+        for a, b in folds:
+            for tm, am in zip(tr_masks, ap_masks_S):
+                ia = np.intersect1d(a, np.where(ok & tm)[0])
+                ib = np.intersect1d(b, np.where(am)[0])
+                if len(ib) == 0 or len(ia) < 30:
+                    continue
+                m = _lgb_cal().fit(S.iloc[ia][inputs], y[ia], sample_weight=w_syn[ia])
+                oof[ib] = m.predict(S.iloc[ib][inputs])
+        yo, po, wo = y[:n_deg], oof[:n_deg], w_syn[:n_deg]
+        k = np.isfinite(yo) & np.isfinite(po)
+        r2 = 1 - np.mean((po[k] - yo[k]) ** 2) / np.var(yo[k])
+        r2w = 1 - np.average((po[k] - yo[k]) ** 2, weights=wo[k]) / np.cov(yo[k], aweights=wo[k])
+        hi = k & (pairs.ic_noise.values >= 13)
+        r2_hi = 1 - np.mean((po[hi] - yo[hi]) ** 2) / np.var(yo[hi]) if hi.sum() > 20 else np.nan
+        res[t] = {"R2": round(float(r2), 3), "R2_w": round(float(r2w), 3), "R2_noise13+": round(float(r2_hi), 3)}
+        pred = np.full(len(v3), np.nan)
+        for tm, am in zip(tr_masks, ap_masks_all):
+            ia = np.where(ok & tm)[0]
+            m = _lgb_cal().fit(S.iloc[ia][inputs], y[ia], sample_weight=w_syn[ia])
+            pred[am] = m.predict(v3.loc[am, inputs])
+        out_df[f"cal2_{t}"] = pred
+    if eval_v1 and (DATA_DIR / "cal_pairs.parquet").exists():
+        # v1 maps (trained on v1 degradations) evaluated on the realistic v2 degradations, same held-out sources
+        p1 = pd.read_parquet(DATA_DIR / "cal_pairs.parquet")
+        S1 = pd.concat([p1[inputs + ["src"]], ident[inputs + ["src"]]], ignore_index=True)
+        Y1 = clean.loc[S1.src.values, targets].reset_index(drop=True)
+        for t in targets:
+            y1, y2 = Y1[t].values.astype(float), Y[t].values.astype(float)
+            po = np.full(n_deg, np.nan)
+            for a, b in folds:
+                held = set(groups[b])
+                tr1 = np.where(np.isfinite(y1) & ~S1.src.isin(held).values)[0]
+                m = _lgb_cal().fit(S1.iloc[tr1][inputs], y1[tr1])
+                ib = np.intersect1d(b, np.arange(n_deg))
+                po[ib] = m.predict(S.iloc[ib][inputs])
+            k = np.isfinite(po) & np.isfinite(y2[:n_deg])
+            res[t]["R2_v1map_on_v2"] = round(float(1 - np.mean((po[k] - y2[:n_deg][k]) ** 2) / np.var(y2[:n_deg][k])), 3)
+    rep = pd.DataFrame(res).T
+    print(rep.to_string())
+    rep.to_csv(DATA_DIR / (out.replace(".parquet", "_report.csv")))
+    out_df.to_parquet(DATA_DIR / out, index=False)
+    print(out_df.shape, "->", out)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--v2", action="store_true")
@@ -855,8 +1007,15 @@ if __name__ == "__main__":
     ap.add_argument("--patch_v3_quality", action="store_true")
     ap.add_argument("--cal_apply", action="store_true")
     ap.add_argument("--cal_eval", action="store_true")
+    ap.add_argument("--cal2_apply", action="store_true")
+    ap.add_argument("--no_bands", action="store_true")
+    ap.add_argument("--no_reweight", action="store_true")
+    ap.add_argument("--cal2_pairs", default="cal2_pairs.parquet")
     ap.add_argument("--n_aug", type=int, default=8)
     ap.add_argument("--snr_min", type=float, default=0.9)
+    ap.add_argument("--cal_version", type=int, default=1)
+    ap.add_argument("--cal_out", default=None)
+    ap.add_argument("--seed0", type=int, default=0)
     ap.add_argument("--n_jobs", type=int, default=int(os.environ.get("N_JOBS", "-1")))
     ap.add_argument("--limit", type=int, default=0)
     a = ap.parse_args()
@@ -864,7 +1023,12 @@ if __name__ == "__main__":
         patch_v3_quality(n_jobs=a.n_jobs)
         raise SystemExit
     if a.cal_build:
-        cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs)
+        cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, version=a.cal_version, out=a.cal_out,
+                  seed0=a.seed0)
+        raise SystemExit
+    if a.cal2_apply:
+        cal_apply_v2(a.cal2_pairs, bands=not a.no_bands, reweight=not a.no_reweight,
+                     out=a.cal_out or "features_cal2.parquet")
         raise SystemExit
     if a.cal_apply or a.cal_eval:
         cal_apply(eval_only=a.cal_eval)

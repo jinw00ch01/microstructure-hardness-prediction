@@ -147,6 +147,35 @@ def hetero_weights(Xtr, ytr, z, inner=5, clip=(0.25, 4.0)):
     return w / w.mean(), coef[1:]
 
 
+def hetero_weights_add(Xtr, ytr, z, inner=5, clip=(0.25, 4.0)):
+    """Additive variance model v = b0 + sum_k b_k / z_k (NNLS on inner-CV squared residuals, training rows
+    only); e.g. z = (calibrated grain count density, ridge SNR) gives the label-noise b/N + c/snr form."""
+    from scipy.optimize import nnls
+    from sklearn.model_selection import KFold
+    res = np.zeros(len(ytr))
+    for a, b in KFold(inner, shuffle=True, random_state=SEED).split(Xtr):
+        A, B = _std_matrix(Xtr.iloc[a], Xtr.iloc[b])
+        m = RidgeCV(alphas=np.logspace(-2, 4, 40)).fit(A, ytr[a])
+        res[b] = ytr[b] - m.predict(B)
+    Z = pd.DataFrame(np.asarray(z, float).reshape(len(ytr), -1))
+    Z = Z.fillna(Z.median())
+    G = np.column_stack([np.ones(len(ytr))] + [1.0 / np.clip(Z[c].values, 1e-3, None) for c in Z.columns])
+    scale = G.mean(0)
+    coef, _ = nnls(G / scale, res ** 2)
+    v = np.maximum((G / scale) @ coef, 1e-3 * np.mean(res ** 2))
+    w = np.clip((1.0 / v) / np.mean(1.0 / v), *clip)
+    return w / w.mean(), coef / scale
+
+
+def tercile_rmse(tr, oof):
+    """RMSE by image-quality tercile (ic_ridge_snr cut on train): T1 = noisiest, T3 = cleanest."""
+    from .common import rmse
+    q = tr[["ID"]].merge(pd.read_parquet(DATA_DIR / "features_v3.parquet")[["ID", "ic_ridge_snr"]], on="ID")
+    t = pd.qcut(q.ic_ridge_snr.values, 3, labels=["T1_noisy", "T2", "T3_clean"])
+    y = tr.hardness.values
+    return {str(k): round(rmse(oof[t == k], y[t == k]), 3) for k in ["T1_noisy", "T2", "T3_clean"]}
+
+
 def mono_vector(cols, spec):
     """'+' constraints for columns matching regexes in spec; prefix a regex with '-' for a decreasing one."""
     v = np.zeros(len(cols), int)
@@ -160,7 +189,7 @@ def mono_vector(cols, spec):
 
 
 def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=0, es=False, drop=None, fwd=0,
-        hetero=None, mono=None, save=True):
+        hetero=None, mono=None, save=True, hetero_add=None):
     tr, te = load_train(), load_test()
     feats = load_features(feat_file)
     use = select_columns([c for c in feats.columns if c != "ID"], cols)
@@ -171,7 +200,8 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     X = X.replace([np.inf, -np.inf], np.nan)
     Xt = Xt.replace([np.inf, -np.inf], np.nan)
     y = tr.hardness.values
-    feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hetero.split(",")].values if hetero else None
+    hz = hetero or hetero_add
+    feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hz.split(",")].values if hz else None
     oof, pred = np.zeros(len(tr)), np.zeros(len(te))
     imp = pd.Series(0.0, index=use)
     kind = "lgb_es" if (model == "lgb" and es) else model
@@ -184,7 +214,10 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
             print(f"fold {f}: forward-selected {cols_f}", flush=True)
             sel_log.append(cols_f)
         w = None
-        if hetero:
+        if hetero_add:
+            w, coef = hetero_weights_add(X.loc[trn, cols_f], y[trn], feats_tr_z[trn])
+            print(f"fold {f}: additive var coefs {np.round(coef, 4).tolist()}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
+        elif hetero:
             w, coef = hetero_weights(X.loc[trn, cols_f], y[trn], feats_tr_z[trn])
             print(f"fold {f}: hetero log-var slopes {np.round(coef, 3).tolist()}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
         if kind in ("ridge_fs", "fwd"):
@@ -227,16 +260,22 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
         notes += "; EARLY-STOP ON VAL FOLD (optimistic)"
     if fwd:
         notes += f"; in-fold forward selection (ridge inner-CV, max {fwd})"
-    if hetero:
+    if hetero_add:
+        notes += f"; hetero weights var = b0 + sum b/({hetero_add}) in-fold"
+    elif hetero:
         notes += f"; hetero weights ~ log-var(log {hetero}) in-fold"
     if mono:
         notes += f"; monotone({mono})"
+    terc = tercile_rmse(tr, oof)
     if not save:
         from .common import rmse
         fr = [rmse(oof[tr.fold == k], y[tr.fold == k]) for k in range(5)]
-        print(f"[{name} NOT SAVED] CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} | {notes}")
+        print(f"[{name} NOT SAVED] CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} terciles {terc} | {notes}")
         return oof
     out = save_experiment(name, tr, oof, te, pred, notes=notes)
+    print(f"[{name}] snr terciles {terc}")
+    import json
+    (EXP_DIR / name / "tercile_rmse.json").write_text(json.dumps(terc))
     imp.sort_values(ascending=False).to_csv(EXP_DIR / name / "importance.csv", header=["importance"])
     if sel_log:
         (EXP_DIR / name / "selected.txt").write_text("\n".join(",".join(c) for c in sel_log))
@@ -257,7 +296,8 @@ if __name__ == "__main__":
     ap.add_argument("--hetero", default=None, help="column used to model residual variance -> sample weights")
     ap.add_argument("--mono", default=None, help="regexes of +monotone columns for lgb ('-regex' = decreasing)")
     ap.add_argument("--no_save", action="store_true", help="screening run: print CV only, write nothing")
+    ap.add_argument("--hetero_add", default=None, help="columns z_k for additive variance b0 + sum b_k/z_k")
     a = ap.parse_args()
     fwd = a.fwd or (20 if a.model == "fwd" else 0)
     run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd,
-        a.hetero, a.mono, not a.no_save)
+        a.hetero, a.mono, not a.no_save, a.hetero_add)

@@ -1,4 +1,45 @@
-# feature-engineer handoff (updated 2026-10-06)
+# feature-engineer handoff (updated 2026-10-06, session 3: noisy-image measurement)
+
+## Session 3 summary (calibration v2, 1/N variance weights)
+- Real low-quality images differ from v1's synthetic degradations. Their dark side is compressed toward the
+  matrix level, the bright-side grain spread is preserved, and blur grows with noise. Noise >12 gives a GMM dark
+  weight of 0.09 vs 0.25 for noise <8, although mean hardness is equal across SNR terciles.
+- Calibration v2 (`_degrade_v2`, `cal_apply_v2`):
+  - latent quality q sets noise 4-21; blur up to 3.2 px and dark-side contrast down to 0.3 grow with q;
+    pores stay crisp; optional mildly correlated noise
+  - 12 degradations x 174 sources = 2088 pairs
+  - LightGBM per noise band (<8.5 / 8.5-13 / >13, training ranges ±1.5)
+  - domain weights from logistic regression of real TRAIN vs synthetic quality descriptors (ESS 1180/2262)
+  - commands:
+    `taskset -c 0 python -W ignore -m src.features --cal_build --cal_version 2 --n_aug 12 --snr_min 0.75 --n_jobs 1 --cal_out cal2_pairs.parquet --seed0 20000` (~20 min)
+    `taskset -c 0 python -W ignore -m src.features --cal2_apply` -> `data/features_cal2.parquet` + `features_cal2_report.csv` (~8 min)
+- Held-out-source R² on realistic v2 degradations (v1 maps on the same data in brackets):
+  per-grain fd `ic_seg_fd93` 0.88 [0.61], `ic_fdo_93` 0.88 [0.52], `ic_gmm_w` 0.87 [0.55],
+  `ic_acg_len50_par` 0.84 [0.75], `seg_count_density` 0.78 [0.70], pores 0.75-0.78 [same].
+  At noise >=13, fd R² is 0.80.
+- Hardness CV did not improve on the noisy tercile. Real noisy images are still harder than the synthetic ones;
+  within-T1 Spearman of fd with hardness is 0.50 (cal2) vs 0.56 (cal v1), while cal2 removes the level bias.
+- 1/N (+snr) additive variance weights (`--hetero_add cal_seg_count_density,ic_ridge_snr`): equal within noise
+  (lgbs 13.008 vs 12.991; ridge 13.141 vs 13.101). Saved as an lgbs variant.
+
+| exp (session 3) | CV | folds | T1_noisy / T2 / T3_clean |
+|---|---|---|---|
+| feat2_v3calc2_ridge_het (v3+cal+cal2, len weights) | 13.067 | 13.78 12.62 13.25 12.92 12.73 | 15.080 / 12.104 / 11.755 |
+| feat2_v23cal_lgbs_hetN (v3+v2+cal, 1/N+1/snr weights, 3 seeds) | 13.008 | 13.23 13.05 13.36 12.87 12.52 | 15.051 / 11.878 / 11.825 |
+| reference: feat2_v23cal_lgbs_het | 12.991 | | 15.008 / 11.984 / 11.718 |
+| reference: feat2_v3cal_ridge_het | 13.101 | | 15.119 / 12.179 / 11.741 |
+| 50/50 lgbs_het + v3calc2_ridge_het (not saved) | 12.847 | | 14.852 / 11.896 / 11.529 |
+
+Screens (not saved): ridge v3+cal2 13.117 (T1 15.19); lgbs v3+v2+cal2 13.067 (T1 15.16);
+lgbs v3+v2+cal+cal2 13.032 (T1 15.07). Saved runs also write `tercile_rmse.json`.
+
+Next for the noisy third:
+1. Make degradations match better. Real noisy images are always blurred (drop low-blur samples at high noise)
+   and keep more matrix grey-level spread. Fit the degradation prior by simulation-based matching of per-image
+   descriptors (train images only), not by band medians.
+2. Use CNN/embedding features of synthetically degraded clean train images (same calibration idea in feature
+   space), for the CNN agent.
+3. Accept the floor. EDA says T1 has about 4 RMSE of excess over its 11.1 floor; my features recover about 0.3.
 
 Owner files: `src/features.py`, `src/train_gbm.py`. I don't commit. Best feature model:
 **feat2_v23cal_lgbs_het, CV 12.991** (baseline feat_lgb 14.202). A 50/50 average with

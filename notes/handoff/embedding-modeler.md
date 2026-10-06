@@ -1,95 +1,70 @@
-# embedding-modeler handoff (paused 2026-10-05 ~12:35 UTC)
+# embedding-modeler handoff (updated 2026-10-06)
 
-Owner files: `src/extract_embeddings.py`, `src/train_head.py`. No shared files edited. Nothing committed.
-All runs used 1 thread pinned to one core: prefix commands with `taskset -c 3` and keep `--threads 1`.
-Every backbone used so far is timm weights from GitHub releases, licensed Apache-2.0.
+Owner files: `src/extract_embeddings.py`, `src/train_head.py`. No shared files edited. Nothing committed by me.
+CPU: since 2026-10-06 every run uses 1 thread pinned to core 3: prefix with `taskset -c 3` and keep `--threads 1`.
+Every backbone is timm weights from GitHub releases, licensed Apache-2.0.
 
-## Results so far (CV = shared 5 folds, `data/folds.csv`)
-
-Saved experiments (each has oof.csv, test.csv, score.json, and a LEADERBOARD line):
-
-| exp | CV RMSE | fold RMSE | setup |
+## Best saved experiments (CV = shared 5 folds; all hyperparameters chosen by inner CV inside each outer fold)
+| exp | CV RMSE | fold RMSE | what |
 |---|---|---|---|
-| emb_effv2s_256_ridge_aug | 13.675 | 14.767 12.314 13.619 14.233 13.317 | tf_efficientnetv2_s.in21k_ft_in1k, stages 2,3, mean+std, ridge, view-mode aug |
-| emb_r18_256_krr_feats | 13.902 | 15.004 12.775 14.212 14.006 13.412 | resnet18.a1_in1k, stages 1,2,3, mean+std + features.parquet, RBF KRR (*) |
-| emb_r18_256_ridge_aug | 13.928 | 14.994 12.560 14.514 14.098 13.342 | resnet18.a1_in1k, stages 1,2,3, mean+std, ridge, view-mode aug |
+| emb_effv2s_256_gridge3_aug_featv3 | **13.254** | 13.924 13.023 13.226 13.388 12.677 | effv2s noise/blur-penalised + features_v3 side features |
+| emb_effv2s_r18_256_gridge3_noise | **13.403** | 14.307 11.908 13.949 13.737 12.979 | effv2s + resnet18, 4 views, noise-invariance penalty (0.03 + 0.06) |
+| emb_effv2s_r18_256_gridge3_aug | 13.414 | 14.435 11.834 13.710 14.045 12.886 | same, noise0.03 + blur1.0 rows |
+| emb_effv2s_256_gridge3_noise | 13.442 | 14.553 11.915 13.820 13.767 13.007 | effv2s only, noise 0.03 + 0.06 rows |
+| emb_effv2s_256_gridge3_aug | 13.514 | 14.898 11.960 13.748 13.845 12.938 | effv2s only, noise0.03 + blur1.0 rows |
+| emb_effv2s_256_ridge_aug | 13.675 | 14.767 12.314 13.619 14.233 13.317 | (2026-10-05) ridge, views as rows |
+| emb_r18_256_krr_feats | 13.902 | 15.004 12.775 14.212 14.006 13.412 | (2026-10-05) resnet18 + features.parquet, KRR |
+| emb_r18_256_ridge_aug | 13.928 | 14.994 12.560 14.514 14.098 13.342 | (2026-10-05) resnet18 ridge, views as rows |
 
-(*) This was saved with the older, narrower KRR gamma grid. The current code gives 13.925 for the same command.
+Exact commands to reproduce (each 15 s to 3 min at 1 thread; add `--name <exp>` to save, `--no-save` to only print):
+```
+H="taskset -c 3 python -m src.train_head --threads 1"
+E=tf_efficientnetv2_s.in21k_ft_in1k_256_g2a; R=resnet18.a1_in1k_256_g2a
+EX=tf_efficientnetv2_s.in21k_ft_in1k_256_augs2; RX=resnet18.a1_in1k_256_augs2
+$H --emb $E,$R --extra-rows $EX,$RX --pools mean,std --stages 1,2,3 --head gridge3 --aug-filter noise --grid-json '{"lam_view": [0, 4], "lam_aug": [4, 16, 64]}' --name emb_effv2s_r18_256_gridge3_noise
+$H --emb $E,$R --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --grid-json '{"lam_view": [0, 4], "lam_aug": [4, 16, 64]}' --name emb_effv2s_r18_256_gridge3_aug
+$H --emb $E --extra-rows $EX --pools mean,std --stages 1,2,3 --head gridge3 --aug-filter noise --name emb_effv2s_256_gridge3_noise
+$H --emb $E --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --name emb_effv2s_256_gridge3_aug
+$H --emb $E --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --with-feats --feats features_v3.parquet --name emb_effv2s_256_gridge3_aug_featv3
+```
 
-Best unsaved results. Re-run with the "save" commands under Next steps:
+## Key finding: penalise the head's sensitivity to image noise
+`--head gridge3` is a generalized ridge on the view-averaged embedding:
+min |y - Zbar w|^2 + lam_view*mean|w.(Z_view - Zbar)|^2 + lam_cell*mean|w.(Z_cell - mean_cell)|^2 + lam_aug*mean|w.(Z_aug - Z_id)|^2 + alpha|w|^2.
+Here `Z_aug` is the embedding of a deterministically noised (or blurred, shaded, ...) copy of the same image.
+- Noise rows are what help. effv2s goes from 13.636 (4 views, no aug rows) to 13.535 (noise0.03) to 13.442 (noise0.03 + 0.06). resnet18 goes from 13.84 to 13.68. Inner CV picks lam_aug 4-16 in every fold.
+- No help from the other nuisance rows: blur1.0 13.688, shade0.12 13.636, contrast0.75 and blur2.0 in combination with noise make it slightly worse. Grid-cell (spatial) rows: inner CV always picks lam_cell = 0.
+- Orientation views matter: effv2s with 2 views + noise rows gives 13.693, vs 13.442 with 4 views. 8 views is being tested (see below).
+- Concatenation: effv2s + resnet18 13.403. Adding convnext_nano does not help (13.490). convnext_nano alone: 13.80.
+- Joint model with features_v3: 13.254, about the same as feat2_v3_ridge alone (13.219). Residual correlation of the embedding model with feat2_v3_ridge is 0.92 and with the CNN 0.90. In a nested-CV NNLS blend, feat2_v3_ridge + emb gives 13.18. feat2_v3_ridge + feat2_v23_lgb + emb gives 13.13, vs 13.07 for feat + feat + CNN. The embedding family adds little to the blend.
 
-| CV RMSE | command (add `--no-save` to only print) |
-|---|---|
-| 13.551 | `--emb tf_efficientnetv2_s.in21k_ft_in1k_256,resnet18.a1_in1k_256 --pools mean,std --stages 1,2,3 --head gridge --block-norm` (~12 min) |
-| 13.578 | `--emb tf_efficientnetv2_s.in21k_ft_in1k_256 --pools mean,std --stages 1,2,3 --head gridge --transform sqrt` (~40 s) |
-| 13.622 | `--emb tf_efficientnetv2_s.in21k_ft_in1k_256 --pools mean,std --stages 2,3 --head gridge` |
-| 13.681 | effv2s+r18 stages 1,2,3 ridge --block-norm (mean views) |
-| 13.840 | resnet18 stages 1,2,3 gridge |
-
-Things that did not help, all measured with the honest inner-CV protocol:
-- NL-means denoised input (`--prep nlm`): resnet18 got worse, 14.29-14.46 vs 13.99. Concatenating it with the raw embeddings also hurt (14.16-14.41).
-- Quantile pooling (q10/q50/q90): 14.40-14.88 vs 13.99. ReLU maps are sparse, so the low quantiles degenerate.
-- max pooling: 15.00 alone, 14.38 together with mean, std and gem. GeM: 14.16.
-- Stage 0 and the last stage alone: about 15.0. Stages 2-3 carry the signal for every backbone.
-- view-std features: 14.39. Block-norm alone is neutral.
-- Adding features.parquet inside gridge for effv2s: 13.75-13.96 vs 13.62. Keep it as a separate model for the blend.
-- LightGBM head on PCA-32 plus features: 14.12. SVR: 14.45.
+Earlier negatives (2026-10-05): NL-means input, quantile/max/GeM pooling, stage 0 and the last stage, view-std, LightGBM/SVR heads, features.parquet (v1) inside the embedding head.
 
 ## CLI
+`python -m src.extract_embeddings` writes `data/emb/<tag>.npy` (N, rows, D) float32, plus `_ids.csv` and `_meta.json`. This is pure per-image inference: nothing is fitted.
+- `--backbone` (common.create_timm, features_only), `--size 256`, `--views N` (first N of id, hflip, transpose, rot90, vflip, rot180, rot270, antitranspose) or `--view-names a,b`
+- `--pools mean,std[,max,gem,qXX]`, `--grid G` (global + GxG cell pooling; row axis [view][cell])
+- `--augs noise<s>,blur<s>,shade<s>,gamma<g>,contrast<c>`: deterministic per-image nuisance copies of the identity view, stored as `aug:*` rows
+- `--prep raw|imgnorm|blur<s>|nlm|median<k>|ic` (numpy steps cached as `data/emb/_img_<step>_1500.npy`; `ic` = divide by the local 70th-pct matrix level)
+- `--bs --threads --limit --tag`
 
-`python -m src.extract_embeddings` writes `data/emb/<tag>.npy` (N, R, D) float32, `<tag>_ids.csv` and `<tag>_meta.json`. This is pure inference: nothing is fitted, and test images are only embedded.
-- `--backbone NAME` (via common.create_timm, features_only), `--size 256`, `--views 4` (id, hflip, transpose, rot90; up to 8 = D4)
-- `--pools mean,std[,max,gem,q10,q50,q90]` per stage, `--prep raw|imgnorm|blur<s>|nlm|median<k>` (numpy steps are cached in `data/emb/_img_<step>_1500.npy`)
-- `--grid G`: also pools each cell of a GxG grid. The row axis is [view][cell], with cell 0 = global.
-- `--augs noise0.03,blur1.0[,gamma<g>,contrast<c>]`: deterministic per-image nuisance copies (identity orientation), stored as extra `aug:*` views.
-- `--bs 16 --threads 1 --limit N --tag TAG`
+`python -m src.train_head` runs outer 5-fold CV on `data/folds.csv`. Inside each outer training split, the transform, scaler, PCA and head hyperparameters (inner leave-one-fold-out CV) are fitted on training images only. Test embeddings are only transformed; the test prediction is the mean of the 5 fold models.
+- `--emb t1,t2` (concatenated by ID), `--stages 1,2,3` or per tag `"1,2,3;1,2"`, `--pools`, `--views N`
+- `--cells global|cells|all`, `--use-augs`, `--aug-filter noise[,blur,...]`, `--extra-rows x1,x2` (one per tag, join several with '+'; appends new orientation views or aug rows from extra extractions of the same backbone)
+- `--view-mode mean|aug`, `--view-std`, `--transform none|sqrt|log`, `--block-norm`, `--pca K [--whiten]`
+- `--with-feats --feats features_v3.parquet[,...] --feat-weight W`
+- `--head ridge|gridge|gridge3|krr|svr|lgb`, `--grid-json '{...}'` (override the head grid), `--name`, `--no-save`
 
-`python -m src.train_head` runs outer 5-fold CV. Inside each outer training split, everything (transform, scaler, block weights, PCA, head hyperparameters via inner leave-one-fold-out CV on the other 4 folds) is fitted on training rows only. The test prediction is the mean of the 5 fold models. It prints CV, fold RMSEs, and the hyperparameter chosen per fold.
-- `--emb tag1[,tag2]` (concatenated by ID), `--stages all|1,2,3`, `--pools mean,std`, `--views N`
-- `--view-mode mean|aug`, `--cells global|cells|all`, `--use-augs`, `--view-std`
-- `--transform none|sqrt|log`, `--block-norm`, `--with-feats --feat-weight W`, `--pca K [--whiten]`
-- `--head ridge|gridge|krr|svr|lgb`, `--name EXP` (saves via common.save_experiment), `--no-save`, `--threads 1`
-- `gridge` is a generalized ridge. It fits on the view-averaged embedding and adds lam * (penalty on the head's response to within-image deviations: other views, grid cells, aug copies). Both lam and alpha are chosen by inner CV. Inner CV picks lam 4-32, which beats plain view augmentation.
-
-## Cached files in data/emb/ (regenerate with `taskset -c 3 python -m src.extract_embeddings ... --threads 1`)
-
-| file | args | time at 1 thread |
+## Cached files in data/emb/ (command prefix: `taskset -c 3 python -m src.extract_embeddings --threads 1`)
+| tag | args | seconds at 1 thread (shared core) |
 |---|---|---|
-| resnet18.a1_in1k_256 | `--backbone resnet18.a1_in1k --size 256 --views 4` (pools mean,std,max,gem) | 467 s |
-| resnet18.a1_in1k_256_nlm | same + `--prep nlm` | 486 s, plus ~100 s to build `_img_nlm_1500.npy` |
-| _img_nlm_1500.npy/.ids.csv | NL-means image cache, built automatically by any `--prep nlm` run | ~100 s |
-| resnet18.a1_in1k_256_q | `--backbone resnet18.a1_in1k --size 256 --views 4 --pools mean,std,q10,q50,q90 --tag resnet18.a1_in1k_256_q` | 1597 s (sorting is slow) |
-| tf_efficientnetv2_s.in21k_ft_in1k_256 | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --size 256 --views 4` | 920 s |
-| tf_efficientnetv2_s.in21k_ft_in1k_256_g2a | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --size 256 --views 4 --pools mean,std --grid 2 --augs noise0.03,blur1.0 --tag tf_efficientnetv2_s.in21k_ft_in1k_256_g2a` | 1425 s |
-
-The timings were measured while the core was partly shared with head runs. Unshared speeds at 1 thread per image-view: resnet18 ~80 ms, effv2s ~130-270 ms, convnext_nano ~105-210 ms, resnet50 ~155-310 ms. At 512px, multiply by about 4.
-
-## What was running when paused
-
-`logs/queue4.sh`:
-1. effv2s g2a. Finished and cached, but not evaluated yet.
-2. convnext_nano g2a. Killed about 30 s in; no files written.
-3. resnet50 g2a. Never started.
-
-To resume, re-run the two remaining extractions:
-```
-taskset -c 3 python -m src.extract_embeddings --backbone convnext_nano.d1h_in1k --size 256 --views 4 --pools mean,std --grid 2 --augs noise0.03,blur1.0 --tag convnext_nano.d1h_in1k_256_g2a --threads 1   # ~20-25 min
-taskset -c 3 python -m src.extract_embeddings --backbone resnet50.a1_in1k --size 256 --views 4 --pools mean,std --grid 2 --augs noise0.03,blur1.0 --tag resnet50.a1_in1k_256_g2a --threads 1               # ~30-40 min
-```
-
-## Insights
-- Frozen embeddings, handcrafted LGB and ridge all plateau near 14. Residuals of the resnet18 head and feat_lgb correlate 0.93, and a 50/50 blend only reaches 13.80. The models capture the same signal: dark-phase fraction (+), pores (-), anisotropy (+).
-- Error is driven by image noise. OOF RMSE is ~12.5 on the cleanest half and ~15.2 on the noisiest half. Denoising the input removes useful texture, so the next lever is nuisance-invariance in the head (gridge with noise/blur aug rows), not preprocessing.
-- Mid stages (stride 8-16) with mean+std pooling are best. in21k EfficientNetV2-S beats resnet18 by about 0.3. Penalizing within-image variation (gridge) gives another 0.05-0.15.
-- With 500 samples, config differences under ~0.1 RMSE are noise. Fold RMSE ranges from 12.3 to 15.0, and the "best-fixed-hp" diagnostic is about 0.1 optimistic versus inner-CV selection.
-
-## Next steps (prioritized; prefix commands with `taskset -c 3 python -m src.train_head`)
-1. Evaluate the cached effv2s g2a, which tests nuisance augmentations plus grid cells:
-   `--emb tf_efficientnetv2_s.in21k_ft_in1k_256_g2a --pools mean,std --stages 1,2,3 --head gridge --cells all --use-augs --no-save`
-   then ablate `--cells global` with and without `--use-augs`, and add `--transform sqrt`.
-2. Save the best current combos:
-   `--emb tf_efficientnetv2_s.in21k_ft_in1k_256,resnet18.a1_in1k_256 --pools mean,std --stages 1,2,3 --head gridge --block-norm --name emb_effv2s_r18_256_gridge`
-   `--emb tf_efficientnetv2_s.in21k_ft_in1k_256 --pools mean,std --stages 1,2,3 --head gridge --transform sqrt --name emb_effv2s_256_gridge_sqrt`
-3. Extract the convnext_nano and resnet50 g2a embeddings (commands above), and resnet18 g2a (`--backbone resnet18.a1_in1k ... --tag resnet18.a1_in1k_256_g2a`, ~12 min). Evaluate each with gridge, then concatenate the best 2-3 with `--block-norm`.
-4. If gridge with `--use-augs` helps, try stronger or more nuisance augmentations (e.g. `noise0.05,blur1.5`), and effv2s at `--size 384`.
-5. Hand the saved OOFs to the ensembler. They are complementary to the feat_* models in a blend.
+| tf_efficientnetv2_s.in21k_ft_in1k_256_g2a | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 4 --pools mean,std --grid 2 --augs noise0.03,blur1.0 --tag <tag>` | 1425 |
+| tf_efficientnetv2_s.in21k_ft_in1k_256_augs2 | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 1 --pools mean,std --augs shade0.12,noise0.06,blur2.0,contrast0.75 --tag <tag>` | 1478 |
+| resnet18.a1_in1k_256_g2a | `--backbone resnet18.a1_in1k --views 4 --pools mean,std --grid 2 --augs noise0.03,blur1.0 --tag <tag>` | 1531 |
+| resnet18.a1_in1k_256_augs2 | `--backbone resnet18.a1_in1k --views 1 --pools mean,std --augs noise0.06 --tag <tag>` | 191 |
+| convnext_nano.d1h_in1k_256_g2a | `--backbone convnext_nano.d1h_in1k --views 4 --pools mean,std --grid 2 --augs noise0.03,blur1.0 --tag <tag>` | 1171 |
+| tf_efficientnetv2_s.in21k_ft_in1k_256 | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 4` (mean,std,max,gem) | 920 |
+| resnet18.a1_in1k_256 | `--backbone resnet18.a1_in1k --views 4` | 467 |
+| resnet18.a1_in1k_256_nlm, _q | `--prep nlm` / `--pools mean,std,q10,q50,q90 --tag resnet18.a1_in1k_256_q` | 486 / 1597 |
+| _img_nlm_1500, _img_ic_1500 | image caches, built automatically by `--prep nlm` / `--prep ic` | ~100 / ~150 |
+Unshared speed per image-view at 1 thread: resnet18 ~0.08 s, effv2s ~0.15-0.2 s, convnext_nano ~0.15 s.

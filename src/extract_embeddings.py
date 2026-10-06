@@ -79,10 +79,19 @@ def denoise_np(img, step):
         return cv2.fastNlMeansDenoising(u8, None, h=h, templateWindowSize=7, searchWindowSize=21) / 255.0
     if step.startswith("median"):
         return cv2.medianBlur(u8, int(step[6:] or 3)) / 255.0
+    if step == "ic":  # illumination correction: divide by the local matrix level (70th pct, ~80 px window)
+        from scipy import ndimage as ndi
+
+        h, w = img.shape
+        small = img.reshape(h // 4, 4, w // 4, 4).mean((1, 3))  # 4x4 block means -> 64x64
+        bg = ndi.percentile_filter(small, 70, size=21, mode="reflect")
+        bg = ndi.gaussian_filter(bg, 2, mode="reflect")
+        bg = cv2.resize(bg.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+        return np.clip(img / np.maximum(bg, 1e-3) * 0.6, 0, 1)
     raise ValueError(step)
 
 
-NP_STEPS = ("nlm", "median")
+NP_STEPS = ("nlm", "median", "ic")
 
 
 def np_cache(ids, prep):
@@ -197,7 +206,7 @@ def apply_aug(x, aug, ids):
 
 @torch.no_grad()
 def extract(backbone, ids, size=256, n_views=4, pools=("mean", "std", "max", "gem"), prep="raw", bs=16,
-            out_indices=None, log_every=10, grid=1, augs=()):
+            out_indices=None, log_every=10, grid=1, augs=(), view_names=None):
     kw = dict(pretrained=True, features_only=True)
     if out_indices is not None:
         kw["out_indices"] = out_indices
@@ -206,7 +215,8 @@ def extract(backbone, ids, size=256, n_views=4, pools=("mean", "std", "max", "ge
     chans, reds = m.feature_info.channels(), m.feature_info.reduction()
     mean = torch.tensor(cfg["mean"]).view(1, 3, 1, 1)
     std = torch.tensor(cfg["std"]).view(1, 3, 1, 1)
-    views = VIEW_ORDER[:n_views]
+    views = list(view_names) if view_names else VIEW_ORDER[:n_views]
+    assert all(v in VIEWS for v in views), views
     blocks, col = [], 0
     for si, c in enumerate(chans):
         for p in pools:
@@ -266,6 +276,8 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, default=0, help="debug: only the first N train+test ids")
     ap.add_argument("--grid", type=int, default=1, help=">1: also pool each cell of a grid x grid partition")
     ap.add_argument("--augs", default="", help="extra nuisance views, e.g. noise0.03,blur1.0,contrast0.7")
+    ap.add_argument("--view-names", default="", help="explicit orientation views (overrides --views), e.g. "
+                    "vflip,rot180,rot270,antitranspose")
     ap.add_argument("--tag", default=None)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
@@ -274,7 +286,8 @@ if __name__ == "__main__":
     if a.limit:
         ids = ids[:a.limit]
     E, meta = extract(a.backbone, ids, a.size, a.views, a.pools.split(","), a.prep, a.bs, grid=a.grid,
-                      augs=[s for s in a.augs.split(",") if s])
+                      augs=[s for s in a.augs.split(",") if s],
+                      view_names=[s for s in a.view_names.split(",") if s])
     out = DATA_DIR / "emb"
     out.mkdir(exist_ok=True)
     tag = a.tag or tag_of(a.backbone, a.size, a.prep) + (f"_lim{a.limit}" if a.limit else "")

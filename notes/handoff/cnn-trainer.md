@@ -1,4 +1,19 @@
-# cnn-trainer handoff (paused 2026-10-05 ~12:40 UTC)
+# cnn-trainer handoff (paused 2026-10-05 ~12:40 UTC; resumed 2026-10-06 02:55 UTC, live status below)
+
+## Live status (resumed session, cores 1-2 only, 1 thread each, pinned with taskset)
+- 03:44 **cnn_r18_rawnlm_e30 assembled: CV 13.837**, folds 13.880 / 12.634 / 14.795 / 14.150 / 13.633.
+  Per seed: seed 0 CV 13.670, seed 1 CV 14.349. Seed-to-seed variance of a full 5-fold run is about 0.7 RMSE,
+  so raw+nlm vs raw (13.787, 1 seed) is NOT resolved; the fold 0-1 screen that favoured NLM was noise.
+  OOF averages: raw s0 + rawnlm s0 + s1 = 13.702; 0.5 raw + 0.5 rawnlm-2-seed = 13.679. Residual corr 0.94-0.96.
+- Running: third seed (seed index 2) -> cnn_r18_rawnlm_e30_s3 (3-seed assembly is automatic,
+  logs/cnnq_core2.sh); resnet34d raw+nlm folds 0-2 on core 1 and folds 3-4 on core 2 ->
+  cnn_r34d_rawnlm_e30 (assembly automatic, logs/cnnq_core1b.sh).
+- Core contention: embedding-modeler's extract_embeddings (PID 698) was pinned to core 2 at 03:00 and
+  roughly halved that core's CNN throughput until it finished (~03:20).
+- Location-dependent-label check (answers part of RESUME.md's open question): the dark-phase fraction in
+  windows at the centre or the four quadrant centres (r = 8-64 px) adds nothing beyond the global
+  dark fraction (partial correlations within +/-0.09, SE about 0.045; centre about 0). No sign of a
+  centre-located indent.
 
 ## State of `src/train_cnn.py` (rewritten; owned by cnn-trainer)
 - Honest CV: fixed OneCycle schedule, **final weights** predict the val fold (no per-fold checkpoint
@@ -29,13 +44,14 @@
 | name | input / aug | CV RMSE | folds | status |
 |---|---|---|---|---|
 | **cnn_r18_c224_e30** | raw, crop224, lr1e-3, 30 ep, mild b/c jitter | **13.787** | 14.118, 13.346, 14.593, 13.264, 13.569 | complete in experiments/ (62 min, 1 thread) |
-| cnn_r18_rawnlm_e30 (seeds 2) | raw+nlm, otherwise same | partial | f0: s0 14.004, s1 14.162, 2-seed mean **13.880**; f1: s0 12.664 | **paused**, 3 of 10 fold-seeds cached |
+| cnn_r18_rawnlm_e30 (seeds 2) | raw+nlm, otherwise same | 13.837 | 13.880, 12.634, 14.795, 14.150, 13.633 | complete in experiments/ (seed 0 alone 13.670, seed 1 alone 14.349) |
 
 Fold screens (`--no-test`, cache only, not in experiments/; resnet18, lr1e-3, crop224 unless noted):
 - fold 0, 20 ep: lr1e-3 14.115 vs lr3e-4 14.617
 - fold 0, 30 ep: crop256 (full image) 14.416 vs crop224 14.118. Crop 256 fits training data much better
   (loss 0.22 vs 0.37) but generalizes worse.
-- folds 0+1, raw+nlm: 14.004 / 12.664 (pooled 13.35) vs raw 14.118 / 13.346 (pooled 13.74). **NLM channel helps.**
+- folds 0+1, raw+nlm: 14.004 / 12.664 (pooled 13.35) vs raw 14.118 / 13.346 (pooled 13.74). Looked like a gain,
+  but the full 5-fold runs show it is within seed noise (see live status).
 - fold 0, raw+nlm, no brightness/contrast jitter: 15.077 (clear overfitting: train loss 0.28 vs 0.36)
 - folds 0+1, raw+nlm, strong jitter (c0.2, b0.06): 14.508 / 13.612. Mild jitter (c0.1, b0.03) is best.
 

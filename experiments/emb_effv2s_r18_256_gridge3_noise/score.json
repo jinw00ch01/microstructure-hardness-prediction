@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.40285433439181,
+  "fold_rmse": [
+    14.306919234368918,
+    11.907818044082447,
+    13.948546115629297,
+    13.736505246065112,
+    12.97863389883097
+  ],
+  "notes": "gridge3 head (inner-CV hp: lam_view=4,lam_cell=0,lam_aug=4,alpha=100 x4 lam_view=4,lam_cell=0,lam_aug=16,alpha=100 x1) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views) + resnet18.a1_in1k (apache-2.0, 256px, 4 views); stages=1,2,3 pools=mean,std view_mode=aug cells=global augs=True:noise extra_rows=tf_efficientnetv2_s.in21k_ft_in1k_256_augs2,resnet18.a1_in1k_256_augs2 view_std=False transform=none block_norm=False pca=0 feats=no; grid={\"lam_view\": [0, 4], \"lam_aug\": [4, 16, 64]}; licenses: apache-2.0"
+}

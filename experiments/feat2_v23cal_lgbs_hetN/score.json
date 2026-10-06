@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.007681850911393,
+  "fold_rmse": [
+    13.225003519237166,
+    13.044535261020814,
+    13.363526844611668,
+    12.864927254711533,
+    12.52390172498654
+  ],
+  "notes": "lgbs on features_v3.parquet,features_v2.parquet,features_cal.parquet; cols=all(335); 3 seeds; hetero weights var = b0 + sum b/(cal_seg_count_density,ic_ridge_snr) in-fold"
+}
