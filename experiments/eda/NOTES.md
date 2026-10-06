@@ -446,3 +446,20 @@ That would give a residual variance ∝ p(1−p)/N and slopes on p̂ attenuated 
 * The coarse-image 1/N residual is not phase-sampling noise. Pore-rate noise scales with image area, not N, so it
   cannot produce it either. As in the evening sections, the term behaves like equal-weight per-grain noise that is
   independent of phase.
+
+## 2026-10-06 (last): multi-dimensional nonlinear per-grain function, null (a48, a49)
+* Model: label = mean over grains of g(x_i), with g nonlinear and multi-dimensional.
+* Per-grain vector x_i (`a48_grain_table3.py`, 98.6k train grains): log area, log aspect, cos 2(θ − texture
+  direction), grey relative to the local matrix level, log raw grey std, boundary contrast, dark flag, neighbour count /
+  mean log area / dark share, log distance to the nearest pore, local zone size.
+* Per-image pooled bases, each number-weighted and area-weighted:
+  - 1-D cubic splines plus tensor products (size × grey, size × dark, grey × neighbour dark share): 107 columns
+  - 300 random Fourier features (length scales 2.5 and 5)
+* Cross-fitted ridge probes of the blend_v5 nested residual against the feat5 splmean base, clean-only and SNR-gated:
+  blend 12.483–12.547 vs 12.486 (constant-probe level 12.483), permutation p 0.14–0.86. Most probes collapse to the intercept.
+* Fold-paired additions to the feat5 splmean ridge:
+  - gated number-weighted splines: 12.595 → 12.566, but only 3/5 folds better, and one fold +0.23 worse
+  - gated random Fourier features: 12.741, worse on all 5 folds
+* No test-side extraction.
+* **This is the strongest evidence so far that the 1/N term is per-grain variation the image does not show.** Neither
+  single per-grain properties nor any smooth multi-dimensional function of them, pooled over grains, predicts it.
