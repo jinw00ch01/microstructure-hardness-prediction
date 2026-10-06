@@ -164,9 +164,17 @@ class Net(nn.Module):
                                 in_chans=len(a.input.split("+")),
                                 drop_path_rate=a.drop_path)
         nf = self.body.num_features
+        self.mode = a.pool
         self.pool = GeM() if a.pool == "gem" else None
+        nh = 2 * nf if a.pool in ("avgstd", "avgstd2") else nf
+        self._mid = None
+        if a.pool == "avgstd2":  # + spatial std of the stride-8 stage map (block-averaged to the final grid)
+            info = [d for d in self.body.feature_info if d["reduction"] == 8][-1]
+            dict(self.body.named_modules())[info["module"]].register_forward_hook(
+                lambda m, i, o: setattr(self, "_mid", o))
+            nh += info["num_chs"]
         self.drop = nn.Dropout(a.drop)
-        self.fc = nn.Linear(nf, 1)
+        self.fc = nn.Linear(nh, 1)
         nn.init.normal_(self.fc.weight, std=0.01)
         nn.init.zeros_(self.fc.bias)
 
@@ -174,7 +182,14 @@ class Net(nn.Module):
         f = self.body.forward_features(x)
         with torch.autocast(x.device.type, enabled=False):  # pooling + regression head in fp32
             f = f.float()
-            f = self.pool(f) if self.pool is not None else f.mean((-2, -1))
+            if self.mode in ("avgstd", "avgstd2"):
+                # mean + spatial std: keeps within-image heterogeneity (e.g. zones of coarse vs fine grains)
+                z = [f.mean((-2, -1)), f.std((-2, -1))]
+                if self.mode == "avgstd2":
+                    z.append(F.adaptive_avg_pool2d(self._mid.float(), f.shape[-2:]).std((-2, -1)))
+                f = torch.cat(z, 1)
+            else:
+                f = self.pool(f) if self.pool is not None else f.mean((-2, -1))
             return self.fc(self.drop(f)).squeeze(-1)
 
 
@@ -471,7 +486,8 @@ def parse(argv=None):
     ap.add_argument("--clip", type=float, default=0.0)
     ap.add_argument("--loss", choices=["mse", "huber"], default="mse")
     ap.add_argument("--huber-beta", type=float, default=1.0)
-    ap.add_argument("--pool", choices=["avg", "gem"], default="avg")
+    ap.add_argument("--pool", choices=["avg", "gem", "avgstd", "avgstd2"], default="avg",
+                    help="avgstd: concat spatial mean+std of the final map; avgstd2: + std of the stride-8 stage map")
     ap.add_argument("--drop", type=float, default=0.0)
     ap.add_argument("--drop-path", type=float, default=0.0)
     ap.add_argument("--ema", type=float, default=0.0, help="EMA decay (0 = off)")
