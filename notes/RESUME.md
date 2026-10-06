@@ -1,8 +1,18 @@
-# Resume guide (updated 2026-10-07 ~03:20 KST)
+# Resume guide (updated 2026-10-07 ~04:40 KST)
 
 Goal: public LB RMSE <= 10.
 
-## Night of 2026-10-07 (read this first)
+## Morning of 2026-10-07 (read this first)
+- **blend_v12 scored public 11.9094** (user, 04:25 KST), worse than v10 (11.8267) and about v7 (11.8795), although its
+  nested CV was 0.26 better. Not a bug: own columns are applied to the 333 high-noise test images exactly as to train
+  (feat7 - feat6 differences have sd 5.2 on both). On OOF the v12 - v10 direction correlates -0.21 with v10's errors; on
+  public about -0.03. The OOF gain was carried by a few images: the 10 most improved images give 73% of it, the
+  10%-trimmed mean gain is under half, the median about zero. Lesson: before handing over a file, check that the gain
+  is not concentrated (top-10 share, trimmed mean, median), not only folds and bootstrap.
+- Next submission: blend_v11 (CNN share 0.131, no own-slope member), testing whether a larger CNN share helps public.
+- Next GPU candidate: a CNN with a restored-image input channel (cnn-trainer prepares the code and laptop steps).
+
+## Night of 2026-10-07
 - **blend_v12** (nested CV 12.162 vs v11 12.407, 5/5 folds, paired bootstrap 90% of the difference [-0.41, -0.09]) is the
   next submission (delivered ~02:15 KST). New member `feat7_rawn3own_ridge_all` (weight 0.59): the feat6 restored ridge
   plus "own columns", raw v3+cal copied as n3_* only for images with raw ic_noise > 11.916 (train top-tercile cut; NaN
