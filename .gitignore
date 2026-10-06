@@ -13,3 +13,6 @@ data_restored/
 experiments/*/test.csv
 experiments/**/m_*.png
 experiments/**/montage_*.png
+# Public repo: files that carry train labels or test-image measurements stay local (backed up in the hardness-cache)
+experiments/eda/*_nested_oof.csv
+experiments/restore/apply_change.csv
