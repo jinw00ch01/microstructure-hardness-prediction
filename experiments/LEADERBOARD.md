@@ -35,3 +35,5 @@
 | feat2_v23cal_lgbs_hetN | 13.008 |  | lgbs on features_v3.parquet,features_v2.parquet,features_cal.parquet; cols=all(335); 3 seeds; hetero weights var = b0 + sum b/(cal_seg_count_density,ic_ridge_snr) in-fold |
 | blend_v3 (blend) | 12.982 |  | nested-CV, 29 models |
 | cnn_r18_rawnlm_e30_s3 | 13.823 |  | resnet18.a1_in1k in=raw+nlm norm=global ep30 bs16 crop224 lr0.001 hlr1.0 wd0.01 mse pool=avg drop0.0 dp0.0 ema0.0->final seeds3 aug(b0.03 c0.1 n0.03@0.5 blur1.0@0.0) tta8; fixed schedule, no val checkpoint selection |
+| blend_v2 (blend) | 12.963 | 12.3454 | public LB 2026-10-06 (user); LB #1 at that time 9.2442 |
+| cnn_r34d_rawnlm_e30 | 14.194 |  | resnet34d.ra2_in1k in=raw+nlm norm=global ep30 bs16 crop224 lr0.001 hlr1.0 wd0.01 mse pool=avg drop0.0 dp0.0 ema0.0->final seeds1 aug(b0.03 c0.1 n0.03@0.5 blur1.0@0.0) tta8; fixed schedule, no val checkpoint selection; snr-tercile rmse noisy/mid/clean 15.94/12.57/13.85 |
