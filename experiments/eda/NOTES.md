@@ -366,3 +366,56 @@ Cross-fitted against feat4 on clean images (snr > 0.9) and on all images.
   - null: the best group, all boundary features on all images, gives 12.603 (4/5 folds, p 0.24)
   - matrix boundary darkness tracks y (rho +0.36 on clean images) but not the residual (−0.10); feat4 already explains it
 * Nothing exported.
+
+## 2026-10-06 (late): audit against the five factors in the official description (a43-a46)
+Cross-fitted probes now use the **feat5_v3cal_ridge_het_spat_v4_splmean base** (`eda_cf.base(kind="feat5s")`).
+* The base is feat4 plus the `MilModel("splmean")` design rebuilt per split. It reproduces CV 12.595 exactly.
+* Probe outputs are added to the blend_v5 nested OOF (12.486).
+* Per-image measures come from `a43_size_audit.py` (watershed grains; I = untruncated interior grains).
+* "Clean" means snr > 0.9 (n=131).
+
+**(1) Grain-size estimator and Hall-Petch sign (a44): not restored.**
+* Model: OLS on clean images, y ~ g(d) + fd (ic_seg_fd91) + porosity (ic_pore68_frac) + alignment S + aspect,
+  with g = d^-1/2 or log d, using CV on the shared folds.
+* Without a size term the CV is 12.40. With any of the 17 estimators it is 12.44–12.61:
+  Jeffries count, count after dropping the largest 10/20% of area, median / mode / trimmed log area, number mean,
+  mean intercept (rows/cols, along/across the texture), area-weighted mean, calibrated N, v4c_la, autocorrelation length.
+* Every estimator gives coarser = harder (log d coefficient about +2.6 to +4.5), and every 90% bootstrap CI spans 0.
+* Raw rho(y, log d) is +0.25, mostly via the phase fraction: coarse images carry more dark phase (rho +0.29).
+* Joint fits pairing a nominal/count estimator with the area-weighted one flip the nominal term to finer = harder
+  (−0.9 to −3.1) and give the area-weighted term +3.8 to +5.4. That is the hypothesised pattern, but every CI is wide
+  and the CV does not improve.
+* All images (n=500): log d from N_cal gives **+5.2 HV per unit log d, 90% CI [+1.7, +9.5]**, controlling for cal fd,
+  porosity, ori_R and aspect. So "coarser = harder" holds once phase fraction is controlled; the description's "general
+  trends do not apply directly" fits this.
+* Robust estimators as residual probes: null (p 0.10–0.29). Output: `a44_hallpetch_clean.csv`.
+
+**(2) Alignment degree: null.**
+* Measures: S = |Σ w exp(2iθ)| / Σ w, number-, area- and elongation-weighted, per phase, plus mean log aspect per phase.
+  No absolute angle.
+* Probes: p 0.10–0.43.
+* All-image OLS: alignment −0.2 [−9.8, +9.0], about 0. Aspect is +6.7 [+1.6, +11.3] (more elongated = harder), and the
+  base already has it.
+
+**(3) Size-distribution width: marginal, not exported.**
+* Measures on interior grains: log-area sd and IQR, Gini, CV, skew, top-10% area share, Sarle bimodality, 2-GMM
+  Ashman D and minor weight, area-weighted sd and IQR, area share above 2× and 4× the median.
+* Clean-only probes: null.
+* SNR-gated (g = clip((snr−0.7)/0.4, 0, 1), columns g·x and g), all 13 measures:
+  - blend 12.486 → 12.448, p 0.03 over 200 shuffles
+  - the base itself does not improve (12.595 → 12.599)
+  - the robust 8-column subset is worse (p 1.0), and the large-grain shares are worse
+* Fold-paired screen (a46):
+  - feat5 splmean 12.595 → 12.584 (3/5 folds), milspl 12.616 → 12.596 (3/5), feat3 lgbs 12.789 → 12.767 (2/5)
+  - blend_v5 nested re-fit 12.486 → 12.452 (4/5); fixed weights 12.367 → 12.352 (3/5)
+* Below the bar the earlier candidates cleared (5/5 folds on both setups), and consistent with one chance hit among
+  about 30 tested groups. To regenerate: a34 + a43 on train and test, then gate as above.
+
+**(4) Porosity nonlinearity: null.**
+* Tested: cubic B-splines (5 quantile knots) of pore60 fraction, log count, log mean size and cal pore fraction; pore ×
+  fd and pore × log N interactions; spline(pore fraction) × fd.
+* Probes: p 0.14–0.62, both on all images and on clean images. feat5 already has a spline of block pore fraction.
+* All-image OLS: porosity −134 HV per unit fraction [−198, −62]. Pores soften roughly linearly.
+
+**(5) Size non-uniformity (zoning)** is what the afternoon heterogeneity features (lledge / ecs / lf, v4 spreads) already
+capture. Nothing further is detectable beyond feat5 (see the evening sections).

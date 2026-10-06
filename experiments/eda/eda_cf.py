@@ -15,7 +15,7 @@ from sklearn.linear_model import RidgeCV
 from eda_common import DATA_DIR, OUT, ROOT, blend_oof, rmse
 
 sys.path.insert(0, str(ROOT))
-from src.train_gbm import hetero_weights, load_features, make_model  # noqa: E402
+from src.train_gbm import MIL_CTX, MilModel, hetero_weights, load_features, make_model, mil_table  # noqa: E402
 
 D1 = "cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv"
 F4_FILES = "features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,features_v4.parquet"
@@ -23,11 +23,12 @@ F4_DROP = D1 + r",^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)$|c_(bd|la)_hp$)"
 F3L_FILES = ("features_v3.parquet,features_v2.parquet,features_cal.parquet,eda_feats_lledge.parquet,"
              "eda_feats_ecs.parquet,eda_feats_lf.parquet")
 CACHE = OUT / "_cf_cache.npz"
+_MILB = {}
 
 
-def table():
-    """blend_v4 nested OOF + v3/cal/v4 columns, rows in load_train() order."""
-    b = blend_oof("blend_v4")
+def table(blend="blend_v4"):
+    """blend nested OOF + v3/cal/v4 columns, rows in load_train() order."""
+    b = blend_oof(blend)
     f = load_features("features_v3.parquet,features_cal.parquet,features_v4.parquet")
     t = b.merge(f, on="ID", how="left")
     assert (t.ID.values == b.ID.values).all()
@@ -41,35 +42,55 @@ def f4_matrix(ids):
     return X.reset_index(drop=True)
 
 
-def _fit_pred(X, y, z, a, b):
-    w, _ = hetero_weights(X.iloc[a], y[a], z[a])
+def _splmean_design(train_ids, apply_ids):
+    """feat5 splmean extra design (src.train_gbm MilModel('splmean'); label-free, knots on the training split)."""
+    if "B" not in _MILB:
+        _MILB["B"] = mil_table()
+    B = _MILB["B"]
+    m = MilModel("splmean")
+    Dtr = m._img_design(B.loc[train_ids], fit=True)
+    k = Dtr.shape[1] - len(MIL_CTX)
+    Dap = m._img_design(B.loc[apply_ids], fit=False)
+    cols = [f"mil_phi{j}" for j in range(k)]
+    return pd.DataFrame(Dtr[:, :k], columns=cols), pd.DataFrame(Dap[:, :k], columns=cols)
+
+
+def _fit_pred(X, y, z, a, b, ids=None, kind="feat4"):
+    Xa, Xb = X.iloc[a], X.iloc[b]
+    if kind == "feat5s":
+        Da, Db = _splmean_design(ids[a], ids[b])
+        Xa = pd.concat([Xa.reset_index(drop=True), Da], axis=1)
+        Xb = pd.concat([Xb.reset_index(drop=True), Db], axis=1)
+    w, _ = hetero_weights(Xa, y[a], z[a])
     m = make_model("ridge")
-    m.fit(X.iloc[a], y[a], ridgecv__sample_weight=w)
-    return m.predict(X.iloc[b])
+    m.fit(Xa, y[a], ridgecv__sample_weight=w)
+    return m.predict(Xb)
 
 
-def base(t, use_cache=True):
-    """outer OOF of the base and, per outer fold, (train idx, test idx, inner cross-fitted residuals)."""
-    y, fold = t.hardness.values, t.fold.values
-    if use_cache and CACHE.exists():
-        d = np.load(CACHE, allow_pickle=True)
-        if (d["ids"] == t.ID.values).all():
+def base(t, use_cache=True, kind="feat4"):
+    """outer OOF of the base and, per outer fold, (train idx, test idx, inner cross-fitted residuals).
+    kind "feat4": feat4_v3cal_ridge_het_spat_v4 setup; "feat5s": feat5_v3cal_ridge_het_spat_v4_splmean setup."""
+    y, fold, ids = t.hardness.values, t.fold.values, t.ID.values
+    cache = CACHE if kind == "feat4" else CACHE.with_name(f"_cf_cache_{kind}.npz")
+    if use_cache and cache.exists():
+        d = np.load(cache, allow_pickle=True)
+        if (d["ids"] == ids).all():
             return d["oof"], d["inner"].item()
-    X = f4_matrix(t.ID.values)
+    X = f4_matrix(ids)
     assert X.shape[1] == 187, X.shape
     z = t[["ic_acg_len50_gm"]].values
     oof = np.zeros(len(y))
     inner = {}
     for k in range(5):
         tr_, te_ = np.where(fold != k)[0], np.where(fold == k)[0]
-        oof[te_] = _fit_pred(X, y, z, tr_, te_)
+        oof[te_] = _fit_pred(X, y, z, tr_, te_, ids, kind)
         ir = np.zeros(len(tr_))
         for j in sorted(set(fold[tr_])):
             a = tr_[fold[tr_] != j]
             bm = fold[tr_] == j
-            ir[bm] = y[tr_][bm] - _fit_pred(X, y, z, a, tr_[bm])
+            ir[bm] = y[tr_][bm] - _fit_pred(X, y, z, a, tr_[bm], ids, kind)
         inner[k] = (tr_, te_, ir)
-    np.savez(CACHE, ids=t.ID.values, oof=oof, inner=np.array(inner, dtype=object))
+    np.savez(cache, ids=ids, oof=oof, inner=np.array(inner, dtype=object))
     return oof, inner
 
 
@@ -112,7 +133,7 @@ class Reporter:
         d = [rmse(br[self.fold == k] - pr[self.fold == k], 0) - rmse(br[self.fold == k], 0) for k in range(5)]
         s = (f"[{name}]" + (f" {ncols} cols" if ncols is not None else "") +
              f" | corr(base res) {np.corrcoef(pr, self.base_res)[0, 1]:+.3f} base {rmse(self.base_res, 0):.3f}->"
-             f"{rmse(self.base_res - pr, 0):.3f} | blend_v4 {rmse(br, 0):.3f}->{rmse(br - pr, 0):.3f} "
+             f"{rmse(self.base_res - pr, 0):.3f} | blend {rmse(br, 0):.3f}->{rmse(br - pr, 0):.3f} "
              f"({sum(x < 0 for x in d)}/5 folds) |")
         for g in ("coarse", "mid", "fine"):
             m = terc == g
