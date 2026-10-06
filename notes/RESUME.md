@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-07 ~05:45 KST)
+# Resume guide (updated 2026-10-07 ~06:00 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -34,6 +34,23 @@ Goal: public LB RMSE <= 10.
   regime (-0.02 to -0.07, noisy; regime 1 then picks old members such as feat2_v3_lgb).
   The ensembler's covariate stacker (null on 2026-10-06, before the GPU CNNs) gives only -0.06 to -0.09 on these
   members: its linear/tercile forms cannot express the fine AND noisy cell.
+- Where blend_v16 still loses (nested OOF RMSE by calibrated grain-count tercile x raw ic_noise tercile): coarse-noisy
+  18.2 (every member 18.2-20), mid-noisy 13.9, coarse-midnoise 14.2; clean cells 7.9-13.0. In the noisy third the
+  predictions are too flat (slope of y on prediction 1.21) and dark-fraction measures correlate about 0.55 with
+  hardness vs 0.71 on clean images: the loss is measurement under heavy blur + white Gaussian noise (sd 16-21).
+- Null on top of v16 (2026-10-07 morning): degraded copies of clean train images as extra labelled rows (ridge/LGBM
+  worse), multi-scale GMM/threshold dark fractions (cal_ features stay best in noisy images), a noise-dependent stretch
+  (-0.035, 3/5 folds) or global stretch (-0.019), absolute elongation direction (|rho| < 0.04 with the residual).
+- The train-vs-test adversarial AUC of about 0.6 comes only from the 174 calibration-source train images:
+  `src.features.cal_apply` fits them in-sample (identity rows), so their cal_ values differ from comparable test images
+  (AUC 0.72; other train images vs test 0.54). It does not matter for predictions: validating with cross-fitted cal_
+  values changes member CV by -0.01 to +0.03, and retraining on a cross-fitted table is not better (scratchpad
+  `calxf/`). v4/v5 calibrations were already cross-fitted.
+- CNN prep committed (5e51ca1, cnn-trainer): `--input raw+nlm+rest` (restored channel), `--full` (all-train models,
+  test predictions only), `--scale S`; `src.restore --device cuda`. Laptop plan: `notes/handoff/laptop-gpu.md`
+  section 8, run order g (restored-channel effnetv2-s, 3 seeds), i (`--scale 2 --crop 112`, 3 seeds), then h1/h2
+  (full-data effnetv2-s x6, ConvNeXt x3). Asked the user ~05:55 KST for the GPU mode; nothing runs until they write
+  the line in the thread. Judge new CNNs by the fine_noisy cell RMSE (ev2s_s6 11.26) and by v16-style blends.
 - Full refit on all 500 train images (one model instead of the mean of 5 fold models) is worth little for the ridge
   members: one model on 400 rows vs the mean of 5 inner models on 320 rows gives -0.035 (feat6_rest_ridge_all) and
   -0.001 (feat5_v3cal_ridge_het_spat_v4_milspl). LightGBM members and the embedding head are being checked
