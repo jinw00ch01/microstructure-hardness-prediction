@@ -1,6 +1,98 @@
-# feature-engineer handoff (updated 2026-10-06, session 4: spatial heterogeneity + local grain-size map)
+# feature-engineer handoff (updated 2026-10-06, session 5: block-level multiple-instance model)
 
-## Session 4 summary
+## Session 5 summary: block-level MIL (tests the "local nonlinearity / Jensen term" reading)
+Result: the local (Jensen) term is not supported once the global and spread features are in the model. A nonlinear
+term in the calibrated block-mean measures does help the ridge member. Two ridge members were saved, both 4/5
+folds better than feat4. Use one of them, not both (error correlation 0.996).
+
+| exp | CV | folds | T1_noisy / T2 / T3_clean | coarse / mid / fine / clean-coarse |
+|---|---|---|---|---|
+| **feat5_v3cal_ridge_het_spat_v4_splmean** (feat4 ridge + B-splines of the image-mean calibrated block measures) | **12.595** | 13.136 12.049 12.864 12.678 12.216 | 14.748 / 11.881 / 10.823 | 15.49 / 12.08 / 9.48 / 13.20 |
+| feat5_v3cal_ridge_het_spat_v4_milspl (feat4 ridge + block means of the B-spline bases, the local MIL form) | 12.616 | 13.182 12.035 12.888 12.776 12.161 | 14.791 / 11.854 / 10.868 | 15.52 / 12.11 / 9.48 / 13.08 |
+| base feat4_v3cal_ridge_het_spat_v4 | 12.686 | 13.235 12.337 12.724 12.882 12.226 | 14.854 / 11.987 / 10.879 | 15.58 / 12.15 / 9.61 / 13.25 |
+
+Blends with feat3_v23cal_lgbs_het_spat (50/50):
+- splmean ridge: 12.496 (fold deltas -0.047 -0.129 +0.052 -0.091 -0.053)
+- milspl ridge: 12.492 (-0.047 -0.146 +0.043 -0.066 -0.076)
+- feat4 ridge: 12.549
+
+### Block table (`data/mil_blocks.parquet`, 73500 = 1500 images x 49 blocks)
+- Raw v4 block measures, plus `V4_EXTRA`: per-block versions of the v3 phase/pore features, from the same ic_
+  segmentation:
+  - per-grain dark fraction `sfd93/91/89` (grain-interior median < t; area >= 8; not a pore)
+  - pixel `fd2_93/87`, opened `fdo_93`, `deficit`
+  - `pore68/60_frac`, `pore_deficit`, `pore60_n`
+- Quality context.
+- Stage-1 calibrated block values `c_*`: same label-free, source-cross-fitted scheme as v4, inputs now include the
+  extra measures.
+
+  | column | held-out-source R² calibrated | R² raw |
+  |---|---|---|
+  | c_sfd93 | 0.88 | 0.36 |
+  | c_sfd91 | 0.89 | 0.35 |
+  | c_fdo93 | 0.87 | 0.50 |
+  | c_deficit | 0.85 | 0.27 |
+  | c_pore60 | 0.82 | 0.51 |
+  | c_bd | 0.65 | |
+  | c_la | 0.62 | |
+  | c_acd | 0.87 | |
+
+  Report: `data/mil_blocks_report.csv`.
+- The v4 files and `features_v4.parquet` are unchanged. The v5 files reproduce the V4_MEAS columns exactly.
+
+### Models and screens (`src/train_gbm.py` MIL section; shared folds by image)
+1. Block-level LightGBM, every block's target = its image's hardness, aggregated per image
+   (mean / valid-weighted mean / q10 / q50 / q90 / max / min / sd).
+   - Alone: 16.02 (15.78 after in-fold linear recalibration). It fails because the block-level fit is
+     attenuated: within-image variation of local measures acts as errors-in-variables, while the image-constant
+     context is not attenuated.
+   - Its cross-fitted aggregates add nothing: ridge -0.0002, lgbs -0.0001.
+2. Additive MIL fitted on the image-level loss ("ridge on splines"). Per block, B-splines (5 quantile knots, fitted
+   in-fold) of c_la, c_sfd93, c_pore60, c_acd and acr_len50, plus c_sfd93 x spline(c_la) and c_sfd93 x spline(c_acd).
+   These are averaged over blocks with valid-area weights, then RidgeCV at image level. A block prediction is
+   phi(x_b).beta, so the image fit is their weighted mean.
+   - Alone: 13.444. Its Jensen control (same splines of the image means) alone: 13.615. Local beats the control
+     on 4/5 folds here, but only without the global features.
+   - Cross-fitted aggregates (training rows get inner-OOF values; inner folds = the other shared folds):
+     - ridge 12.635 (-0.051, 3/5)
+     - lgbs 12.719 (-0.069, 3/5)
+     - blend 12.549 -> 12.506 (3/5)
+     - Not saved.
+3. The spline design itself added to the members, fitted jointly with the global features (`--mil_design`):
+   - ridge + local design: 12.616 (-0.070, 4/5). Permutation null with the 49-block sets shuffled across images
+     (10x): -0.008 to +0.284, mean +0.156.
+   - ridge + image-mean control: 12.595 (-0.091, 4/5). Local vs control: 2/5 folds. So inside the member the gain
+     is global nonlinearity, not the Jensen term.
+   - lgbs + local design: 12.817 (+0.028, 2/5). Not saved.
+- Fitted local functions (stand-alone additive model; "if every block had value x"):
+  - convex and increasing in local dark fraction: 189 -> 185 -> 193 -> 203 -> 226 HV at the q05..q95 values
+    0.01 / 0.07 / 0.13 / 0.21 / 0.37
+  - mildly increasing in local log grain area: +6 HV (fd 0) to +9 HV (fd 0.6) from q05 to q95, i.e. bigger = harder
+    and no Hall-Petch, as in EDA's physics fit
+  - The convex dark-fraction effect is what the linear ridge was missing. The lgbs already models it, which is why
+    lgbs gains nothing.
+
+### Commands (1 core)
+```
+taskset -c 0 python -W ignore -m src.features --v4_blocks --v4_extra --n_jobs 1           # v5_blocks_real.parquet, ~9 min
+taskset -c 0 python -W ignore -m src.features --v4_cal_build --v4_extra --n_aug 8 --snr_min 0.9 --n_jobs 1   # v5_blocks_cal.parquet, ~9 min
+taskset -c 0 python -W ignore -m src.features --mil_blocks                                # mil_blocks.parquet + _report.csv, ~5 min
+R="--feat features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,features_v4.parquet --model ridge --hetero ic_acg_len50_gm"
+taskset -c 0 python -W ignore -m src.train_gbm --mil splmean --mil_design $R --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --name feat5_v3cal_ridge_het_spat_v4_splmean
+taskset -c 0 python -W ignore -m src.train_gbm --mil spl --mil_design $R --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --name feat5_v3cal_ridge_het_spat_v4_milspl
+# screens: --mil lgb|spl|splmean --no_save (member alone); --mil lgb|spl --mil_stack <member flags> --no_save
+```
+- `run()` now takes `fold_extra` (fold-specific columns, e.g. cross-fitted stacked features). The refactor
+  reproduces the saved feat4 OOF to 6e-14.
+
+### Next ideas
+1. Grain-level MIL: one instance per watershed grain (phase level, area, aspect, neighbours), with area- and
+   number-weighted means of spline bases. It only works on clean images unless the per-grain measures are calibrated.
+2. Give the lgbs the calibrated block-mean measures as plain columns (`v4c_*_mean` exist; c_sfd93 / c_fdo93 /
+   c_pore60 means are not yet in a feature file).
+
+
+## Session 4 summary (spatial heterogeneity + local grain-size map)
 Best feature members now: **feat4_v3cal_ridge_het_spat_v4 (ridge, CV 12.686)** and
 **feat3_v23cal_lgbs_het_spat (lgbs, CV 12.789)**. Their 50/50 average is 12.549 with error correlation 0.941
 (feat3 pair: 12.611; feat2 pair: 12.868). I recommend these, plus feat3_v3cal_ridge_het_spat, in place of the feat2
@@ -163,6 +255,8 @@ was feat2_v23cal_lgbs_het, CV 12.991 (baseline feat_lgb 14.202). Session 4 super
 | `data/features_cal.parquet` | 1500x30 | `cal_*`: LightGBM maps (fitted on cal_pairs only; no labels, no test images) from degraded v3 features to clean-image measurements | `OMP_NUM_THREADS=1 python -W ignore -m src.features --cal_apply` (prints the held-out-source R2 = cal_eval report) | ~2 min |
 | `data/v4_blocks_real.parquet` / `v4_blocks_cal.parquet` | 73500x33 / 51352x40 | v4 per-block measurements (real train+test / degraded copies of 131 clean train images) | `--v4_blocks`, `--v4_cal_build` (see session 4) | ~10 / ~6 min |
 | `data/features_v4.parquet` | 1500x121 | v4 local grain-size map stats `v4r_/v4c_/v4i_` | `--v4_apply` | ~3 min |
+| `data/v5_blocks_real.parquet` / `v5_blocks_cal.parquet` | 73500x45 / 51352x52 | v4 block measures + `V4_EXTRA` phase/pore block measures (V4_MEAS columns identical to the v4 files) | `--v4_blocks --v4_extra`, `--v4_cal_build --v4_extra` | ~9 / ~9 min |
+| `data/mil_blocks.parquet` | 73500x53 | MIL block table: raw + calibrated `c_*` block values + context | `--mil_blocks` | ~5 min |
 | `data/eda_feats_{lledge,ecs,lf}.parquet` | 1500x7 / 11 / 20 | eda-analyst's spatial heterogeneity features (their scripts, see `experiments/eda/NOTES.md`) | eda-analyst | |
 
 Calibration held-out-source R2: per-grain dark fraction `ic_seg_fd91` 0.94 (raw degraded features r=0.88),

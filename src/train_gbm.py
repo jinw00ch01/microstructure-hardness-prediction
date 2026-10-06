@@ -189,7 +189,9 @@ def mono_vector(cols, spec):
 
 
 def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=0, es=False, drop=None, fwd=0,
-        hetero=None, mono=None, save=True, hetero_add=None):
+        hetero=None, mono=None, save=True, hetero_add=None, fold_extra=None, extra_note=""):
+    """fold_extra: optional {fold: (extra_train, extra_val, extra_test)} DataFrames of fold-specific columns
+    (e.g. cross-fitted stacked features), row-aligned with the training rows / validation rows / test rows."""
     tr, te = load_train(), load_test()
     feats = load_features(feat_file)
     use = select_columns([c for c in feats.columns if c != "ID"], cols)
@@ -203,7 +205,8 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     hz = hetero or hetero_add
     feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hz.split(",")].values if hz else None
     oof, pred = np.zeros(len(tr)), np.zeros(len(te))
-    imp = pd.Series(0.0, index=use)
+    extra_cols = list(fold_extra[0][0].columns) if fold_extra else []
+    imp = pd.Series(0.0, index=use + extra_cols)
     kind = "lgb_es" if (model == "lgb" and es) else model
     sel_log = []
     for f in range(5):
@@ -213,16 +216,23 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
             cols_f = forward_select(X.loc[trn, cols_f], y[trn], max_k=fwd)
             print(f"fold {f}: forward-selected {cols_f}", flush=True)
             sel_log.append(cols_f)
+        A_tr, A_va, A_te = X.loc[trn, cols_f], X.loc[val, cols_f], Xt[cols_f]
+        if fold_extra:
+            e_tr, e_va, e_te = fold_extra[f]
+            A_tr = pd.concat([A_tr, e_tr.set_axis(A_tr.index)], axis=1)
+            A_va = pd.concat([A_va, e_va.set_axis(A_va.index)], axis=1)
+            A_te = pd.concat([A_te, e_te.set_axis(A_te.index)], axis=1)
+            cols_f = list(A_tr.columns)
         w = None
         if hetero_add:
-            w, coef = hetero_weights_add(X.loc[trn, cols_f], y[trn], feats_tr_z[trn])
+            w, coef = hetero_weights_add(A_tr, y[trn], feats_tr_z[trn])
             print(f"fold {f}: additive var coefs {np.round(coef, 4).tolist()}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
         elif hetero:
-            w, coef = hetero_weights(X.loc[trn, cols_f], y[trn], feats_tr_z[trn])
+            w, coef = hetero_weights(A_tr, y[trn], feats_tr_z[trn])
             print(f"fold {f}: hetero log-var slopes {np.round(coef, 3).tolist()}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
         if kind in ("ridge_fs", "fwd"):
             from sklearn.linear_model import RidgeCV
-            A, Av, At = _std_matrix(X.loc[trn, cols_f], X.loc[val, cols_f], Xt[cols_f])
+            A, Av, At = _std_matrix(A_tr, A_va, A_te)
             m = RidgeCV(alphas=np.logspace(-2, 3, 30)).fit(A, y[trn], sample_weight=w)
             oof[val] = m.predict(Av)
             pred += m.predict(At) / 5
@@ -234,21 +244,20 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
                 m.set_params(monotone_constraints=list(mono_vector(cols_f, mono)),
                              monotone_constraints_method="intermediate")
             if kind == "lgb_es":
-                m.fit(X.loc[trn, cols_f], y[trn], eval_set=[(X.loc[val, cols_f], y[val])],
-                      callbacks=[lgb.early_stopping(200, verbose=False)])
+                m.fit(A_tr, y[trn], eval_set=[(A_va, y[val])], callbacks=[lgb.early_stopping(200, verbose=False)])
             elif kind == "cat" and es:
-                m.fit(X.loc[trn, cols_f], y[trn], eval_set=(X.loc[val, cols_f], y[val]), early_stopping_rounds=300)
+                m.fit(A_tr, y[trn], eval_set=(A_va, y[val]), early_stopping_rounds=300)
             elif kind in ("ridge", "svr"):
                 step = m.steps[-1][0]
-                m.fit(X.loc[trn, cols_f], y[trn], **({f"{step}__sample_weight": w} if w is not None else {}))
+                m.fit(A_tr, y[trn], **({f"{step}__sample_weight": w} if w is not None else {}))
             else:
-                m.fit(X.loc[trn, cols_f], y[trn], sample_weight=w)
+                m.fit(A_tr, y[trn], sample_weight=w)
             if hasattr(m, "feature_importances_"):
                 imp[cols_f] += np.asarray(m.feature_importances_, float) / seeds
             elif hasattr(m, "get_feature_importance"):
                 imp[cols_f] += m.get_feature_importance() / seeds
-            oof[val] += m.predict(X.loc[val, cols_f]) / seeds
-            pred += m.predict(Xt[cols_f]) / (5 * seeds)
+            oof[val] += m.predict(A_va) / seeds
+            pred += m.predict(A_te) / (5 * seeds)
     if imp.any():
         print((imp / imp.sum()).sort_values(ascending=False).head(30).round(4).to_string())
     notes = f"{model} on {feat_file}; cols={cols or 'all'}({len(use)})"
@@ -268,6 +277,8 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
         notes += f"; hetero weights ~ log-var(log {hetero}) in-fold"
     if mono:
         notes += f"; monotone({mono})"
+    if extra_note:
+        notes += f"; {extra_note}"
     terc = tercile_rmse(tr, oof)
     if not save:
         from .common import rmse
@@ -282,6 +293,203 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     if sel_log:
         (EXP_DIR / name / "selected.txt").write_text("\n".join(",".join(c) for c in sel_log))
     return out
+
+
+# =====================================================================================================
+# Block-level multiple-instance model (MIL). Tests whether hardness behaves like an area average of a
+# nonlinear LOCAL function of grain size / phase / pores (the Jensen term that global features miss).
+# Blocks: data/mil_blocks.parquet (7x7 grid of 64 px blocks per image, raw + calibrated local measures and
+# image quality context; built by `python -m src.features --mil_blocks`). Folds are the shared image folds,
+# so no image is ever split between training and validation.
+#   kind "lgb":     LightGBM on blocks, every block's target = its image's hardness; block predictions are
+#                   aggregated per image (mean, valid-area-weighted mean, q10/q50/q90, max, min, sd).
+#   kind "spl":     additive MIL model fitted on the aggregated loss: per-block B-spline bases (+ dark-fraction x
+#                   size-spline products), valid-area-weighted mean over the image's blocks, RidgeCV at image level.
+#                   Its block prediction is phi(x_b).beta, so the weighted mean of block predictions is the image fit.
+#   kind "splmean": Jensen control: the same splines applied to the image-mean block measures (f(mean x), not
+#                   mean f(x)).
+# Stacking: mil_crossfit gives fold-specific aggregates for run(..., fold_extra=...): training rows get inner
+# out-of-fold aggregates (inner folds = the other shared folds), validation / test rows the outer fold model.
+#   python -m src.train_gbm --mil lgb --name mil_lgb [--no_save]
+#   python -m src.train_gbm --mil lgb --mil_stack --feat ... --model ridge ... --name ... [--no_save]
+# =====================================================================================================
+MIL_RAW = ["bd_ws", "la", "sfd93", "acr_len50", "acr_r4", "acr_r8", "sm_std", "grad_mean", "rline_mean", "dk_frac",
+           "fd2_93", "fdo_93", "deficit", "pore68_frac", "pore60_frac", "pore_deficit", "pore60_n", "valid_frac"]
+MIL_CAL = ["c_bd", "c_la", "c_acd", "c_sfd93", "c_sfd91", "c_fdo93", "c_deficit", "c_pore60"]
+MIL_CTX = ["ic_noise", "ic_spec_4_8", "ic_spec_8_16", "ic_spec_16_32", "ic_spec_32_48", "ic_spec_slope",
+           "v4_ridge_snr", "v4_M"]
+MIL_SPLINE_VARS = ["c_la", "c_sfd93", "c_pore60", "c_acd", "acr_len50"]
+MIL_NB = 49
+
+
+def mil_table():
+    b = pd.read_parquet(DATA_DIR / "mil_blocks.parquet").sort_values(["ID", "blk"])
+    assert (b.groupby("ID").size() == MIL_NB).all()
+    return b.set_index("ID")
+
+
+def _mil_lgb(seed):
+    return lgb.LGBMRegressor(n_estimators=1000, learning_rate=0.02, num_leaves=8, min_child_samples=300,
+                             subsample=0.7, subsample_freq=1, colsample_bytree=0.5, reg_lambda=5.0,
+                             random_state=seed, verbose=-1, n_jobs=N_THREADS)
+
+
+def _mil_wts(B):
+    return np.clip(B["valid_frac"].values.astype(float), 0.05, None)
+
+
+def mil_aggregate(pred, wv, prefix="mil"):
+    P = np.asarray(pred, float).reshape(-1, MIL_NB)
+    W = np.asarray(wv, float).reshape(-1, MIL_NB)
+    return pd.DataFrame({f"{prefix}_mean": P.mean(1), f"{prefix}_wmean": (P * W).sum(1) / W.sum(1),
+                         f"{prefix}_q10": np.quantile(P, 0.1, axis=1), f"{prefix}_q50": np.median(P, 1),
+                         f"{prefix}_q90": np.quantile(P, 0.9, axis=1), f"{prefix}_max": P.max(1),
+                         f"{prefix}_min": P.min(1), f"{prefix}_sd": P.std(1)})
+
+
+class MilModel:
+    def __init__(self, kind, seeds=1):
+        self.kind, self.seeds = kind, seeds
+
+    # ---- spline design (fitted on training blocks / images only)
+    def _basis(self, B, fit):
+        from sklearn.preprocessing import SplineTransformer
+        V = B[MIL_SPLINE_VARS].astype(float)
+        if fit:
+            self.med_ = V.median()
+        V = V.fillna(self.med_)
+        if fit:
+            self.st_ = {c: SplineTransformer(n_knots=5, degree=3, knots="quantile", extrapolation="linear",
+                                             include_bias=False).fit(V[[c]].values) for c in MIL_SPLINE_VARS}
+        parts = [self.st_[c].transform(V[[c]].values) for c in MIL_SPLINE_VARS]
+        size = self.st_["c_la"].transform(V[["c_la"]].values)
+        parts.append(size * V[["c_sfd93"]].values)                 # per-phase grain-size effect
+        parts.append(self.st_["c_acd"].transform(V[["c_acd"]].values) * V[["c_sfd93"]].values)
+        return np.hstack(parts)
+
+    def _img_design(self, B, fit):
+        w = _mil_wts(B).reshape(-1, MIL_NB)
+        if self.kind == "spl":
+            Phi = self._basis(B, fit)
+            k = Phi.shape[1]
+            Phi = Phi.reshape(-1, MIL_NB, k)
+            D = (Phi * w[..., None]).sum(1) / w.sum(1, keepdims=True)
+        else:  # splmean: splines of the image-mean measures
+            V = B[MIL_SPLINE_VARS].astype(float)
+            if fit:
+                self.vmed_ = V.median()
+            V = V.fillna(self.vmed_).values.reshape(-1, MIL_NB, len(MIL_SPLINE_VARS))
+            M = pd.DataFrame((V * w[..., None]).sum(1) / w.sum(1, keepdims=True), columns=MIL_SPLINE_VARS)
+            D = self._basis(M, fit)
+        ctx = B[MIL_CTX].astype(float).values.reshape(-1, MIL_NB, len(MIL_CTX))[:, 0, :]
+        return np.hstack([D, ctx])
+
+    def fit(self, B, y_img, w_img=None):
+        if self.kind == "lgb":
+            self.cols_ = MIL_CAL + MIL_RAW + MIL_CTX
+            yb = np.repeat(y_img, MIL_NB)
+            wb = np.repeat(w_img, MIL_NB) if w_img is not None else None
+            self.models_ = [_mil_lgb(SEED + s).fit(B[self.cols_], yb, sample_weight=wb) for s in range(self.seeds)]
+            return self
+        D = self._img_design(B, fit=True)
+        self.mu_, self.sd_ = np.nanmean(D, 0), np.nanstd(D, 0)
+        self.sd_[self.sd_ == 0] = 1.0
+        self.ridge_ = RidgeCV(alphas=np.logspace(-2, 4, 40)).fit((D - self.mu_) / self.sd_, y_img, sample_weight=w_img)
+        return self
+
+    def predict_blocks(self, B):
+        if self.kind == "lgb":
+            return np.mean([m.predict(B[self.cols_]) for m in self.models_], 0)
+        if self.kind == "spl":   # block prediction phi(x_b).beta (+ context part); weighted mean = image fit
+            Phi = self._basis(B, fit=False)
+            ctx = B[MIL_CTX].astype(float).values
+            D = np.hstack([Phi, ctx])
+            return self.ridge_.predict((D - self.mu_) / self.sd_)
+        D = self._img_design(B, fit=False)   # splmean: one prediction per image, repeated over its blocks
+        return np.repeat(self.ridge_.predict((D - self.mu_) / self.sd_), MIL_NB)
+
+
+def mil_crossfit(kind, seeds=1, inner=True, w_fn=None):
+    """Outer OOF aggregates (train), test aggregates (mean of the 5 outer models) and, if inner, fold_extra
+    for run(): {f: (inner-OOF aggregates of fold f's training images, outer aggregates val, outer aggregates test)}."""
+    tr, te = load_train(), load_test()
+    B = mil_table()
+    y, fold = tr.hardness.values, tr.fold.values
+    ids, te_ids = tr.ID.values, te.ID.values
+    Bte = B.loc[te_ids]
+    oof = None
+    test = 0.0
+    fold_extra = {}
+
+    def fit_pred(fit_ids, fit_y, app):
+        m = MilModel(kind, seeds).fit(B.loc[fit_ids], fit_y, w_fn(fit_ids, fit_y) if w_fn else None)
+        return [mil_aggregate(m.predict_blocks(Ba), _mil_wts(Ba)) for Ba in app]
+
+    for f in range(5):
+        trn, val = fold != f, fold == f
+        a_val, a_te = fit_pred(ids[trn], y[trn], [B.loc[ids[val]], Bte])
+        if oof is None:
+            oof = pd.DataFrame(np.nan, index=np.arange(len(tr)), columns=a_val.columns)
+        oof.loc[np.where(val)[0]] = a_val.values
+        test = test + a_te / 5.0
+        if inner:
+            inn = pd.DataFrame(np.nan, index=np.arange(trn.sum()), columns=a_val.columns)
+            pos = np.where(trn)[0]
+            for j in [j for j in range(5) if j != f]:
+                fit_m, app_m = trn & (fold != j), fold == j
+                (a_j,) = fit_pred(ids[fit_m], y[fit_m], [B.loc[ids[app_m]]])
+                inn.loc[np.searchsorted(pos, np.where(app_m)[0])] = a_j.values
+            fold_extra[f] = (inn.reset_index(drop=True), a_val.reset_index(drop=True), a_te.reset_index(drop=True))
+        print(f"mil {kind} fold {f} done", flush=True)
+    return oof, test, fold_extra
+
+
+def mil_design_fold_extra(B=None, kind="spl"):
+    """Per-fold MIL spline design (no labels involved; knots fitted on the training split only), context excluded.
+    kind "spl": valid-area-weighted block mean of the B-spline bases (mean f(x_b), local / Jensen form);
+    kind "splmean": B-splines of the valid-area-weighted image means of the same block measures (f(mean x))."""
+    tr, te = load_train(), load_test()
+    B = mil_table() if B is None else B
+    fe = {}
+    for f in range(5):
+        trn, val = (tr.fold != f).values, (tr.fold == f).values
+        m = MilModel(kind)
+        Dtr = m._img_design(B.loc[tr.ID.values[trn]], fit=True)
+        k = Dtr.shape[1] - len(MIL_CTX)
+        cols = [f"mil_phi{j}" for j in range(k)]
+        mk = lambda D: pd.DataFrame(D[:, :k], columns=cols)
+        fe[f] = (mk(Dtr), mk(m._img_design(B.loc[tr.ID.values[val]], fit=False)),
+                 mk(m._img_design(B.loc[te.ID.values], fit=False)))
+    return fe
+
+
+def mil_run(kind, name, save=True, mil_seeds=1, stack=False, member_pred="mil_wmean", w_fn=None, design=False,
+            **run_kw):
+    from .common import rmse
+    if design:   # additive MIL terms fitted jointly with the member's global features
+        form = ("valid-weighted block means of B-splines" if kind == "spl" else
+                "B-splines of the valid-weighted image means (Jensen control)")
+        return run(save=save, name=name, fold_extra=mil_design_fold_extra(kind=kind),
+                   extra_note=f"+ MIL {kind} design ({form} of block c_la, c_sfd93, c_pore60, c_acd, acr_len50 + "
+                              "c_sfd93 x spline(c_la), c_sfd93 x spline(c_acd); knots in-fold)", **run_kw)
+    tr, te = load_train(), load_test()
+    y = tr.hardness.values
+    seeds = mil_seeds
+    oof_a, test_a, fold_extra = mil_crossfit(kind, seeds=mil_seeds, inner=stack, w_fn=w_fn)
+    fr = lambda p: [round(rmse(p[tr.fold == k], y[tr.fold == k]), 3) for k in range(5)]
+    for c in ("mil_mean", "mil_wmean"):
+        print(f"[MIL {kind} alone, {c}] CV {rmse(oof_a[c].values, y):.4f} folds {fr(oof_a[c].values)} "
+              f"terciles {tercile_rmse(tr, oof_a[c].values)}", flush=True)
+    note = f"block MIL {kind} ({seeds} seeds) on mil_blocks.parquet"
+    if not stack:
+        oof, pred = oof_a[member_pred].values, test_a[member_pred].values
+        if save:
+            save_experiment(name, tr, oof, te, pred, notes=f"{note}; member = {member_pred} of block predictions")
+            import json
+            (EXP_DIR / name / "tercile_rmse.json").write_text(json.dumps(tercile_rmse(tr, oof)))
+        return oof_a
+    return run(save=save, name=name, fold_extra=fold_extra,
+               extra_note=f"+ cross-fitted {note} aggregates (inner folds = other shared folds)", **run_kw)
 
 
 if __name__ == "__main__":
@@ -299,7 +507,17 @@ if __name__ == "__main__":
     ap.add_argument("--mono", default=None, help="regexes of +monotone columns for lgb ('-regex' = decreasing)")
     ap.add_argument("--no_save", action="store_true", help="screening run: print CV only, write nothing")
     ap.add_argument("--hetero_add", default=None, help="columns z_k for additive variance b0 + sum b_k/z_k")
+    ap.add_argument("--mil", default=None, choices=["lgb", "spl", "splmean"], help="block-level MIL model")
+    ap.add_argument("--mil_stack", action="store_true", help="add cross-fitted MIL aggregates to --model/--feat")
+    ap.add_argument("--mil_seeds", type=int, default=1)
+    ap.add_argument("--mil_design", action="store_true", help="add the spline-mean MIL design itself to --model/--feat")
     a = ap.parse_args()
     fwd = a.fwd or (20 if a.model == "fwd" else 0)
+    if a.mil:
+        kw = dict(model=a.model, feat_file=a.feat, cols=a.cols, seeds=a.seeds, drop=a.drop, hetero=a.hetero,
+                  hetero_add=a.hetero_add) if (a.mil_stack or a.mil_design) else {}
+        mil_run(a.mil, a.name or f"mil_{a.mil}", save=not a.no_save, mil_seeds=a.mil_seeds, stack=a.mil_stack,
+                design=a.mil_design, **kw)
+        raise SystemExit
     run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd,
         a.hetero, a.mono, not a.no_save, a.hetero_add)

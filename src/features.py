@@ -1077,8 +1077,12 @@ def _ac_len(p, lv=0.5):
     return out
 
 
-def _v4_measure(raw8):
-    """Per-block measurements of one image (real or degraded) -> (context dict, DataFrame of 49 blocks)."""
+def _v4_measure(raw8, extra=False):
+    """Per-block measurements of one image (real or degraded) -> (context dict, DataFrame of 49 blocks).
+
+    extra=True adds the per-block phase / pore measures of V4_EXTRA (same ic_ segmentation as extract_v3); the
+    V4_MEAS columns are unchanged by it.
+    """
     raw = raw8.astype(np.float32)
     H, W = raw.shape
     q = _quality_v3(raw)
@@ -1093,7 +1097,8 @@ def _v4_measure(raw8):
     pl = measure.label(ndi.binary_opening(sm1 < 0.68, structure=DISK1))
     keep = np.bincount(pl.ravel()) >= 6
     keep[0] = False
-    valid = ~ndi.binary_dilation(keep[pl], structure=DISK2, iterations=2)
+    pm68 = keep[pl]
+    valid = ~ndi.binary_dilation(pm68, structure=DISK2, iterations=2)
     rid = filters.sato(den, sigmas=[1.0, 1.5], black_ridges=True).astype(np.float32)
     rs = cv2.GaussianBlur(rid, (0, 0), 1.0)
     p99 = float(np.percentile(rs, 99))
@@ -1157,6 +1162,8 @@ def _v4_measure(raw8):
     for r in (4, 8):
         rows[f"acd_r{r}"] = pd_n[:, r]
     rows["valid_frac"] = nv / V4_B ** 2
+    if extra:
+        _v4_extra(rows, rn, sm1, sm2, pm68, ws, line, nreg, valid, pos, V, mmean)
     blk = pd.DataFrame(rows)
     blk.loc[~ok, [c for c in V4_MEAS if c != "valid_frac"]] = np.nan
     ctx = {k: q[k] for k in V4_CTX if k in q}
@@ -1165,36 +1172,85 @@ def _v4_measure(raw8):
     return ctx, blk
 
 
-def _v4_rows(img8, meta):
-    ctx, blk = _v4_measure(img8)
+V4_EXTRA = ["sfd93", "sfd91", "sfd89", "sgrain_frac", "fd2_93", "fd2_87", "fdo_93", "deficit", "pore68_frac",
+            "pore60_frac", "pore_deficit", "pore60_n"]
+
+
+def _v4_extra(rows, rn, sm1, sm2, pm68, ws, line, nreg, valid, pos, V, mmean):
+    """Per-block phase / pore measures (block versions of the v3 ic_seg_fd*, ic_fd2_*, ic_fdo_93, pore features)."""
+    pl = measure.label(ndi.binary_opening(sm1 < 0.60, structure=DISK1))
+    k60 = np.bincount(pl.ravel()) >= 6
+    k60[0] = False
+    pm60 = k60[pl]
+    # per-grain classification exactly as extract_v3: median level of the grain interior, area >= 8, not a pore
+    inner = ws.copy()
+    inner[ndi.binary_dilation(line, structure=DISK1)] = 0
+    G = np.zeros(ws.shape, bool)
+    D = {t: np.zeros(ws.shape, bool) for t in (0.93, 0.91, 0.89)}
+    if nreg > 0:
+        idx = np.arange(1, nreg + 1)
+        med = np.asarray(ndi.median(rn, inner, idx))
+        area = np.asarray(ndi.sum(np.ones_like(rn), inner, idx))
+        porefrac = np.asarray(ndi.mean(pm60.astype(np.float32), inner, idx))
+        okg = (area >= 8) & ~(porefrac > 0.5)
+        lut = np.zeros(nreg + 1, bool)
+        lut[1:] = okg
+        G = lut[inner]
+        for t in D:
+            lt = np.zeros(nreg + 1, bool)
+            lt[1:] = okg & (med < t)
+            D[t] = lt[inner]
+    Gs = _stack(G, pos)
+    for t, m in D.items():
+        rows[f"sfd{int(t * 100)}"] = mmean(_stack(m, pos).astype(float), Gs)
+    rows["sgrain_frac"] = Gs.mean((1, 2))
+    S2 = _stack(sm2, pos)
+    rows["fd2_93"] = mmean((S2 < 0.93).astype(float), V)
+    rows["fd2_87"] = mmean((S2 < 0.87).astype(float), V)
+    fo = ndi.binary_opening((sm2 < 0.93) & valid, structure=DISK2)
+    rows["fdo_93"] = mmean(_stack(fo, pos).astype(float), V)
+    rows["deficit"] = mmean(np.clip(1.0 - S2, 0, None), V)
+    P68, P60 = _stack(pm68, pos), _stack(pm60, pos)
+    rows["pore68_frac"] = P68.mean((1, 2))
+    rows["pore60_frac"] = P60.mean((1, 2))
+    rows["pore_deficit"] = (np.clip(1.0 - _stack(sm1, pos), 0, None) * P68).mean((1, 2))
+    lab60 = measure.label(pm60)
+    n60 = int(lab60.max())
+    c60 = np.asarray(ndi.center_of_mass(pm60, lab60, np.arange(1, n60 + 1)), float).reshape(-1, 2) if n60 else np.zeros((0, 2))
+    rows["pore60_n"] = np.array([((c60[:, 0] >= y) & (c60[:, 0] < y + V4_B) & (c60[:, 1] >= x) & (c60[:, 1] < x + V4_B)).sum()
+                                 for y in pos for x in pos], float)
+
+
+def _v4_rows(img8, meta, extra=False):
+    ctx, blk = _v4_measure(img8, extra=extra)
     blk.insert(0, "blk", np.arange(len(blk)))
     for k, v in {**meta, **ctx}.items():
         blk[k] = v
     return blk
 
 
-def _v4_real_one(i):
-    return _v4_rows(_read8(i), {"ID": i})
+def _v4_real_one(i, extra=False):
+    return _v4_rows(_read8(i), {"ID": i}, extra=extra)
 
 
-def _v4_cal_one(i, k, seed):
+def _v4_cal_one(i, k, seed, extra=False):
     rng = np.random.default_rng(seed)
     d, p = _degrade_v2(_read8(i), rng)
-    return _v4_rows(d, {"src": i, "k": k, **{f"aug_{kk}": v for kk, v in p.items()}})
+    return _v4_rows(d, {"src": i, "k": k, **{f"aug_{kk}": v for kk, v in p.items()}}, extra=extra)
 
 
-def v4_blocks(ids, n_jobs=1, out="v4_blocks_real.parquet"):
-    df = pd.concat(Parallel(n_jobs=n_jobs)(delayed(_v4_real_one)(i) for i in ids), ignore_index=True)
+def v4_blocks(ids, n_jobs=1, out="v4_blocks_real.parquet", extra=False):
+    df = pd.concat(Parallel(n_jobs=n_jobs)(delayed(_v4_real_one)(i, extra) for i in ids), ignore_index=True)
     df.to_parquet(DATA_DIR / out, index=False)
     print(df.shape, "->", out)
 
 
-def v4_cal_build(n_aug=8, snr_min=0.9, n_jobs=1, seed0=500000, out="v4_blocks_cal.parquet"):
+def v4_cal_build(n_aug=8, snr_min=0.9, n_jobs=1, seed0=500000, out="v4_blocks_cal.parquet", extra=False):
     v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet")
     tr = pd.read_csv(DATA_DIR / "train.csv")
     src = v3[v3.ID.isin(tr.ID) & (v3.ic_ridge_snr > snr_min)].ID.tolist()
     jobs = [(i, k, seed0 + 1000 * n + k) for n, i in enumerate(src) for k in range(n_aug)]
-    df = pd.concat(Parallel(n_jobs=n_jobs)(delayed(_v4_cal_one)(*j) for j in jobs), ignore_index=True)
+    df = pd.concat(Parallel(n_jobs=n_jobs)(delayed(_v4_cal_one)(*j, extra) for j in jobs), ignore_index=True)
     df.to_parquet(DATA_DIR / out, index=False)
     print(df.shape, "sources", len(src), "->", out)
 
@@ -1361,6 +1417,74 @@ def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet
     print(out_df.shape, "->", out)
 
 
+# =====================================================================================================
+# Block table for the multiple-instance (MIL) model in src/train_gbm.py. One row per image x 64 px block:
+# raw v4 + V4_EXTRA block measures, image quality context and stage-1 calibrated block values c_* (same
+# label-free, cross-fitted calibration as v4_apply; clean TRAIN sources only, no test image used for fitting).
+#   python -m src.features --v4_blocks --v4_extra --n_jobs 1      -> data/v5_blocks_real.parquet
+#   python -m src.features --v4_cal_build --v4_extra --n_jobs 1   -> data/v5_blocks_cal.parquet
+#   python -m src.features --mil_blocks                           -> data/mil_blocks.parquet (+ _report.csv)
+# =====================================================================================================
+MIL_CAL_TARGETS = {"c_bd": ("bd_ws", True), "c_la": ("la", False), "c_acd": ("acd_len50", False),
+                   "c_sfd93": ("sfd93", False), "c_sfd91": ("sfd91", False), "c_fdo93": ("fdo_93", False),
+                   "c_deficit": ("deficit", False), "c_pore60": ("pore60_frac", False)}
+
+
+def mil_blocks(real_file="v5_blocks_real.parquet", cal_file="v5_blocks_cal.parquet", out="mil_blocks.parquet"):
+    from sklearn.model_selection import GroupKFold
+    meas = V4_MEAS + V4_EXTRA
+    real = pd.read_parquet(DATA_DIR / real_file)
+    syn = pd.read_parquet(DATA_DIR / cal_file)
+    for df, key in ((real, "ID"), (syn, ["src", "k"])):
+        g = df.groupby(key)[meas].transform("mean")
+        for c in meas:
+            df[f"img_{c}"] = g[c].values
+    inputs = meas + V4_CTX + [f"img_{c}" for c in meas]
+    srcs = syn.src.unique()
+    ident = real[real.ID.isin(srcs)].copy()
+    ident["src"], ident["k"] = ident.ID, -1
+    S = pd.concat([syn[["src", "k", "blk"] + inputs], ident[["src", "k", "blk"] + inputs]], ignore_index=True)
+    real = real.sort_values(["ID", "blk"]).reset_index(drop=True)
+    clean = real.set_index(["ID", "blk"])
+    keys = list(zip(S.src, S.blk))
+    groups = S.src.values
+    folds = list(GroupKFold(5).split(S, groups=groups))
+    src_fold = {s_: fi for fi, (_, b) in enumerate(folds) for s_ in np.unique(groups[b])}
+    real_fold = real.ID.map(src_fold).values
+    deg = S.k.values >= 0
+    noise = S.ic_noise.values
+    out_df = real[["ID", "blk", "by", "bx"] + meas + V4_CTX].copy()
+    rep = {}
+    for name, (t, lg) in MIL_CAL_TARGETS.items():
+        y = clean.loc[keys, t].values.astype(float)
+        raw_meas = S[t].values.astype(float)
+        if lg:
+            y, raw_meas = np.log(np.maximum(y, 1e-3)), np.log(np.maximum(raw_meas, 1e-3))
+        ok = np.isfinite(y)
+        oof = np.full(len(y), np.nan)
+        pred = np.zeros(len(real))
+        for fi, (a, b) in enumerate(folds):
+            ia = a[ok[a]]
+            m = _lgb_cal().set_params(num_leaves=31, min_child_samples=50, n_estimators=400).fit(S.iloc[ia][inputs], y[ia])
+            oof[b] = m.predict(S.iloc[b][inputs])
+            p = m.predict(real[inputs])
+            pred += np.where(np.isnan(real_fold), p / 5.0, np.where(real_fold == fi, p, 0.0))
+        k = deg & ok & np.isfinite(oof) & np.isfinite(raw_meas)
+        r = {"R2_cal": 1 - np.mean((oof[k] - y[k]) ** 2) / np.var(y[k]),
+             "R2_raw": 1 - np.mean((raw_meas[k] - y[k]) ** 2) / np.var(y[k]),
+             "corr_raw": np.corrcoef(raw_meas[k], y[k])[0, 1]}
+        for lo, hi in CAL2_BANDS:
+            kb = k & (noise >= lo) & (noise < hi)
+            r[f"R2_cal_noise{lo:g}-{hi:g}"] = 1 - np.mean((oof[kb] - y[kb]) ** 2) / np.var(y[kb])
+        rep[name] = {kk: round(float(vv), 3) for kk, vv in r.items()}
+        out_df[name] = pred
+    rep = pd.DataFrame(rep).T
+    print(rep.to_string())
+    rep.to_csv(DATA_DIR / out.replace(".parquet", "_report.csv"))
+    out_df.to_parquet(DATA_DIR / out, index=False)
+    print(out_df.shape, "->", out)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--v2", action="store_true")
@@ -1383,10 +1507,16 @@ if __name__ == "__main__":
     ap.add_argument("--v4_blocks", action="store_true")
     ap.add_argument("--v4_cal_build", action="store_true")
     ap.add_argument("--v4_apply", action="store_true")
+    ap.add_argument("--v4_extra", action="store_true", help="add V4_EXTRA phase/pore block measures (v5_* files)")
+    ap.add_argument("--mil_blocks", action="store_true")
     a = ap.parse_args()
     if a.v4_cal_build:
         v4_cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, seed0=a.seed0 or 500000,
-                     out=a.cal_out or "v4_blocks_cal.parquet")
+                     out=a.cal_out or ("v5_blocks_cal.parquet" if a.v4_extra else "v4_blocks_cal.parquet"),
+                     extra=a.v4_extra)
+        raise SystemExit
+    if a.mil_blocks:
+        mil_blocks()
         raise SystemExit
     if a.v4_apply:
         v4_apply(out=a.cal_out or "features_v4.parquet")
@@ -1410,7 +1540,9 @@ if __name__ == "__main__":
     if a.limit:
         ids = ids[: a.limit]
     if a.v4_blocks:
-        v4_blocks(ids, n_jobs=a.n_jobs, out="v4_blocks_real.parquet" if not a.limit else "v4_blocks_sample.parquet")
+        stem = "v5_blocks" if a.v4_extra else "v4_blocks"
+        v4_blocks(ids, n_jobs=a.n_jobs, out=f"{stem}_real.parquet" if not a.limit else f"{stem}_sample.parquet",
+                  extra=a.v4_extra)
         raise SystemExit
     if a.v3:
         df = build(ids, extract_v3, n_jobs=a.n_jobs)
