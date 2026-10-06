@@ -717,11 +717,12 @@ if __name__ == "__main__":
     ap.add_argument("--cal_apply", action="store_true")
     ap.add_argument("--cal_eval", action="store_true")
     ap.add_argument("--n_aug", type=int, default=8)
+    ap.add_argument("--snr_min", type=float, default=0.9)
     ap.add_argument("--n_jobs", type=int, default=int(os.environ.get("N_JOBS", "-1")))
     ap.add_argument("--limit", type=int, default=0)
     a = ap.parse_args()
     if a.cal_build:
-        cal_build(n_aug=a.n_aug, n_jobs=a.n_jobs)
+        cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs)
         raise SystemExit
     if a.cal_apply or a.cal_eval:
         cal_apply(eval_only=a.cal_eval)
