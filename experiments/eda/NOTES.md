@@ -91,3 +91,140 @@ Scripts: `eda_common.py` (nested blend OOF + feature table), `a1_hetero.py` (ter
 (about 4 min on 1 core for train; a2 on test takes about 3 min).
 Outputs: `blend_v2_nested_oof.csv`, `a5_varfit.csv`, `a7_resid_feature_corr.csv`, `a11_floor_fits.csv`,
 `feature_hardness_spearman.csv`, `corrmap_*_b32.npy`, figures `fig_var_vs_invN.png`, `m_*.png`.
+
+---
+## 2026-10-06 (afternoon): coarse residual reopened after public LB 12.345 (LB #1 9.244)
+
+### Corrections to the morning section
+* "Clean images sit at the floor" was circular: b was fitted on the same residuals. The b/N fit cannot separate label
+  noise from model error that also scales as 1/N. **The floor numbers above are upper bounds on label noise, not a floor.**
+* Naive residual probes and my kNN test were **biased negative by stacking leakage**. The OOF residuals of the
+  training folds come from models that saw the held-out fold. Naive ridge probes on blend residuals gave −0.11 to −0.20
+  for every representation. Leakage-free probes (cross-fitted, below) show real positive structure.
+* Recommendation 4 ("no more grain / texture features for coarse images") is withdrawn.
+
+### Method used for every test below (a17b / a22)
+Per outer fold k:
+* base = RidgeCV on v3+cal (the feat2_v3cal_ridge setup) trained on the other 4 folds.
+* Inner 4-fold cross-fitted base residuals are computed inside those training folds.
+* probe = RidgeCV(candidate → inner residual), applied to fold k. No fold-k label touches it.
+* The same probe is added to the blend_v2 nested OOF.
+
+A constant-per-fold probe gives corr ≈ +0.08 and a blend change of 12.963 → 12.959. That is the null baseline. N terciles use
+`cal_seg_count_density`. "Clean" means `ic_ridge_snr > 0.5` in a22 and `> 0.9` in a29–a31.
+
+### 1. Linear probes (a17, a17b, a17c, a25)
+* **Global embeddings are null.** effv2s, r18, r18_nlm and cnxn give corr 0.02–0.08 (at the baseline). The full v1/v2/a8
+  feature tables give 0.08.
+* **Grid-cell heterogeneity is a positive signal:** the std of the pooled features over the 2x2 quadrant cells of the g2a
+  embeddings. effv2s cellstd: corr 0.17 with the base residual, blend 12.963 → 12.818, coarse 16.33 → 16.08.
+  - Permutation null over 40 shuffles: mean gain −0.015, max +0.05 (p < 0.025). 4 of 5 folds improve.
+  - Stages 0–1 carry it. `ecs_blk0/1` (4 numbers) gives blend 12.963 → 12.695; coarse 16.33 → 15.65 (corr 0.32);
+    clean-coarse 15.35 → 14.36 (corr 0.40). Fine images don't improve.
+  - It replicates on other backbones (stage 0–1, 4 numbers): r18 12.963 → 12.805 (coarse 15.89), cnxn → 12.843.
+* What it tracks:
+  - `ecs_blk0_std` is quadrant heterogeneity of low-level edge / texture energy. It correlates 0.68 (all) and 0.84 (clean)
+    with `ll2_edge_sd`, and 0.52 with the grain-count CV across quadrants.
+  - `ecs_blk0_mean` is mostly shading (0.66–0.75 with q_illum_range). Shading alone is null.
+
+### 2. Physics forms on clean images (a18, a20)
+* I fitted parametric forms by soft-L1 least squares on the shared folds, restricted to clean rows:
+  - rule of mixtures on area or number fraction
+  - per-phase Hall-Petch, both d^-1/2 and linear-d forms
+  - porosity terms: (1−cφ), exp(−bφ), (1−φ)^n
+  - aspect terms
+* None beats the blend. On snr > 0.5 (n=261) the blend is 11.71, mix_area 12.50, and the best form 12.10.
+  The coarse tercile is 15.30 against the blend's 15.32.
+* Area fraction is far better than number fraction (12.50 vs 15.03). Fitted H_matrix ≈ 176 and H_dark ≈ 303 HV.
+  The Hall-Petch terms are tiny and favour "bigger = harder". Porosity coefficients are about 0.
+* My robust per-grain phase measure (global shading surface, a18) is no better than ic_seg_fd91 (Spearman 0.70 vs 0.70).
+  So the local-background normalisation does not corrupt coarse images.
+
+### 3. Spatial arrangement of the dark phase (a21) and 4. border / largest grains (a18): null
+All of these sit at the fold-mean baseline (blend 12.959):
+* connectivity, largest component, spanning x / y / along the axis, Euler number
+* contiguity C_dd
+* normalised two-point S2(r) for r = 4..96, isotropic / along / across the axis
+* lineal path, banding index
+* window dispersion vs the binomial expectation
+* dark-grain alignment
+* border-cut area shares by phase
+* phase, share and aspect of the 3 largest grains
+
+The only exception is contiguity (blend 12.940; clean-coarse 15.35 → 15.14, but fine images get worse). This is a weak hint, not a result.
+
+### New: spatial heterogeneity of grain size (a23, a29, a30), seen on clean images
+* Visual check (`m_clean_extreme_resid.png`, `m_ecs_b0std_extremes.png`): positive-residual clean images are duplex or zoned.
+  Regions of large grains sit next to regions of small grains.
+* Feature: a local mean log grain-area field from watershed grains (Gaussian σ = 32 px, area-weighted, 8x8 grid).
+  - On snr > 0.9 (n=131), `lf_la_sd_rel` (field std / global log-area std) has Spearman with the blend residual +0.30
+    overall and +0.48 on coarse images. On snr > 1.2 (n=77) it is +0.36 overall and +0.66 on coarse.
+  - The coarsest local region (`loc_max`), controlled for the global number- and area-weighted mean log area, has partial
+    ρ = +0.32 to +0.37. The finest region gives −0.09.
+  - Moran's I of log area is weaker (+0.15 to +0.23).
+* Same direction as the global "coarser = harder" finding: zones of large grains raise hardness beyond what mean-size features predict.
+
+### CV gains: fold-paired, saved setups, `--no_save` (a31; `src.train_gbm.run`, save=False)
+| added to | ridge het (v3+cal) | lgbs het (v3+v2+cal, 3 seeds) |
+|---|---|---|
+| nothing | 13.101 [13.80 12.76 13.22 13.00 12.70] | 12.991 [13.35 12.91 13.31 12.80 12.57] |
+| `eda_feats_lledge` | **12.854** (5/5 folds better) | **12.796** (5/5) |
+| `eda_feats_ecs` | 12.907 (5/5) | 12.919 (5/5) |
+| `eda_feats_lf` | 13.160 (worse, linear model) | 12.877 (5/5) |
+| all three | **12.824** (5/5) | **12.771** (4/5) |
+| edge only (4 cols) / noise only (2) / ll2_edge_sd only | 12.881 / 13.066 / 13.012 | 12.892 / 12.975 / 12.939 |
+
+Blend check: blend_v2 weights with both feature members swapped for the +all-three versions.
+
+| | overall | coarse | mid | fine | clean-coarse |
+|---|---|---|---|---|---|
+| base (in-sample weights) | 12.815 | 16.15 | 11.95 | 9.44 | 14.94 |
+| + all three | **12.634** | 15.79 | 11.92 | 9.35 | 14.21 |
+
+All 5 folds improve (fold deltas −0.21, −0.01, −0.21, −0.18, −0.29). Most of the gain is in the coarse tercile.
+
+Variance model on these residuals (a32): the b/N coefficient drops from 27.65k to 25.6k (−7%); c/snr is unchanged.
+So at least about 7% of the "label-noise" term was model error, and it is visible in the images.
+
+### Feature definitions (fixed per-image transforms; train + test in `data/`)
+* `data/eda_feats_lledge.parquet` (a28; raw uint8 image as float):
+  - g = |∇ Gauss_σ1(raw)| via np.gradient.
+  - Block means of g over 2x2 blocks (128 px) and 4x4 blocks (64 px).
+  - `ll{2,4}_edge_sd` = std over blocks / raw mean. `ll{2,4}_edge_rng` = (max−min) / raw mean.
+  - `ll2_noise_{sd,rng}` = the same over 2x2 blocks of 1.4826·MAD(raw − box3x3(raw)).
+* `data/eda_feats_ecs.parquet` (a27): from `data/emb/tf_efficientnetv2_s.in21k_ft_in1k_256_g2a.npy` (6 views × 5 cells; cell 0 = global).
+  - Take views id / hflip / transpose / rot90.
+  - Compute the std over the 4 quadrant cells, average over views, apply sign·log1p, then average over the channels
+    of each stage/pool block → `ecs_blk{0..4}_{mean,std}`.
+  - Stages 0–1 carry the signal.
+* `data/eda_feats_lf.parquet` (a30; needs the a2 caches rn / ws): watershed grains (area ≥ 12, non-pore).
+  - Global stats: `lf_la_n`, `lf_la_w`, `lf_la_sd`.
+  - Local log-area field at σ = 32 / 48 px: sd, range, max, min, sd_rel, max − global area-weighted mean.
+  - `lf_dk{s}_sd`, `lf_mi_la_48`, `lf_n`.
+  - Only meaningful where the watershed works (snr ≳ 0.9). It hurts ridge and helps LGB, which can gate on snr.
+
+### Recommendations (replace the morning list)
+1. feature-engineer: add `eda_feats_lledge` + `eda_feats_ecs` (+ `eda_feats_lf` for GBMs) and re-blend.
+   Expect about −0.15 to −0.2 CV at the blend level (fold-paired above).
+2. embedding-modeler / CNN: the signal is **spatial heterogeneity of low-level texture / grain size between image regions**,
+   and global average pooling throws it away.
+   - Add cross-cell statistics: std / range over a 2x2 and 4x4 grid of the stage 0–2 feature maps, as head inputs.
+   - For end-to-end CNNs, try heads that pool std and max over spatial cells, not only the mean.
+   - For multi-crop models, add cross-crop variance.
+   - This is the most direct route to the coarse residual. A GPU CNN that sees full-resolution spatial structure is the
+     natural next step.
+3. Measure local grain size robustly on noisy images: a boundary-density map per 64 px block from a denoised ridge filter,
+   calibrated like `cal_` on synthetic degradations of clean train images. Then use max / quantiles / sd of that map. On
+   clean images the coarsest-zone statistic (`lf32_max_minus_w`, `lf*_sd_rel`) is the strongest single cue.
+4. Treat the morning floor (about 11) as invalid. The b/N term is at least partly model error, and LB 9.24 shows much more is
+   recoverable.
+
+New scripts: a17, a17b, a17c, a18, a18b, a20–a32. Figures: `m_cellstd_probe_coarse.png`, `m_graincount_heterogeneity.png`,
+`m_clean_extreme_resid.png`, `m_ecs_b0std_extremes.png`, `fig_clean_scatter.png`.
+
+### Train vs test shift of the new features (unsupervised; per-column KS, standardised mean difference)
+* The 35 columns of the three files show no meaningful shift: max KS 0.092 (`ecs_blk1_mean`, p 0.007, the only p < 0.01)
+  and |SMD| ≤ 0.14.
+* Test images are slightly *more* heterogeneous: SMD +0.10 for `ll2_edge_sd`, +0.14 for `ecs_blk0_std`. If the effect
+  is real, the gain should carry over to the LB, or slightly exceed CV.
+* NaN rate of `lf_*`: 3.2% train, 3.3% test.

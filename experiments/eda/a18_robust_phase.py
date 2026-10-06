@@ -73,12 +73,12 @@ for k, i in enumerate(ids):
         surf = D @ coef
         ratio = m_ok / np.maximum(surf, 1.0)
         # 2-cluster split on log ratio: valley of area-weighted histogram between 0.70 and 0.97
-        hist, edges = np.histogram(np.log(ratio), bins=np.linspace(np.log(0.6), np.log(1.15), 56), weights=A_ok)
+        hist, edges = np.histogram(np.log(ratio[ratio > 0.68]), bins=np.linspace(np.log(0.6), np.log(1.15), 56), weights=A_ok[ratio > 0.68])
         hs = np.convolve(hist, np.ones(3) / 3, mode="same")
         ctr = np.exp(0.5 * (edges[1:] + edges[:-1]))
-        cand = (ctr > 0.72) & (ctr < 0.96)
+        cand = (ctr > 0.83) & (ctr < 0.95)
         thr = 0.90
-        if cand.any() and (ratio < 0.85).sum() >= 2:
+        if cand.any() and ((ratio < 0.85) & (ratio > 0.68)).sum() >= 2:
             j = np.argmin(np.where(cand, hs, np.inf))
             thr = float(ctr[j])
         mx = ratio >= thr
@@ -98,6 +98,8 @@ for k, i in enumerate(ids):
         "rp_contrast": float(np.median(ratio[dk])) if dk.any() else np.nan,
         "rp_fd_area": float(A[dk].sum() / A.sum()),
         "rp_fd_num": float(dk.mean()),
+        "rp_fd90_area": float(A[ratio < 0.90].sum() / A.sum()), "rp_fd88_area": float(A[ratio < 0.88].sum() / A.sum()),
+        "rp_fd92_area": float(A[ratio < 0.92].sum() / A.sum()), "rp_fd90_num": float((ratio < 0.90).mean()),
         "rp_fd_area_int": float(Aint[dk_int].sum() / Aint.sum()) if Aint.sum() > 0 else np.nan,
         "rp_fd_num_int": float(dk_int.mean()) if len(dk_int) else np.nan,
         "rp_n": int(ok.sum()), "rp_n_int": int((~border[ok]).sum()), "rp_nd": int(dk.sum()),
