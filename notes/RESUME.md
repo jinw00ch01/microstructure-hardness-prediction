@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-07 ~05:20 KST)
+# Resume guide (updated 2026-10-07 ~05:45 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -23,6 +23,17 @@ Goal: public LB RMSE <= 10.
   25 cut combinations (train quantiles 0.33-0.67) improve on v14; the change correlates -0.23 with v12's failed change.
   Public SE of the v15 - v14 difference is about 0.06. Smooth gates (share = clip(a + b.grain + c.noise)) reach nested
   12.28 but switch steeply between 0 and 1 and move test predictions twice as much (sd 2.0): kept as a later option.
+- **blend_v16** (`python -m src.blend_cells --cnn $C --mode nnls --members feat6_rest_ridge_all,feat5_v3cal_ridge_het_spat_v4_milspl,
+  feat3_v23cal_lgbs_het_spat,feat2_v23cal_lgbs_hetN,emb_effv2s_256_gridge3_noise_cs24 --out blend_v16`, nested CV **12.143**):
+  separate NNLS weights in the fine-noisy cell (CNN mix 0.61 + LightGBM 0.39) and elsewhere (restored ridge 0.59 +
+  embedding head 0.38 + LightGBM 0.03, no CNN). Half of the gain is outside the cell (the global weights were a
+  compromise: LightGBM is the best feature model in the cell, 11.57, but poor elsewhere). Weights are stable across
+  folds; re-discovering the split inside each outer fold (median cuts, CNN-share rule) picks the same cell in all 5
+  folds (12.145); random 132-image cells do not help (+0.03). Offered to the user as the 4th submission instead of
+  v15 (or as the 5th if v15 was already in). Not worth it: 2x2 or tercile regimes (overfit), bigger member pools per
+  regime (-0.02 to -0.07, noisy; regime 1 then picks old members such as feat2_v3_lgb).
+  The ensembler's covariate stacker (null on 2026-10-06, before the GPU CNNs) gives only -0.06 to -0.09 on these
+  members: its linear/tercile forms cannot express the fine AND noisy cell.
 - Full refit on all 500 train images (one model instead of the mean of 5 fold models) is worth little for the ridge
   members: one model on 400 rows vs the mean of 5 inner models on 320 rows gives -0.035 (feat6_rest_ridge_all) and
   -0.001 (feat5_v3cal_ridge_het_spat_v4_milspl). LightGBM members and the embedding head are being checked
