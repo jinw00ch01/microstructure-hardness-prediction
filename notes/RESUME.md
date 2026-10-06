@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-07 ~02:20 KST)
+# Resume guide (updated 2026-10-07 ~03:20 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -12,9 +12,21 @@ Goal: public LB RMSE <= 10.
 - Null that night: the high-noise specialist restorer (`src.restore --tag hn`, `data_restored_hn/`) is better on
   synthetic pairs but its features rank hardness worse on real noisy images; effnetv2-s 6 seeds and ConvNeXt-tiny add
   nothing to the blend (laptop-gpu.md section 7).
-- Running: own columns for the other ridge members, a mid-noise slope set and a continuous noise interaction
-  (feature-engineer); own columns in the cs24 embedding ridge (embedding-modeler).
-- Two-stage blend script: hardness-cache `scripts/twostage.py` (`--add` extra pool members, `--stage2` CNNs).
+- Follow-ups that night (all fold-paired, then checked in the two-stage blend):
+  - N3 own columns also help the other ridge members (feat7_rawn3own_ridge_splmean 12.365, _milspl 12.323, _add
+    12.340), but next to feat7_rawn3own_ridge_all they add nothing to the blend (errors correlate 0.97-0.99).
+  - Null: own slopes for the mid-noise tercile (+0.44), smooth noise interactions x*t (+0.16 / +0.27), a bigger own
+    block (v4, v5), own block from an NLM view or either restorer (raw calibrated measures rank hardness best in the
+    noisiest third), own slopes in the cs24 embedding ridge (1088 own columns on ~133 images per fold overfit).
+  - Ties: ic_noise in the ridge's variance model (feat7_rawn3own_ridge_all_hetnz, blend 12.159) and a noise-weighted
+    embedding fit (emb_..._cs24_hetnz): **blend_v13**, nested 12.136 (4/5 folds vs v12, 90% [-0.051, -0.003]) but its
+    test predictions differ from v12 by sd 0.19, so it is a public-LB tie with v12. Keep it as a later option.
+- Next ideas: wait for v12's public score first (does the own-slope gain carry to test?). The noisiest third is still
+  14.37 vs 11.30 / 10.46. Untried: a dedicated model for the noisiest third that borrows strength from the rest
+  (e.g. ridge on the shared blend prediction + own block), and noise-dependent CNN shares.
+- Two-stage blend script: hardness-cache `scripts/twostage.py` (`--add` extra pool members, `--stage2` CNNs,
+  `--save-nested`, `--out`). Backups of that night: `experiments-test-extra/`, `data/data_restored_hn.tar`,
+  `data/restore_cache/hn/`, the new `data/features_*` files, `submissions/blend_v12-13`.
 
 ## Late 2026-10-06
 - **blend_v10 scored public 11.8267** (user, 23:33 KST), the new best: 0.053 below v7 although the nested CV tied
