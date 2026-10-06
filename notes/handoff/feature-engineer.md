@@ -1,4 +1,87 @@
-# feature-engineer handoff (updated 2026-10-06, session 6: restored-image features)
+# feature-engineer handoff (updated 2026-10-06, session 7: high-noise specialist restorer, data_restored_hn)
+
+## Session 7 summary (restored features on `data_restored_hn/`)
+1. Features. `data_restored_hn/` holds the same file set as `data_restored/`: `features_v3`, `features_v2`,
+   `v5_blocks_real`, plus the transferred `features_cal`, `features_v4` and `mil_blocks` (maps fitted on the degraded
+   originals in `data/`, as before).
+   - Only the 500 specialist images (raw ic_noise > 11.92: 167 train, 333 test) were re-extracted. The other 1000 rows
+     were copied from `data_restored/`.
+   - Bit-for-bit checks:
+     - Re-extracting 16 unchanged images gives v3, v2 and v5 rows identical to `data_restored`.
+     - All 1000 unchanged rows of every transferred file are identical too.
+     - So the files equal a full 1500-image rebuild.
+   - Wall time 9.6 min. Extraction: v3 52 s (4 cores), v5 blocks 73 s (3 cores), v2 127 s (2 cores). Transfers on 1 core
+     each: cal 4.5 min, v4 2.5 min, MIL 4.3 min.
+   - Script: scratchpad `hn/build_hn.py`. Log: `logs/resthn_summary.log`.
+   - Full rebuild (same files, about 3x longer):
+     `DATA_DIR=$HN python -m src.features --v3|--v2|--v4_blocks --v4_extra --n_jobs 4`
+   - Transfers (DATA_DIR unset):
+     - `F.cal_apply(apply_v3='$HN/features_v3.parquet', out='$HN/features_cal.parquet')`
+     - `F.v4_apply(apply_file='$HN/v5_blocks_real.parquet', out='$HN/features_v4.parquet')`
+     - `F.mil_blocks(apply_file='$HN/v5_blocks_real.parquet', out='$HN/mil_blocks.parquet')`
+2. Screen: the saved members rebuilt with `data_restored_hn` in place of `data_restored`, fold-paired against the saved
+   OOFs. All three saved members reproduce exactly from `data_restored`. Terciles are by raw ic_noise (train cuts
+   7.49 / 11.92); the train N3 tercile is exactly the 167 changed images.
+
+   | member | saved CV | hn CV | delta | fold deltas | better | N1 / N2 / N3 saved -> hn | N3 dMSE ± se |
+   |---|---|---|---|---|---|---|---|
+   | ridge_all | 12.5304 | 12.7323 | +0.202 | -0.002 +0.125 +0.300 +0.334 +0.245 | 1/5 | 10.72/11.32/15.09 -> 10.73/11.56/15.41 | +9.6 ± 5.6 |
+   | ridge_add | 12.5249 | 12.6274 | +0.103 | +0.030 +0.124 +0.214 +0.121 +0.023 | 0/5 | 10.75/11.63/14.82 -> 10.75/11.78/14.96 | +4.1 ± 2.8 |
+   | lgbs_add (3 seeds) | 12.7685 | 12.7223 | -0.046 | -0.157 -0.059 +0.060 -0.084 +0.010 | 3/5 | 11.04/11.58/15.26 -> 11.03/11.55/15.18 | -2.4 ± 5.4 |
+   | lgbs_add, 10 seeds paired | 12.7550 | 12.7185 | -0.036 | -0.159 +0.014 +0.012 -0.054 +0.008 | 2/5 | N3 15.24 -> 15.18 | -2.0 ± 5.3 |
+
+   - Why it fails. On real images the specialist's measures rank hardness worse in N3, although they match synthetic
+     clean sources better.
+     - Train Spearman in N3 (n 167), raw / data_restored / hn:
+       - cal_ic_seg_fd93: 0.611 / 0.607 / 0.561
+       - cal_ic_fdo_93: 0.601 / 0.557 / 0.511
+       - ic_seg_fd93: 0.513 / 0.560 / 0.520
+     - The hn copies sit further outside the cal maps' training range: median ridge SNR 11.0, vs 6.5 for data_restored.
+     - The mean residual moves little (+0.5 at most). The loss is in ranking: ridge_all N3 corr(pred, y) 0.629 -> 0.607.
+3. Optional: own columns. ridge_all plus `n3_*` copies of v3+cal, filled only for the 500 high-noise images and NaN
+   elsewhere (median-imputed in fold), so N3 images get their own slopes. Built with `python -m src.features --n3own`.
+   All rows are vs feat6_rest_ridge_all (12.530, N3 15.09):
+
+   | own columns filled with | cal only | v3 + cal |
+   |---|---|---|
+   | hn values | 12.4425 (-0.088, 4/5), N3 15.00 | **12.3746** (-0.156, 3/5: +0.141 +0.171 -0.456 -0.198 -0.421), N3 14.83 |
+   | data_restored values (control) | 12.4357 (4/5), N3 14.92 | 12.4867 (3/5), N3 15.03 |
+   | raw values (control) | 12.4366 (4/5), N3 14.92 | **12.2623** (-0.268, 4/5: -0.071 +0.620 -0.452 -0.665 -0.737), N3 14.44 |
+   | random 500-image subset (null, 5 draws) | | hn +0.19 to +0.45 (0-1/5); raw +0.14 to +0.50 (0-2/5) |
+
+   - The separate high-noise slopes are real: random subsets never gain.
+   - The specialist adds nothing beyond them. Raw values do as well or better.
+   - On the ridge_add base the own columns do nothing: -0.009 with hn values, -0.007 with data_restored values.
+   - Read-only blend check: nested NNLS over blend_v11's 6 non-zero members (single-stage, 12.4233 for v11's set).
+     Swapping in each member for feat6_rest_ridge_all gives:
+     - ridge_all hn: 12.467
+     - own hn cal: 12.347 (5/5)
+     - own hn v3+cal: 12.249 (5/5, N3 14.92 -> 14.65)
+     - own raw v3+cal: **12.162** (5/5, N3 14.92 -> 14.39)
+     - lgbs hn as a 7th member: weight 0.
+4. Saved. These pass the rule: CV lower, at least 3/5 folds better, and lower N3.
+   - **feat7_resthn_lgbs_add**: CV 12.7223, folds 13.042 12.552 13.246 12.540 12.205, SNR T1/T2/T3 15.099 / 11.519 / 11.168.
+     Noise-level.
+   - **feat7_resthn_ridge_all_n3own**: CV 12.3746, folds 13.130 11.565 12.507 12.465 12.153, SNR T1/T2/T3
+     14.629 / 11.215 / 10.930.
+   - Not saved:
+     - own hn cal only: error correlation 0.98 with n3own, and its gain equals its controls
+     - own raw v3+cal: best, but it is not an hn variant
+   - Commands. `R` and `HN` are the absolute paths of data_restored and data_restored_hn;
+     `D1="cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv"`:
+```
+taskset -c 0 python -W ignore -m src.train_gbm --feat features_v3.parquet,features_v2.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,eda_feats_lf.parquet,$HN/features_v3.parquet,$HN/features_cal.parquet --model lgbs --seeds 3 --drop $D1 --hetero ic_acg_len50_gm --name feat7_resthn_lgbs_add
+python -W ignore -m src.features --n3own --n3own_src $HN/features_v3.parquet,$HN/features_cal.parquet --cal_out $HN/features_n3own_v3cal.parquet
+taskset -c 1 python -W ignore -m src.train_gbm --mil splmean --mil_design --mil_blocks_file $R/mil_blocks.parquet --feat $R/features_v3.parquet,$R/features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,$R/features_v4.parquet,$HN/features_n3own_v3cal.parquet --model ridge --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --hetero ic_acg_len50_gm --name feat7_resthn_ridge_all_n3own
+# raw-own lead (not saved): --n3own --n3own_src features_v3.parquet,features_cal.parquet --cal_out features_n3own_raw_v3cal.parquet,
+# then the ridge command above with features_n3own_raw_v3cal.parquet in place of $HN/features_n3own_v3cal.parquet
+```
+   - Next:
+     - Run the raw-own variant as its own experiment. Check its fold-1 swing (+0.62) and RidgeCV's alpha per fold.
+     - A continuous form: columns x noise interactions instead of a hard N3 split.
+     - The same split for the lgbs is unlikely to help: the trees can already split on raw ic_noise.
+   - Screen scripts: scratchpad `hn/` (`screen_hn.py`, `check_transfer.py`, `null_own.py`, `blend_swap.py`).
+     Logs: `logs/resthn_*.log`.
 
 ## Session 6 summary
 1. Calibrated block-mean phase/pore columns for the lgbs: `data/features_v5blk.parquet`

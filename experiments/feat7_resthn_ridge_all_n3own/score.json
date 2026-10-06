@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.374586764797218,
+  "fold_rmse": [
+    13.12962638250852,
+    11.565233727580079,
+    12.506699021452611,
+    12.4654688767701,
+    12.153387723129924
+  ],
+  "notes": "ridge on /home/claude/microstructure-hardness-prediction/data_restored/features_v3.parquet,/home/claude/microstructure-hardness-prediction/data_restored/features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,/home/claude/microstructure-hardness-prediction/data_restored/features_v4.parquet,/home/claude/microstructure-hardness-prediction/data_restored_hn/features_n3own_v3cal.parquet; cols=all(344); drop=/cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv,^v4(?!c_(bd\\|la\\|acd)_(mean\\|sd\\|q90\\|max_m_mean)$\\|c_(bd\\|la)_hp$)/; hetero weights ~ log-var(log ic_acg_len50_gm) in-fold; + MIL splmean design (B-splines of the valid-weighted image means (Jensen control) of block c_la, c_sfd93, c_pore60, c_acd, acr_len50 + c_sfd93 x spline(c_la), c_sfd93 x spline(c_acd); knots in-fold; blocks /home/claude/microstructure-hardness-prediction/data_restored/mil_blocks.parquet); feat6_rest_ridge_all + own columns (n3_*) holding the data_restored_hn v3+cal values for the 500 images with raw ic_noise > 11.92 only (src.features --n3own); vs feat6_rest_ridge_all -0.156, 3/5 folds, N1/N2/N3 10.620/11.250/14.828 vs 10.721/11.323/15.090; controls: same own columns with data_restored values 12.487, with raw values 12.262; random 500-image subsets +0.14 to +0.50: the gain is the separate high-noise slopes, not the specialist restorer"
+}

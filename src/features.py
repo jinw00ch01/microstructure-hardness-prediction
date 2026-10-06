@@ -1518,6 +1518,29 @@ def v5_blockmeans(src="mil_blocks.parquet", out="features_v5blk.parquet"):
     print(out_df.shape, "->", out)
 
 
+def n3own(src="features_v3.parquet,features_cal.parquet", out="features_n3own_v3cal.parquet", q=2 / 3,
+          noise_file="features_v3.parquet"):
+    """'Own columns' for the noisiest images (label-free, per image). The src tables (merged on ID) are copied with an
+    n3_ prefix and set to NaN for every image whose RAW ic_noise (noise_file; run with DATA_DIR unset so it is the raw
+    data/features_v3) is at or below the train q-quantile. q = 2/3 gives the train tercile cut 11.92, i.e. exactly the
+    500 images the high-noise restorer (src.restore --tag hn) was applied to. A linear member then fits separate slopes
+    for the high-noise images (NaN rows are median-imputed in fold). The cut uses train images only.
+    python -m src.features --n3own --n3own_src $HN/features_v3.parquet,$HN/features_cal.parquet --cal_out $HN/features_n3own_v3cal.parquet"""
+    nz = pd.read_parquet(DATA_DIR / noise_file)[["ID", "ic_noise"]]
+    tr_ids = pd.read_csv(DATA_DIR / "train.csv").ID
+    cut = float(np.quantile(nz.set_index("ID").loc[tr_ids, "ic_noise"], q))
+    hi = set(nz.ID[nz.ic_noise > cut])
+    df = None
+    for f in src.split(","):
+        d = pd.read_parquet(DATA_DIR / f)
+        df = d if df is None else df.merge(d, on="ID")
+    cols = [c for c in df.columns if c != "ID"]
+    df.loc[~df.ID.isin(hi), cols] = np.nan
+    df = df.rename(columns={c: f"n3_{c}" for c in cols})
+    df.to_parquet(DATA_DIR / out, index=False)
+    print(df.shape, f"cut {cut:.4f}: {len(hi)} high-noise images ->", out)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--v2", action="store_true")
@@ -1543,9 +1566,14 @@ if __name__ == "__main__":
     ap.add_argument("--v4_extra", action="store_true", help="add V4_EXTRA phase/pore block measures (v5_* files)")
     ap.add_argument("--mil_blocks", action="store_true")
     ap.add_argument("--v5_blockmeans", action="store_true")
+    ap.add_argument("--n3own", action="store_true", help="own columns for the high-noise tercile (see n3own())")
+    ap.add_argument("--n3own_src", default="features_v3.parquet,features_cal.parquet")
     a = ap.parse_args()
     if a.v5_blockmeans:
         v5_blockmeans()
+        raise SystemExit
+    if a.n3own:
+        n3own(src=a.n3own_src, out=a.cal_out or "features_n3own_v3cal.parquet")
         raise SystemExit
     if a.v4_cal_build:
         v4_cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, seed0=a.seed0 or 500000,
