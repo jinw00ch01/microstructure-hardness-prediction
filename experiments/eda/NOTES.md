@@ -419,3 +419,30 @@ Cross-fitted probes now use the **feat5_v3cal_ridge_het_spat_v4_splmean base** (
 
 **(5) Size non-uniformity (zoning)** is what the afternoon heterogeneity features (lledge / ecs / lf, v4 spreads) already
 capture. Nothing further is detectable beyond feat5 (see the evening sections).
+
+## 2026-10-06 (late): does the label follow the generator's p rather than the realised image? No (a47)
+Hypothesis: the label is f(p), with the realised dark fraction p̂ = p + binomial noise of variance p(1−p)/N.
+That would give a residual variance ∝ p(1−p)/N and slopes on p̂ attenuated in coarse images.
+* **Variance (blend_v5 nested residuals), CV negative log-likelihood:**
+  - All images: 1/N 1938.1, p(1−p)/N 1948.5, f/N 1949.3. In joint fits the p(1−p)/N and f/N terms get weight 0, and
+    f² adds nothing (1938.6).
+  - Clean images, watershed number fraction: 1/N 492.1 vs p(1−p)/N 494.1; joint weight 0.
+  - The 1/N excess does not vanish when p ≈ 0 and does not live in the dark phase.
+  - The raw contrast in coarse images (residual RMSE 11.3 for p̂ < 0.05, n=23, vs 16.1 for ≥ 0.15) is not supported
+    once N and snr enter the model.
+* **Slope of y on p̂ by N tercile** (OLS with porosity, aspect, alignment, log N; bootstrap 90% CIs):
+
+  | p̂ measure | coarse / mid / fine slope | observed coarse/fine | binomial prediction |
+  |---|---|---|---|
+  | clean, area fraction (ic_seg_fd91) | 147 / 157 / 131 | 1.12 [0.66, 2.02] | 0.63 |
+  | all images, cal_ic_seg_fd91 | 127 / 133 / 122 | 1.04 [0.78, 1.38] | 0.83 |
+  | clean, watershed number fraction | 78 / 135 / 111 | 0.71 [0.35, 1.36] | 0.90 |
+
+  - Area fractions are the better predictor, and they show **no attenuation**; the area-based binomial prediction
+    sits at or below the lower CI.
+  - The number fraction is consistent with either reading.
+* **Verdict:** the label tracks the realised area fraction, or a generator that pins it, not a binomially realised
+  per-grain p. Empirical-Bayes shrinkage of p̂ would bias the features, so it was not built.
+* The coarse-image 1/N residual is not phase-sampling noise. Pore-rate noise scales with image area, not N, so it
+  cannot produce it either. As in the evening sections, the term behaves like equal-weight per-grain noise that is
+  independent of phase.
