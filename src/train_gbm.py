@@ -124,7 +124,42 @@ def forward_select(X, y, max_k=20, inner_folds=5, alpha=3.0, tol=0.01, seed=SEED
     return [cols[j] for j in sel]
 
 
-def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=0, es=False, drop=None, fwd=0):
+def hetero_weights(Xtr, ytr, z, inner=5, clip=(0.25, 4.0)):
+    """Inverse-variance sample weights, estimated on training rows only.
+
+    Inner-CV ridge residuals r give log(r^2 + 1) ~ a + b * log(z) (z = a coarseness measure such as the
+    correlation length); w = 1 / exp(fit), normalised to mean 1 and clipped.
+    """
+    from sklearn.model_selection import KFold
+    res = np.zeros(len(ytr))
+    for a, b in KFold(inner, shuffle=True, random_state=SEED).split(Xtr):
+        A, B = _std_matrix(Xtr.iloc[a], Xtr.iloc[b])
+        m = RidgeCV(alphas=np.logspace(-2, 4, 40)).fit(A, ytr[a])
+        res[b] = ytr[b] - m.predict(B)
+    zz = pd.Series(np.asarray(z, float))
+    zz = zz.fillna(zz.median()).values
+    if (zz > 0).all():
+        zz = np.log(zz)
+    coef = np.polyfit(zz, np.log(res ** 2 + 1.0), 1)
+    w = 1.0 / np.exp(np.polyval(coef, zz))
+    w = np.clip(w / w.mean(), *clip)
+    return w / w.mean(), coef
+
+
+def mono_vector(cols, spec):
+    """'+' constraints for columns matching regexes in spec; prefix a regex with '-' for a decreasing one."""
+    v = np.zeros(len(cols), int)
+    for pat in spec.split(","):
+        sign = -1 if pat.startswith("-") else 1
+        pat = pat.lstrip("+-")
+        for j, c in enumerate(cols):
+            if re.search(pat, c):
+                v[j] = sign
+    return v
+
+
+def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=0, es=False, drop=None, fwd=0,
+        hetero=None, mono=None, save=True):
     tr, te = load_train(), load_test()
     feats = load_features(feat_file)
     use = select_columns([c for c in feats.columns if c != "ID"], cols)
@@ -135,6 +170,7 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     X = X.replace([np.inf, -np.inf], np.nan)
     Xt = Xt.replace([np.inf, -np.inf], np.nan)
     y = tr.hardness.values
+    feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hetero].values if hetero else None
     oof, pred = np.zeros(len(tr)), np.zeros(len(te))
     imp = pd.Series(0.0, index=use)
     kind = "lgb_es" if (model == "lgb" and es) else model
@@ -146,23 +182,33 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
             cols_f = forward_select(X.loc[trn, cols_f], y[trn], max_k=fwd)
             print(f"fold {f}: forward-selected {cols_f}", flush=True)
             sel_log.append(cols_f)
+        w = None
+        if hetero:
+            w, coef = hetero_weights(X.loc[trn, cols_f], y[trn], feats_tr_z[trn])
+            print(f"fold {f}: hetero log-var slope {coef[0]:+.3f}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
         if kind in ("ridge_fs", "fwd"):
             from sklearn.linear_model import RidgeCV
             A, Av, At = _std_matrix(X.loc[trn, cols_f], X.loc[val, cols_f], Xt[cols_f])
-            m = RidgeCV(alphas=np.logspace(-2, 3, 30)).fit(A, y[trn])
+            m = RidgeCV(alphas=np.logspace(-2, 3, 30)).fit(A, y[trn], sample_weight=w)
             oof[val] = m.predict(Av)
             pred += m.predict(At) / 5
             imp[cols_f] += np.abs(m.coef_)
             continue
         for s in range(seeds):
             m = make_model(kind, SEED + s)
+            if mono and kind in ("lgb", "lgbs"):
+                m.set_params(monotone_constraints=list(mono_vector(cols_f, mono)),
+                             monotone_constraints_method="intermediate")
             if kind == "lgb_es":
                 m.fit(X.loc[trn, cols_f], y[trn], eval_set=[(X.loc[val, cols_f], y[val])],
                       callbacks=[lgb.early_stopping(200, verbose=False)])
             elif kind == "cat" and es:
                 m.fit(X.loc[trn, cols_f], y[trn], eval_set=(X.loc[val, cols_f], y[val]), early_stopping_rounds=300)
+            elif kind in ("ridge", "svr"):
+                step = m.steps[-1][0]
+                m.fit(X.loc[trn, cols_f], y[trn], **({f"{step}__sample_weight": w} if w is not None else {}))
             else:
-                m.fit(X.loc[trn, cols_f], y[trn])
+                m.fit(X.loc[trn, cols_f], y[trn], sample_weight=w)
             if hasattr(m, "feature_importances_"):
                 imp[cols_f] += np.asarray(m.feature_importances_, float) / seeds
             elif hasattr(m, "get_feature_importance"):
@@ -180,6 +226,15 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
         notes += "; EARLY-STOP ON VAL FOLD (optimistic)"
     if fwd:
         notes += f"; in-fold forward selection (ridge inner-CV, max {fwd})"
+    if hetero:
+        notes += f"; hetero weights ~ log-var(log {hetero}) in-fold"
+    if mono:
+        notes += f"; monotone({mono})"
+    if not save:
+        from .common import rmse
+        fr = [rmse(oof[tr.fold == k], y[tr.fold == k]) for k in range(5)]
+        print(f"[{name} NOT SAVED] CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} | {notes}")
+        return oof
     out = save_experiment(name, tr, oof, te, pred, notes=notes)
     imp.sort_values(ascending=False).to_csv(EXP_DIR / name / "importance.csv", header=["importance"])
     if sel_log:
@@ -198,6 +253,10 @@ if __name__ == "__main__":
     ap.add_argument("--select_k", type=int, default=0)
     ap.add_argument("--es", action="store_true", help="early stopping on validation fold (optimistic CV)")
     ap.add_argument("--fwd", type=int, default=0, help="in-fold greedy forward selection (max features)")
+    ap.add_argument("--hetero", default=None, help="column used to model residual variance -> sample weights")
+    ap.add_argument("--mono", default=None, help="regexes of +monotone columns for lgb ('-regex' = decreasing)")
+    ap.add_argument("--no_save", action="store_true", help="screening run: print CV only, write nothing")
     a = ap.parse_args()
     fwd = a.fwd or (20 if a.model == "fwd" else 0)
-    run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd)
+    run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd,
+        a.hetero, a.mono, not a.no_save)

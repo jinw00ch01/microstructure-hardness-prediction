@@ -69,9 +69,10 @@ def load_emb(tag, stages="all", pools=("mean", "std"), n_views=0, cells="global"
     keep = {"global": [0], "cells": list(range(1, nc)) or [0], "all": list(range(nc))}[cells]
     vidx = [v * nc + c for v in orig + augs for c in keep]
     is_orig = np.array([v in orig for v in orig + augs for c in keep])
+    rows = [(names[v], c) for v in orig + augs for c in keep]
     X = np.asarray(E[:, vidx][:, :, cols], dtype=np.float64)
     blocks = [(f"{tag}|s{b['stage']}|{b['pool']}", b["end"] - b["start"]) for b in sel]
-    return ids, X, blocks, meta, is_orig
+    return ids, X, blocks, meta, is_orig, rows
 
 
 def elementwise(X, kind):
@@ -189,6 +190,8 @@ HEADS = {
     "lgb": (lgb_path, {"num_leaves": [4, 15], "n_estimators": [150, 300, 600, 1200, 2400]}),
     "ridge": (ridge_path, {"alpha": np.logspace(-1, 7, 33)}),
     "gridge": (None, {"lam": [0.0, 2.0, 8.0, 32.0], "alpha": np.logspace(-1, 7, 33)}),
+    "gridge3": (None, {"lam_view": [0.0, 4.0, 16.0], "lam_cell": [0.0, 1.0, 4.0, 16.0],
+                       "lam_aug": [0.0, 4.0, 16.0, 64.0], "alpha": np.logspace(-1, 7, 17)}),
     "krr": (krr_path, {"gamma_mult": [0.0078, 0.0156, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1.0],
                        "alpha": np.logspace(-4, 1, 16)}),
     "svr": (svr_path, {"gamma_mult": [0.125, 0.25, 0.5, 1.0], "C": [1.0, 3.0, 10.0, 30.0],
@@ -235,10 +238,63 @@ def gridge_fit_eval(X3tr, ytr, X3evs, cfg, grid):
     return np.split(P, np.cumsum(sizes)[:-1], axis=1), hps
 
 
+def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid):
+    """Generalized ridge with one penalty per nuisance type:
+    min |y - Zbar w|^2 + lv*mean_v|w.(Z_v - Zbar)|^2 + lc*mean_vc|w.(Z_vc - mean_c Z_vc)|^2
+                       + la*mean_a|w.(Z_aug_a - Z_id)|^2 + alpha|w|^2
+    Zbar = mean of the original views' global rows (also used for prediction); view deviations = orientation,
+    cell deviations (within each view, centred over its cells) = spatial position, aug deviations (noise/blur
+    copy minus the identity view) = imaging nuisance. Prep is fitted on the training images' Zbar only."""
+    rows = cfg["rows"]
+    pos = {r: k for k, r in enumerate(rows)}
+    gidx = [k for k, (v, c) in enumerate(rows) if c == 0 and not v.startswith("aug:")]
+    n, R, d = X3tr.shape
+    Xbar = X3tr[:, gidx].mean(1)
+    prep = Prep(cfg["col_w"], cfg["pca"], cfg["whiten"], cfg.get("n_pass", 0)).fit(Xbar)
+    Zbar = prep.transform(Xbar)
+    Zall = prep.transform(X3tr.reshape(n * R, d)).reshape(n, R, -1)
+    S = {}
+    Dv = [Zall[:, k] - Zbar for k in gidx]
+    if len(Dv) > 1:
+        S["view"] = sum(D.T @ D for D in Dv) / len(Dv)
+    cells = {}
+    for k, (v, c) in enumerate(rows):
+        if c > 0 and not v.startswith("aug:"):
+            cells.setdefault(v, []).append(k)
+    if cells:
+        Dc = [Zall[:, ks] - Zall[:, ks].mean(1, keepdims=True) for ks in cells.values()]
+        S["cell"] = sum(np.einsum("nci,ncj->ij", D, D) for D in Dc) / sum(D.shape[1] for D in Dc)
+    aug = [k for k, (v, c) in enumerate(rows) if c == 0 and v.startswith("aug:")]
+    if aug and ("id", 0) in pos:
+        Da = [Zall[:, k] - Zall[:, pos[("id", 0)]] for k in aug]
+        S["aug"] = sum(D.T @ D for D in Da) / len(Da)
+    ymu, ysd = ytr.mean(), ytr.std()
+    yc = (ytr - ymu) / ysd
+    zc = Zbar.mean(0)
+    Zc = Zbar - zc
+    G, gvec = Zc.T @ Zc, Zc.T @ (yc - yc.mean())
+    sizes = [len(X) for X in X3evs]
+    P_ev = prep.transform(np.concatenate([X[:, gidx].mean(1) for X in X3evs])) - zc
+    out, hps = [], []
+    for lv in (grid["lam_view"] if "view" in S else [0.0]):
+        for lc in (grid["lam_cell"] if "cell" in S else [0.0]):
+            for la in (grid["lam_aug"] if "aug" in S else [0.0]):
+                M = G + lv * S.get("view", 0.0) + lc * S.get("cell", 0.0) + la * S.get("aug", 0.0)
+                w_, Q = eigh(M)
+                s2, P, uty = np.maximum(w_, 0), P_ev @ Q, Q.T @ gvec
+                for a in grid["alpha"]:
+                    out.append(yc.mean() + P @ (uty / (s2 + a)))
+                    hps.append({"lam_view": lv, "lam_cell": lc, "lam_aug": la, "alpha": a})
+    P = np.stack(out) * ysd + ymu
+    return np.split(P, np.cumsum(sizes)[:-1], axis=1), hps
+
+
 def fit_eval(X3tr, ytr, X3evs, cfg, grid):
     """Fit prep + head path on training images; return list of (n_grid, n_eval) view-averaged predictions."""
     if cfg["head"] == "gridge":
         return gridge_fit_eval(X3tr, ytr, X3evs, cfg, grid)
+    if cfg["head"] == "gridge3":
+        return gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid)
     n, V, d = X3tr.shape
     io = cfg.get("is_orig", np.ones(V, bool))
     Vo = int(io.sum())
@@ -284,15 +340,15 @@ def run_cv(X3, y, folds, X3te, cfg, grid, verbose=True):
 
 
 def build(args, tr, te):
-    blocks, Xs, lic, base_ids, is_orig = [], [], [], None, None
+    blocks, Xs, lic, base_ids, is_orig, rows = [], [], [], None, None, None
     for tag in args.emb.split(","):
-        ids, X, bl, meta, io = load_emb(tag, args.stages, args.pools.split(","), args.views, args.cells,
-                                        args.use_augs)
+        ids, X, bl, meta, io, rw = load_emb(tag, args.stages, args.pools.split(","), args.views, args.cells,
+                                            args.use_augs)
         if base_ids is None:
-            base_ids, is_orig = ids, io
+            base_ids, is_orig, rows = ids, io, rw
         else:  # align rows to the first tag's id order
             X = X[pd.Series(np.arange(len(ids)), index=ids)[base_ids].values]
-            if len(io) != len(is_orig) or (io != is_orig).any():
+            if rw != rows:
                 raise ValueError(f"{tag}: view/cell row layout differs from the first embedding")
         Xs.append(elementwise(X, args.transform))
         blocks += bl
@@ -311,10 +367,10 @@ def build(args, tr, te):
         col_w = np.concatenate([col_w, np.full(F.shape[1], w)])
         blocks.append(("features.parquet", F.shape[1]))
     if args.view_mode == "mean":
-        X, is_orig = X[:, is_orig].mean(1, keepdims=True), np.array([True])
+        X, is_orig, rows = X[:, is_orig].mean(1, keepdims=True), np.array([True]), [("mean", 0)]
     pos = pd.Series(np.arange(len(base_ids)), index=base_ids)
     n_pass = blocks[-1][1] if args.with_feats else 0
-    return X[pos[tr.ID].values], X[pos[te.ID].values], col_w, blocks, lic, n_pass, is_orig
+    return X[pos[tr.ID].values], X[pos[te.ID].values], col_w, blocks, lic, n_pass, is_orig, rows
 
 
 if __name__ == "__main__":
@@ -340,14 +396,14 @@ if __name__ == "__main__":
     ap.add_argument("--no-save", action="store_true")
     ap.add_argument("--threads", type=int, default=1)
     a = ap.parse_args()
-    if a.head == "gridge":  # needs the individual view/cell rows
+    if a.head in ("gridge", "gridge3"):  # need the individual view/cell rows
         a.view_mode = "aug"
     t0 = time.time()
     tr, te = load_train(), load_test()
-    Xtr, Xte, col_w, blocks, lic, n_pass, is_orig = build(a, tr, te)
+    Xtr, Xte, col_w, blocks, lic, n_pass, is_orig, rows = build(a, tr, te)
     y, folds = tr.hardness.values.astype(np.float64), tr.fold.values
     cfg = {"head": a.head, "col_w": col_w, "pca": a.pca, "whiten": a.whiten, "n_pass": n_pass,
-           "is_orig": is_orig}
+           "is_orig": is_orig, "rows": rows}
     print(f"X {Xtr.shape} test {Xte.shape} blocks {len(blocks)} head {a.head}", flush=True)
     oof, pte, chosen, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, HEADS[a.head][1])
     fr = [rmse(oof[folds == f], y[folds == f]) for f in sorted(np.unique(folds))]

@@ -566,12 +566,33 @@ def _ac_features(x, angle, prefix, f, norm_lag1=True, levels=(0.5, 0.3)):
         f[f"{prefix}_lobe_area"] = 0.0
 
 
+def _quality_v3(raw):
+    """Noise level and blur-sensitive spectral descriptors (per image)."""
+    H, W = raw.shape
+    sig = float(restoration.estimate_sigma(raw))
+    win = np.outer(np.hanning(H), np.hanning(W))
+    P = np.abs(np.fft.fftshift(np.fft.fft2((raw - raw.mean()) * win))) ** 2 / (win ** 2).sum()
+    prof = _radial_profile(P)
+    floor = float(np.median(prof[105:127]))
+    sp = np.clip(prof - floor, 1e-3, None)
+    q = {"ic_noise": sig}
+    for a, b in ((4, 8), (8, 16), (16, 32), (32, 48)):
+        q[f"ic_spec_{a}_{b}"] = float(np.log10(sp[a:b].mean()))
+    q["ic_spec_slope"] = q["ic_spec_32_48"] - q["ic_spec_8_16"]
+    return q
+
+
+def _quality_row(i):
+    return {"ID": i, **_quality_v3(_read8(i).astype(np.float32))}
+
+
 def extract_v3(i, img=None):
     raw8 = _read8(i) if img is None else img
     raw = raw8.astype(np.float32)
     H, W = raw.shape
     f = {"ID": i}
-    sig = float(restoration.estimate_sigma(raw))
+    f.update(_quality_v3(raw))
+    sig = f["ic_noise"]
     den = cv2.fastNlMeansDenoising(raw8, None, h=float(np.clip(sig, 2.0, 30.0)), templateWindowSize=5,
                                    searchWindowSize=21).astype(np.float32)
     bg = _bg_matrix(den)
@@ -709,41 +730,6 @@ def build(ids, fn=extract, n_jobs=-1):
     return pd.DataFrame(Parallel(n_jobs=n_jobs)(delayed(fn)(i) for i in ids))
 
 
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--v2", action="store_true")
-    ap.add_argument("--v3", action="store_true")
-    ap.add_argument("--cal_build", action="store_true")
-    ap.add_argument("--cal_apply", action="store_true")
-    ap.add_argument("--cal_eval", action="store_true")
-    ap.add_argument("--n_aug", type=int, default=8)
-    ap.add_argument("--snr_min", type=float, default=0.9)
-    ap.add_argument("--n_jobs", type=int, default=int(os.environ.get("N_JOBS", "-1")))
-    ap.add_argument("--limit", type=int, default=0)
-    a = ap.parse_args()
-    if a.cal_build:
-        cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs)
-        raise SystemExit
-    if a.cal_apply or a.cal_eval:
-        cal_apply(eval_only=a.cal_eval)
-        raise SystemExit
-    tr = pd.read_csv(DATA_DIR / "train.csv")
-    ids = list(tr.ID) + list(load_test().ID)
-    if a.limit:
-        ids = ids[: a.limit]
-    if a.v3:
-        df = build(ids, extract_v3, n_jobs=a.n_jobs)
-        out = DATA_DIR / ("features_v3.parquet" if not a.limit else "features_v3_sample.parquet")
-    elif a.v2:
-        df = build(ids, extract_v2, n_jobs=a.n_jobs)
-        out = DATA_DIR / ("features_v2.parquet" if not a.limit else "features_v2_sample.parquet")
-    else:
-        df = build(ids, extract, n_jobs=a.n_jobs)
-        out = DATA_DIR / "features.parquet"
-    df.to_parquet(out, index=False)
-    print(df.shape, "->", out)
-
-
 # =====================================================================================================
 # Measurement calibration (label-free). Clean TRAIN images (high ridge SNR) are synthetically degraded
 # (blur of the grain layer with pores kept crisp, smooth shading, contrast jitter, additive noise) and
@@ -792,6 +778,15 @@ def _cal_one(i, k, seed):
     f["src"] = i
     f["k"] = k
     return f
+
+
+def patch_v3_quality(n_jobs=1):
+    """Add the _quality_v3 columns to an existing features_v3.parquet (same code as extract_v3)."""
+    v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet")
+    q = pd.DataFrame(Parallel(n_jobs=n_jobs)(delayed(_quality_row)(i) for i in v3.ID))
+    v3 = v3.drop(columns=[c for c in q.columns if c != "ID" and c in v3.columns]).merge(q, on="ID")
+    v3.to_parquet(DATA_DIR / "features_v3.parquet", index=False)
+    print(v3.shape)
 
 
 def cal_build(n_aug=8, snr_min=0.9, n_jobs=1):
@@ -850,3 +845,42 @@ def cal_apply(eval_only=False):
     if not eval_only:
         out.to_parquet(DATA_DIR / "features_cal.parquet", index=False)
         print(out.shape, "-> features_cal.parquet")
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--v2", action="store_true")
+    ap.add_argument("--v3", action="store_true")
+    ap.add_argument("--cal_build", action="store_true")
+    ap.add_argument("--patch_v3_quality", action="store_true")
+    ap.add_argument("--cal_apply", action="store_true")
+    ap.add_argument("--cal_eval", action="store_true")
+    ap.add_argument("--n_aug", type=int, default=8)
+    ap.add_argument("--snr_min", type=float, default=0.9)
+    ap.add_argument("--n_jobs", type=int, default=int(os.environ.get("N_JOBS", "-1")))
+    ap.add_argument("--limit", type=int, default=0)
+    a = ap.parse_args()
+    if a.patch_v3_quality:
+        patch_v3_quality(n_jobs=a.n_jobs)
+        raise SystemExit
+    if a.cal_build:
+        cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs)
+        raise SystemExit
+    if a.cal_apply or a.cal_eval:
+        cal_apply(eval_only=a.cal_eval)
+        raise SystemExit
+    tr = pd.read_csv(DATA_DIR / "train.csv")
+    ids = list(tr.ID) + list(load_test().ID)
+    if a.limit:
+        ids = ids[: a.limit]
+    if a.v3:
+        df = build(ids, extract_v3, n_jobs=a.n_jobs)
+        out = DATA_DIR / ("features_v3.parquet" if not a.limit else "features_v3_sample.parquet")
+    elif a.v2:
+        df = build(ids, extract_v2, n_jobs=a.n_jobs)
+        out = DATA_DIR / ("features_v2.parquet" if not a.limit else "features_v2_sample.parquet")
+    else:
+        df = build(ids, extract, n_jobs=a.n_jobs)
+        out = DATA_DIR / "features.parquet"
+    df.to_parquet(out, index=False)
+    print(df.shape, "->", out)
