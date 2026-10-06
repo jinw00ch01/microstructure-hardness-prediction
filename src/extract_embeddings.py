@@ -206,7 +206,7 @@ def apply_aug(x, aug, ids):
 
 @torch.no_grad()
 def extract(backbone, ids, size=256, n_views=4, pools=("mean", "std", "max", "gem"), prep="raw", bs=16,
-            out_indices=None, log_every=10, grid=1, augs=(), view_names=None):
+            out_indices=None, log_every=10, grid=1, augs=(), view_names=None, cell_grids=(), cell_stages=None):
     kw = dict(pretrained=True, features_only=True)
     if out_indices is not None:
         kw["out_indices"] = out_indices
@@ -225,6 +225,16 @@ def extract(backbone, ids, size=256, n_views=4, pools=("mean", "std", "max", "ge
     n_cells = 1 + grid * grid if grid > 1 else 1
     names = list(views) + [f"aug:{a}" for a in augs]
     E = np.zeros((len(ids), len(names) * n_cells, col), np.float32)
+    # compact per-cell store (only cell_stages, any number of grids) -> <tag>_cells.npy (N, rows, cells, Dc)
+    cell_sel = [si for si in range(len(chans)) if cell_stages is None or si in cell_stages]
+    cblocks, ccol = [], 0
+    for si in cell_sel:
+        for p in pools:
+            cblocks.append({"stage": si, "pool": p, "start": ccol, "end": ccol + chans[si], "channels": chans[si],
+                            "reduction": reds[si]})
+            ccol += chans[si]
+    n_cc = sum(g * g for g in cell_grids)
+    Ec = np.zeros((len(ids), len(names), n_cc, ccol), np.float32) if n_cc else None
     cache = np_cache(ids, prep)
 
     def to_input(z):
@@ -248,16 +258,34 @@ def extract(backbone, ids, size=256, n_views=4, pools=("mean", "std", "max", "ge
                     cells[k] += pooled
             for k in range(n_cells):
                 E[s:s + len(x), vi * n_cells + k] = torch.cat(cells[k], 1).numpy()
+            if n_cc:
+                cc = [[] for _ in range(n_cc)]
+                for si in cell_sel:
+                    f = feats[si]
+                    if f.shape[1] != chans[si] and f.shape[-1] == chans[si]:
+                        f = f.permute(0, 3, 1, 2)
+                    H, W, k = f.shape[-2], f.shape[-1], 0
+                    for g in cell_grids:
+                        hs = [round(i * H / g) for i in range(g + 1)]
+                        ws = [round(i * W / g) for i in range(g + 1)]
+                        for i in range(g):
+                            for j in range(g):
+                                cc[k] += pool_stage(f[:, :, hs[i]:hs[i + 1], ws[j]:ws[j + 1]], pools)
+                                k += 1
+                for k in range(n_cc):
+                    Ec[s:s + len(x), vi, k] = torch.cat(cc[k], 1).numpy()
         if bi % log_every == 0:
             done = s + len(x)
             el = time.time() - t0
             print(f"{done}/{len(ids)} {el:.0f}s eta {el / done * (len(ids) - done):.0f}s", flush=True)
     meta = {"backbone": backbone, "size": size, "prep": prep, "views": names, "pools": list(pools),
             "grid": grid, "cells": n_cells,  # stored view axis = view-major [view][cell], cell 0 = global
+            **({"cell_layout": {"grids": list(cell_grids), "stages": cell_sel, "blocks": cblocks, "dim": ccol}}
+               if n_cc else {}),
             "channels": chans, "reduction": reds, "blocks": blocks, "dim": col,
             "license": LICENSE_HINT["swin"] if "swin" in backbone else (cfg.get("license") or "?"),
             "weights_url": cfg.get("url"), "seconds": round(time.time() - t0, 1), "threads": _N_THREADS}
-    return E, meta
+    return (E, meta, Ec) if n_cc else (E, meta)
 
 
 def tag_of(backbone, size, prep="raw"):
@@ -278,6 +306,10 @@ if __name__ == "__main__":
     ap.add_argument("--augs", default="", help="extra nuisance views, e.g. noise0.03,blur1.0,contrast0.7")
     ap.add_argument("--view-names", default="", help="explicit orientation views (overrides --views), e.g. "
                     "vflip,rot180,rot270,antitranspose")
+    ap.add_argument("--cell-grids", default="", help="compact per-cell store, e.g. 2,4 -> <tag>_cells.npy")
+    ap.add_argument("--cell-stages", default="0,1,2", help="stages kept in the per-cell store")
+    ap.add_argument("--shard", default="", help="k/n: process only the k-th of n contiguous id chunks (0-based)")
+    ap.add_argument("--merge-shards", type=int, default=0, help="n: merge <tag>.shard{k}of{n} files into <tag>")
     ap.add_argument("--tag", default=None)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
@@ -285,13 +317,40 @@ if __name__ == "__main__":
     ids = list(pd.read_csv(DATA_DIR / "train.csv").ID) + list(load_test().ID)
     if a.limit:
         ids = ids[:a.limit]
-    E, meta = extract(a.backbone, ids, a.size, a.views, a.pools.split(","), a.prep, a.bs, grid=a.grid,
-                      augs=[s for s in a.augs.split(",") if s],
-                      view_names=[s for s in a.view_names.split(",") if s])
     out = DATA_DIR / "emb"
+    if a.merge_shards:  # concatenate shard outputs (same args) in id order and remove the shard files
+        n, tag = a.merge_shards, a.tag
+        parts = [f"{tag}.shard{k}of{n}" for k in range(n)]
+        np.save(out / f"{tag}.npy", np.concatenate([np.load(out / f"{q}.npy") for q in parts]))
+        if (out / f"{parts[0]}_cells.npy").exists():
+            np.save(out / f"{tag}_cells.npy", np.concatenate([np.load(out / f"{q}_cells.npy") for q in parts]))
+        mid = pd.concat([pd.read_csv(out / f"{q}_ids.csv") for q in parts])
+        assert list(mid.ID) == ids, "shard ids do not reproduce the full id order"
+        mid.to_csv(out / f"{tag}_ids.csv", index=False)
+        metas = [json.loads((out / f"{q}_meta.json").read_text()) for q in parts]
+        metas[0]["seconds"] = round(sum(m["seconds"] for m in metas), 1)
+        metas[0]["shards"] = n
+        (out / f"{tag}_meta.json").write_text(json.dumps(metas[0], indent=1))
+        for q in parts:
+            for suf in (".npy", "_cells.npy", "_ids.csv", "_meta.json"):
+                (out / f"{q}{suf}").unlink(missing_ok=True)
+        print(f"merged {n} shards -> {tag}")
+        sys.exit(0)
+    shard_sfx = ""
+    if a.shard:
+        k, n = map(int, a.shard.split("/"))
+        ids = [str(i) for i in np.array_split(np.array(ids), n)[k]]
+        shard_sfx = f".shard{k}of{n}"
+    res = extract(a.backbone, ids, a.size, a.views, a.pools.split(","), a.prep, a.bs, grid=a.grid,
+                  augs=[s for s in a.augs.split(",") if s], view_names=[s for s in a.view_names.split(",") if s],
+                  cell_grids=[int(g) for g in a.cell_grids.split(",") if g],
+                  cell_stages=[int(g) for g in a.cell_stages.split(",") if g])
+    E, meta, Ec = res if len(res) == 3 else (*res, None)
     out.mkdir(exist_ok=True)
-    tag = a.tag or tag_of(a.backbone, a.size, a.prep) + (f"_lim{a.limit}" if a.limit else "")
+    tag = (a.tag or tag_of(a.backbone, a.size, a.prep) + (f"_lim{a.limit}" if a.limit else "")) + shard_sfx
     np.save(out / f"{tag}.npy", E)
+    if Ec is not None:
+        np.save(out / f"{tag}_cells.npy", Ec)
     pd.Series(ids).to_csv(out / f"{tag}_ids.csv", index=False, header=["ID"])
     (out / f"{tag}_meta.json").write_text(json.dumps(meta, indent=1))
     print(f"saved {tag} {E.shape} in {meta['seconds']}s")

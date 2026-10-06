@@ -56,11 +56,14 @@ def load_emb(tag, stages="all", pools=("mean", "std"), n_views=0, cells="global"
     E = np.load(DATA_DIR / "emb" / f"{tag}.npy", mmap_mode="r")
     ids = pd.read_csv(DATA_DIR / "emb" / f"{tag}_ids.csv").ID.values
     nst = len(meta["channels"])
-    st = set(range(nst)) if stages in (None, "all") else {int(s) % nst for s in str(stages).split(",")}
+    if stages == "none":  # no global columns from this tag (e.g. only its --cellstats are wanted)
+        st = set()
+    else:
+        st = set(range(nst)) if stages in (None, "all") else {int(s) % nst for s in str(stages).split(",")}
     sel = [b for b in meta["blocks"] if b["stage"] in st and b["pool"] in pools]
-    if not sel:
+    if not sel and stages != "none":
         raise ValueError(f"no blocks selected in {tag} for stages={stages} pools={pools}")
-    cols = np.concatenate([np.arange(b["start"], b["end"]) for b in sel])
+    cols = np.concatenate([np.arange(b["start"], b["end"]) for b in sel]) if sel else np.zeros(0, int)
     nc = meta.get("cells", 1)
     names = meta["views"]
     orig = [k for k, n in enumerate(names) if not n.startswith("aug:")]
@@ -75,6 +78,80 @@ def load_emb(tag, stages="all", pools=("mean", "std"), n_views=0, cells="global"
     X = np.asarray(E[:, vidx][:, :, cols], dtype=np.float64)
     blocks = [(f"{tag}|s{b['stage']}|{b['pool']}", b["end"] - b["start"]) for b in sel]
     return ids, X, blocks, meta, is_orig, rows
+
+
+def cell_stats(tag, rows, stages, pools, stats, reduce="none", transform="log", grids="2", row_mode="all"):
+    """Cross-cell (spatial heterogeneity) statistics for a --grid extraction. For every head row (view v, cell 0)
+    take the grid cells 1..G^2 of the same view and compute std / range / max / min over the cells per channel of
+    the selected stage/pool blocks (sign*log1p if transform='log'; reduce='block' averages over the channels of each
+    block, like the EDA ecs features). Rows whose view has no stored cells (grid-1 extra files) reuse the identity
+    view (zero nuisance deviation). Pure per-image transform; returns ids, CS (N, R, d), blocks."""
+    meta = json.loads((DATA_DIR / "emb" / f"{tag}_meta.json").read_text())
+    ids = pd.read_csv(DATA_DIR / "emb" / f"{tag}_ids.csv").ID.values
+    names = meta["views"]
+    nst = len(meta["channels"])
+    st = set(range(nst)) if stages in (None, "all") else {int(x) % nst for x in str(stages).split(",")}
+    if "cell_layout" in meta:  # compact store <tag>_cells.npy (N, views, cells of all grids, Dc)
+        L = meta["cell_layout"]
+        Ec = np.load(DATA_DIR / "emb" / f"{tag}_cells.npy", mmap_mode="r")
+        offs = np.cumsum([0] + [g * g for g in L["grids"]])
+        cell_sets = {g: np.arange(offs[k], offs[k + 1]) for k, g in enumerate(L["grids"])}
+        blocks_src = L["blocks"]
+
+        def get_cells(vi, idx, cols):
+            return np.asarray(Ec[:, vi][:, idx][:, :, cols], dtype=np.float64)
+    else:  # cells stored inside the main array (--grid G): row = view * cells + cell, cell 0 = global
+        nc = meta.get("cells", 1)
+        if nc < 2:
+            raise ValueError(f"{tag} has no grid cells (extract with --grid 2+ or --cell-grids)")
+        E = np.load(DATA_DIR / "emb" / f"{tag}.npy", mmap_mode="r")
+        cell_sets = {meta["grid"]: np.arange(1, nc)}
+        blocks_src = meta["blocks"]
+
+        def get_cells(vi, idx, cols):
+            return np.asarray(E[:, vi * nc + idx][:, :, cols], dtype=np.float64)
+    gl = [int(g) for g in str(grids).split(",")]
+    missing = [g for g in gl if g not in cell_sets]
+    if missing:
+        raise ValueError(f"{tag}: grids {missing} not stored (have {list(cell_sets)})")
+    sel = [b for b in blocks_src if b["stage"] in st and b["pool"] in pools]
+    cols = np.concatenate([np.arange(b["start"], b["end"]) for b in sel])
+    def cell_stats_view(vi):
+        Fs = []
+        for g in gl:
+            C = get_cells(vi, cell_sets[g], cols)  # (N, cells, d)
+            fs = {"std": lambda: C.std(1), "range": lambda: C.max(1) - C.min(1), "max": lambda: C.max(1),
+                  "min": lambda: C.min(1)}
+            F = np.concatenate([fs[x]() for x in stats], 1)
+            if transform == "log":
+                F = np.sign(F) * np.log1p(np.abs(F))
+            if reduce == "block":  # mean over the channels of every stat/stage/pool block
+                edges = np.cumsum([0] + [b["end"] - b["start"] for b in sel] * len(stats))
+                F = np.stack([F[:, a:b].mean(1) for a, b in zip(edges[:-1], edges[1:])], 1)
+            Fs.append(F)
+        return np.concatenate(Fs, 1)
+
+    # row_mode: all  = every row uses its own view's cells (aug rows -> noise penalty also acts on these columns)
+    #           orig = 'aug:' rows reuse the identity view (no noise penalty on the heterogeneity columns)
+    #           mean = average over the original views for every row (no view / aug penalty on them)
+    # Rows whose view has no stored cells (grid-1 extra files) always reuse the identity view.
+    cache, out = {}, []
+    orig_views = [v for v, _ in rows if not v.startswith("aug:") and v in names]
+    for v, _ in rows:
+        if row_mode == "mean":
+            key = "__mean__"
+        elif v in names and (row_mode == "all" or not v.startswith("aug:")):
+            key = v
+        else:
+            key = "id"
+        if key not in cache:
+            cache[key] = (np.mean([cell_stats_view(names.index(u)) for u in orig_views], 0) if key == "__mean__"
+                          else cell_stats_view(names.index(key)))
+        out.append(cache[key])
+    CS = np.stack(out, 1)
+    blocks = [(f"{tag}|cs-g{g}-{x}|s{b['stage']}|{b['pool']}", 1 if reduce == "block" else b["end"] - b["start"])
+              for g in gl for x in stats for b in sel]
+    return ids, CS, blocks
 
 
 def elementwise(X, kind):
@@ -240,13 +317,14 @@ def gridge_fit_eval(X3tr, ytr, X3evs, cfg, grid):
     return np.split(P, np.cumsum(sizes)[:-1], axis=1), hps
 
 
-def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid):
+def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid, sw=None):
     """Generalized ridge with one penalty per nuisance type:
-    min |y - Zbar w|^2 + lv*mean_v|w.(Z_v - Zbar)|^2 + lc*mean_vc|w.(Z_vc - mean_c Z_vc)|^2
+    min sum_i sw_i (y_i - Zbar_i w)^2 + lv*mean_v|w.(Z_v - Zbar)|^2 + lc*mean_vc|w.(Z_vc - mean_c Z_vc)|^2
                        + la*mean_a|w.(Z_aug_a - Z_id)|^2 + alpha|w|^2
     Zbar = mean of the original views' global rows (also used for prediction); view deviations = orientation,
     cell deviations (within each view, centred over its cells) = spatial position, aug deviations (noise/blur
-    copy minus the identity view) = imaging nuisance. Prep is fitted on the training images' Zbar only."""
+    copy minus the identity view) = imaging nuisance. Prep is fitted on the training images' Zbar only.
+    sw = optional per-image sample weights (mean 1) for the data term (heteroscedastic labels)."""
     rows = cfg["rows"]
     pos = {r: k for k, r in enumerate(rows)}
     gidx = [k for k, (v, c) in enumerate(rows) if c == 0 and not v.startswith("aug:")]
@@ -272,9 +350,11 @@ def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid):
         S["aug"] = sum(D.T @ D for D in Da) / len(Da)
     ymu, ysd = ytr.mean(), ytr.std()
     yc = (ytr - ymu) / ysd
-    zc = Zbar.mean(0)
+    sw = np.ones(n) if sw is None else np.asarray(sw, np.float64) / np.mean(sw)
+    zc = (sw[:, None] * Zbar).sum(0) / sw.sum()  # weighted centring = unpenalised intercept under weights
+    ybar = float((sw * yc).sum() / sw.sum())
     Zc = Zbar - zc
-    G, gvec = Zc.T @ Zc, Zc.T @ (yc - yc.mean())
+    G, gvec = Zc.T @ (sw[:, None] * Zc), Zc.T @ (sw * (yc - ybar))
     sizes = [len(X) for X in X3evs]
     P_ev = prep.transform(np.concatenate([X[:, gidx].mean(1) for X in X3evs])) - zc
     out, hps = [], []
@@ -285,18 +365,20 @@ def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid):
                 w_, Q = eigh(M)
                 s2, P, uty = np.maximum(w_, 0), P_ev @ Q, Q.T @ gvec
                 for a in grid["alpha"]:
-                    out.append(yc.mean() + P @ (uty / (s2 + a)))
+                    out.append(ybar + P @ (uty / (s2 + a)))
                     hps.append({"lam_view": lv, "lam_cell": lc, "lam_aug": la, "alpha": a})
     P = np.stack(out) * ysd + ymu
     return np.split(P, np.cumsum(sizes)[:-1], axis=1), hps
 
 
-def fit_eval(X3tr, ytr, X3evs, cfg, grid):
+def fit_eval(X3tr, ytr, X3evs, cfg, grid, sw=None):
     """Fit prep + head path on training images; return list of (n_grid, n_eval) view-averaged predictions."""
+    if cfg["head"] == "gridge3":
+        return gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid, sw=sw)
+    if sw is not None:
+        raise ValueError("sample weights (--hetero) are implemented for --head gridge3 only")
     if cfg["head"] == "gridge":
         return gridge_fit_eval(X3tr, ytr, X3evs, cfg, grid)
-    if cfg["head"] == "gridge3":
-        return gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid)
     n, V, d = X3tr.shape
     io = cfg.get("is_orig", np.ones(V, bool))
     Vo = int(io.sum())
@@ -311,27 +393,59 @@ def fit_eval(X3tr, ytr, X3evs, cfg, grid):
     return np.split(P, np.cumsum(sizes)[:-1], axis=1), hps
 
 
+def hetero_weights(res, z, clip=(0.25, 4.0)):
+    """Inverse-variance sample weights from training rows only: OLS of log(res^2 + 1) on [1, Z] (Z columns
+    log-transformed when strictly positive), w = 1 / exp(fit), normalised to mean 1 and clipped.
+    res = inner-CV residuals of the unweighted head; z = variance covariates (e.g. correlation length)."""
+    Z = pd.DataFrame(np.asarray(z, np.float64).reshape(len(res), -1))
+    Z = Z.fillna(Z.median())
+    Z = Z.apply(lambda c: np.log(c) if (c > 0).all() else c)
+    D = np.column_stack([np.ones(len(res)), Z.values])
+    coef, *_ = np.linalg.lstsq(D, np.log(res ** 2 + 1.0), rcond=None)
+    w = 1.0 / np.exp(D @ coef)
+    w = np.clip(w / w.mean(), *clip)
+    return w / w.mean(), coef[1:]
+
+
+def inner_cv(X3tr, ytr, ftr, cfg, grid, sw=None):
+    """Leave-one-fold-out CV on an outer training split; returns (sse per grid point, inner OOF, hps)."""
+    ioof = None
+    for g in np.unique(ftr):
+        itr, iva = ftr != g, ftr == g
+        (P,), hps = fit_eval(X3tr[itr], ytr[itr], [X3tr[iva]], cfg, grid, sw=None if sw is None else sw[itr])
+        if ioof is None:
+            ioof = np.zeros((len(P), len(ytr)))
+        ioof[:, iva] = P
+    return ((ioof - ytr) ** 2).sum(1), ioof, hps
+
+
 def run_cv(X3, y, folds, X3te, cfg, grid, verbose=True):
+    """Outer CV. cfg['hetero_z'] (train-aligned covariates) -> two-pass weighted fit: unweighted inner CV
+    residuals -> hetero_weights on the outer training rows -> weighted inner CV + final fit.
+    cfg['hp_avg'] = K averages the predictions of the K best grid points by inner CV (default 1 = argmin)."""
     oof, pte = np.zeros(len(y)), np.zeros(len(X3te))
     chosen, inner_best, oracle = [], [], []
+    hz, K = cfg.get("hetero_z"), int(cfg.get("hp_avg", 1))
     for f in sorted(np.unique(folds)):
         tr, va = folds != f, folds == f
-        # inner leave-one-fold-out CV on the outer training split
-        ftr = folds[tr]
-        sse = 0.0
-        for g in np.unique(ftr):
-            itr, iva = ftr != g, ftr == g
-            (P,), hps = fit_eval(X3[tr][itr], y[tr][itr], [X3[tr][iva]], cfg, grid)
-            sse = sse + ((P - y[tr][iva]) ** 2).sum(1)
-        b = int(np.argmin(sse))
-        (Pva, Pte), hps = fit_eval(X3[tr], y[tr], [X3[va], X3te], cfg, grid)
-        oof[va] = Pva[b]
-        pte += Pte[b] / len(np.unique(folds))
+        sse, ioof, hps = inner_cv(X3[tr], y[tr], folds[tr], cfg, grid)
+        sw = None
+        if hz is not None:
+            sw, coef = hetero_weights(y[tr] - ioof[int(np.argmin(sse))], hz[tr])
+            if verbose:
+                print(f"  fold {f}: hetero log-var slopes {np.round(coef, 3).tolist()}; "
+                      f"weights {sw.min():.2f}-{sw.max():.2f}", flush=True)
+            sse, ioof, hps = inner_cv(X3[tr], y[tr], folds[tr], cfg, grid, sw=sw)
+        bs = np.argsort(sse, kind="stable")[:K]
+        b = int(bs[0])
+        (Pva, Pte), hps = fit_eval(X3[tr], y[tr], [X3[va], X3te], cfg, grid, sw=sw)
+        oof[va] = Pva[bs].mean(0)
+        pte += Pte[bs].mean(0) / len(np.unique(folds))
         chosen.append(hps[b])
         inner_best.append(float(np.sqrt(sse[b] / tr.sum())))
         oracle.append(Pva)
         if verbose:
-            print(f"  fold {f}: inner {inner_best[-1]:.3f} hp {hps[b]} -> outer {rmse(Pva[b], y[va]):.3f}",
+            print(f"  fold {f}: inner {inner_best[-1]:.3f} hp {hps[b]} -> outer {rmse(oof[va], y[va]):.3f}",
                   flush=True)
     # diagnostic only (not used for selection): best fixed grid point judged on the outer folds
     O = np.zeros((len(oracle[0]), len(y)))
@@ -359,13 +473,20 @@ def build(args, tr, te):
             X = np.concatenate([X, X2[pd.Series(np.arange(len(ids2)), index=ids2)[ids].values][:, sel]], 1)
             io = np.concatenate([io, io2[sel]])
             rw = rw + [rw2[k] for k in sel]
+        X = elementwise(X, args.transform)
+        if args.cellstats:  # spatial heterogeneity across grid cells, appended per view row
+            ids3, CS, csb = cell_stats(tag, rw, args.cs_stages, args.cs_pools.split(","), args.cellstats.split(","),
+                                       args.cs_reduce, args.cs_transform, args.cs_grid, args.cs_rows)
+            assert (ids3 == ids).all()
+            X = np.concatenate([X, CS], 2)
+            bl = bl + csb
         if base_ids is None:
             base_ids, is_orig, rows = ids, io, rw
         else:  # align rows to the first tag's id order
             X = X[pd.Series(np.arange(len(ids)), index=ids)[base_ids].values]
             if rw != rows:
                 raise ValueError(f"{tag}: view/cell row layout differs from the first embedding")
-        Xs.append(elementwise(X, args.transform))
+        Xs.append(X)
         blocks += bl
         n_orig = len(meta["views"]) - sum(n.startswith("aug:") for n in meta["views"])
         lic.append(f"{meta['backbone']} ({meta['license']}, {meta['size']}px, {n_orig} views)")
@@ -374,7 +495,8 @@ def build(args, tr, te):
     if args.view_std:  # per-channel spread across views = orientation dependence (anisotropy) of the texture
         X = np.concatenate([X, np.repeat(X[:, is_orig].std(1, keepdims=True), V, 1)], 2)
         blocks += [(n + "|viewstd", s) for n, s in blocks]
-    col_w = np.concatenate([np.full(s, (1 / np.sqrt(s)) if args.block_norm else 1.0) for _, s in blocks])
+    col_w = np.concatenate([np.full(s, ((1 / np.sqrt(s)) if args.block_norm else 1.0)
+                                    * (args.cs_weight if "|cs-" in n else 1.0)) for n, s in blocks])
     if args.with_feats:
         F = pd.concat([pd.read_parquet(DATA_DIR / f).set_index("ID") for f in args.feats.split(",")], axis=1)
         F = F.loc[base_ids, ~F.columns.duplicated()]
@@ -408,6 +530,21 @@ if __name__ == "__main__":
     ap.add_argument("--transform", default="none", choices=["none", "sqrt", "log"])
     ap.add_argument("--block-norm", action="store_true", help="each stage/pool block gets unit total weight")
     ap.add_argument("--view-std", action="store_true", help="append per-channel std across views")
+    ap.add_argument("--cellstats", default="", help="cross-cell stats from --grid extractions, e.g. std,range,max")
+    ap.add_argument("--cs-stages", default="0,1,2", help="stages for --cellstats (same index for every tag)")
+    ap.add_argument("--cs-pools", default="mean,std", help="pools for --cellstats")
+    ap.add_argument("--cs-reduce", default="none", choices=["none", "block"], help="block = mean over channels")
+    ap.add_argument("--cs-transform", default="log", choices=["none", "log"])
+    ap.add_argument("--cs-weight", type=float, default=1.0, help="column weight of the cellstat block(s)")
+    ap.add_argument("--cs-grid", default="2", help="grid(s) for --cellstats, e.g. 2 | 4 | 2,4 (stored grids only)")
+    ap.add_argument("--cs-grid-bag", default="", help="';'-separated cs-grid specs, e.g. '2;4;8;2,4;2,8;4,8;2,4,8': "
+                    "equal-weight average of one full CV run per spec (fixed weights, honest)")
+    ap.add_argument("--cs-rows", default="all", choices=["all", "orig", "mean"],
+                    help="which rows carry their own cellstats (see cell_stats); orig/mean exempt them from penalties")
+    ap.add_argument("--hetero", default="", help="comma list of --hetero-file columns modelling the residual "
+                    "variance -> in-fold inverse-variance sample weights (gridge3 only), e.g. ic_acg_len50_gm")
+    ap.add_argument("--hetero-file", default="features_v3.parquet")
+    ap.add_argument("--hp-avg", type=int, default=1, help="average the K best grid points by inner CV")
     ap.add_argument("--with-feats", action="store_true")
     ap.add_argument("--feat-weight", type=float, default=1.0)
     ap.add_argument("--feats", default="features.parquet", help="comma list of data/*.parquet feature files")
@@ -417,6 +554,7 @@ if __name__ == "__main__":
     ap.add_argument("--grid-json", default=None, help='override head grid keys, e.g. {"lam_aug": [0, 16, 64]}')
     ap.add_argument("--name", default=None)
     ap.add_argument("--no-save", action="store_true")
+    ap.add_argument("--oof-out", default="", help="also write the OOF predictions to this CSV path")
     ap.add_argument("--threads", type=int, default=1)
     a = ap.parse_args()
     if a.extra_rows:
@@ -425,16 +563,36 @@ if __name__ == "__main__":
         a.view_mode = "aug"
     t0 = time.time()
     tr, te = load_train(), load_test()
-    Xtr, Xte, col_w, blocks, lic, n_pass, is_orig, rows = build(a, tr, te)
     y, folds = tr.hardness.values.astype(np.float64), tr.fold.values
-    cfg = {"head": a.head, "col_w": col_w, "pca": a.pca, "whiten": a.whiten, "n_pass": n_pass,
-           "is_orig": is_orig, "rows": rows}
-    print(f"X {Xtr.shape} test {Xte.shape} blocks {len(blocks)} head {a.head}", flush=True)
     grid = dict(HEADS[a.head][1], **(json.loads(a.grid_json) if a.grid_json else {}))
-    oof, pte, chosen, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, grid)
-    fr = [rmse(oof[folds == f], y[folds == f]) for f in sorted(np.unique(folds))]
-    print(f"CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} | best-fixed-hp (diagnostic, optimistic) "
-          f"{orc:.4f} {orc_hp} | {time.time() - t0:.0f}s")
+    # --cs-grid-bag: fixed equal-weight average of full honest CV runs, one per cellstats grid spec
+    specs = [g for g in a.cs_grid_bag.split(";") if g] if a.cs_grid_bag else [a.cs_grid]
+    hz = None
+    if a.hetero:  # variance covariates for training images only (weights never touch test rows)
+        H = pd.read_parquet(DATA_DIR / a.hetero_file).set_index("ID")
+        hz = H.loc[tr.ID, a.hetero.split(",")].values.astype(np.float64)
+    oofs, ptes, chosen = [], [], []
+    for spec in specs:
+        a.cs_grid = spec
+        Xtr, Xte, col_w, blocks, lic, n_pass, is_orig, rows = build(a, tr, te)
+        cfg = {"head": a.head, "col_w": col_w, "pca": a.pca, "whiten": a.whiten, "n_pass": n_pass,
+               "is_orig": is_orig, "rows": rows, "hetero_z": hz, "hp_avg": a.hp_avg}
+        print(f"X {Xtr.shape} test {Xte.shape} blocks {len(blocks)} head {a.head}"
+              f"{' cs_grid=' + spec if a.cellstats else ''}", flush=True)
+        oof_k, pte_k, chosen_k, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, grid, verbose=len(specs) == 1)
+        fr = [rmse(oof_k[folds == f], y[folds == f]) for f in sorted(np.unique(folds))]
+        print(f"CV RMSE {rmse(oof_k, y):.4f} folds {np.round(fr, 3).tolist()} | best-fixed-hp (diagnostic, "
+              f"optimistic) {orc:.4f} {orc_hp} | {time.time() - t0:.0f}s", flush=True)
+        oofs.append(oof_k)
+        ptes.append(pte_k)
+        chosen += chosen_k
+    oof, pte = np.mean(oofs, 0), np.mean(ptes, 0)
+    if len(specs) > 1:
+        a.cs_grid = "bag[" + ";".join(specs) + "]"
+        fr = [rmse(oof[folds == f], y[folds == f]) for f in sorted(np.unique(folds))]
+        print(f"BAG CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} ({len(specs)} members)")
+    if a.oof_out:  # scratch OOF dump for paired comparisons (does not register an experiment)
+        pd.DataFrame({"ID": tr.ID, "hardness": oof}).to_csv(a.oof_out, index=False)
     if not a.no_save:
         name = a.name or f"emb_{a.emb.split('.')[0]}_{a.head}"
         hp_s = [",".join(f"{k}={float(v):.4g}" for k, v in h.items()) for h in chosen]
@@ -443,9 +601,12 @@ if __name__ == "__main__":
                  f"pools={a.pools} view_mode={a.view_mode} cells={a.cells} augs={a.use_augs}{':' + a.aug_filter if a.aug_filter else ''} "
                  f"extra_rows={a.extra_rows or '-'} "
                  f"view_std={a.view_std} "
+                 f"{'cellstats=' + a.cellstats + '@g' + a.cs_grid + ':' + a.cs_rows + ':s' + a.cs_stages + ':' + a.cs_pools + ':' + a.cs_reduce + ':' + a.cs_transform + ':w' + str(a.cs_weight) + ' ' if a.cellstats else ''}"
                  f"transform={a.transform} "
                  f"block_norm={a.block_norm} "
-                 f"pca={a.pca}{'w' if a.whiten else ''} feats={a.feats + ' x' + str(a.feat_weight) if a.with_feats else 'no'}; "
+                 f"pca={a.pca}{'w' if a.whiten else ''} feats={a.feats + ' x' + str(a.feat_weight) if a.with_feats else 'no'}"
+                 f"{' hetero=' + a.hetero + '@' + a.hetero_file + ' (in-fold inverse-variance weights)' if a.hetero else ''}"
+                 f"{' hp_avg=' + str(a.hp_avg) if a.hp_avg > 1 else ''}; "
                  f"{'grid=' + a.grid_json + '; ' if a.grid_json else ''}"
                  f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}")
         save_experiment(name, tr, oof, te, pte, notes=notes)
