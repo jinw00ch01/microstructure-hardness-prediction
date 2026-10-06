@@ -52,3 +52,20 @@ The cloud session blends them for the next submission.
 - In the blend only effnetv2-s gets weight (0.07), and `blend_v10` ties `blend_v7`. Details and next ideas:
   `notes/RESUME.md`.
 - The laptop keeps the per-fold-seed caches in `data\cnn_cache\<name>\` and the experiments in `experiments\`.
+
+## 6. Next GPU runs (planned 2026-10-07 00:00 KST)
+Why: `blend_v10` (effnetv2-s CNN at 7%) scored public 11.8267 vs v7 11.8795, and a nested two-stage blend gives the
+CNN a 13% share (`blend_v11`, CV 12.407). Stronger CNN members are now the main lever.
+GPU mode: only as the user says in the thread (exclusive: `--device cuda`, then the done file; shared: wrap each command
+with gpu_turn.py). Base flags as in section 3, plus `--device cuda`. PowerShell, repo root.
+
+a. effnetv2-s, 3 more seeds (keeps the 3-seed experiment as it is):
+   `Copy-Item data\cnn_cache\cnn_ev2s_rawnlm_degcons_gpu_s3 data\cnn_cache\cnn_ev2s_rawnlm_degcons_gpu_s6 -Recurse`
+   then with `--backbone tf_efficientnetv2_s.in21k_ft_in1k --lr 1e-3 --name cnn_ev2s_rawnlm_degcons_gpu_s6 --seeds 6`:
+   `--no-save --train-seeds 3`, then `4`, then `5`, then one call without `--no-save`/`--train-seeds` to assemble and save.
+b. ConvNeXt-tiny (MIT) for diversity: `--backbone convnext_tiny.fb_in22k_ft_in1k`.
+   - Screen fold 0, 1 seed, `--no-save`, at `--lr 1e-4` and `--lr 3e-4`.
+   - If the better one is under about 14.0 on fold 0, run it with 3 seeds seed by seed (`--seeds 3 --no-save --train-seeds 0/1/2`,
+     then assemble), `--name cnn_cnxt_rawnlm_degcons_gpu_s3`. Otherwise stop after the screen.
+c. Send each finished experiment as before (score.json, then oof and test as 2-decimal values in ID order with checksums).
+d. When everything is done, return the GPU the way the user's mode requires.
