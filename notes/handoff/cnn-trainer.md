@@ -5,9 +5,17 @@
   Per seed: seed 0 CV 13.670, seed 1 CV 14.349. Seed-to-seed variance of a full 5-fold run is about 0.7 RMSE,
   so raw+nlm vs raw (13.787, 1 seed) is NOT resolved; the fold 0-1 screen that favoured NLM was noise.
   OOF averages: raw s0 + rawnlm s0 + s1 = 13.702; 0.5 raw + 0.5 rawnlm-2-seed = 13.679. Residual corr 0.94-0.96.
-- Running: third seed (seed index 2) -> cnn_r18_rawnlm_e30_s3 (3-seed assembly is automatic,
-  logs/cnnq_core2.sh); resnet34d raw+nlm folds 0-2 on core 1 and folds 3-4 on core 2 ->
-  cnn_r34d_rawnlm_e30 (assembly automatic, logs/cnnq_core1b.sh).
+- 04:13 **cnn_r18_rawnlm_e30_s3 (3 seeds) assembled: CV 13.823**, folds 13.760 / 12.637 / 14.725 / 14.069 / 13.841.
+- OOF RMSE by train ic_ridge_snr tercile (noisy / mid / clean): cnn_r18_c224_e30 15.52 / 12.17 / 13.46;
+  cnn_r18_rawnlm_e30 15.73 / 12.35 / 13.20; cnn_r18_rawnlm_e30_s3 15.81 / 12.24 / 13.17; feat_lgb 16.34 / 13.35 / 12.64.
+  The CNNs beat LGB on the noisy and mid terciles but are worse on clean images, so an SNR-gated blend may help.
+- New in src/train_cnn.py: `--deg-p/--deg-k/--deg-snr-min` (synthetic degradations of the cleaner half of train,
+  made with src.features._degrade_v2 and cached in data/cnn_cache/_pre/deg2_k8_snr0.5.npz, 263 sources x 8 copies,
+  built with `--build-deg`), `--cons L` (degraded twin under identical augmentation, trained on the label plus
+  L x MSE to the stop-grad prediction of the original), and an automatic per-SNR-tercile report at assembly.
+- Running from 04:24 (logs/cnn_worker.sh on cores 0-3, tasks in logs/cnn_tasks.txt, automatic assembly):
+  cnn_r18_rawnlm_deg_e30 (deg-p 0.5, 2 seeds) and cnn_r18_rawnlm_degcons_e30 (deg-p 0.5, cons 1.0, 2 seeds).
+  resnet34d raw+nlm (cnn_r34d_rawnlm_e30, 1 seed) finishes about 04:50 and assembles automatically (logs/cnnq_core1b.sh).
 - Core contention: embedding-modeler's extract_embeddings (PID 698) was pinned to core 2 at 03:00 and
   roughly halved that core's CNN throughput until it finished (~03:20).
 - Location-dependent-label check (answers part of RESUME.md's open question): the dark-phase fraction in

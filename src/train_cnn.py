@@ -7,6 +7,11 @@ augmentation only: D4 flips/rot90, mild brightness/contrast jitter, gaussian noi
 Inference runs on the full 256x256 image with D4 TTA. Target is standardized per fold.
 --input raw|nlm|raw+nlm: optional non-local-means denoised channel (a fixed per-image transform,
 nothing is fitted on test). Input normalization stats come from the training fold only.
+--deg-p P: with probability P a training image from the cleaner half of train (ic_ridge_snr > --deg-snr-min)
+is replaced by one of K synthetic degradations of itself (same label), made with the feature-engineer's
+calibration-v2 degradation model (src.features._degrade_v2: noise/blur/dark-contrast/shading matched to the
+real images per noise band). Build the bank once with --build-deg. Train images only; validation-fold
+copies are never used in that fold. At assembly the OOF RMSE per train ic_ridge_snr tercile is reported.
 CPU-friendly: bf16 autocast + channels_last (uses AMX on Sapphire/Emerald Rapids), threads capped
 at 2 on CPU, no DataLoader workers. --device auto|cpu|cuda: on a GPU, autocast uses bf16 when the card
 supports it, else fp16 with a GradScaler. Per-fold predictions are cached in data/cnn_cache/<name>/ so a run
@@ -48,13 +53,61 @@ def _raw_u8(i):
     return np.round(read_img(i) * 255).astype(np.uint8)
 
 
-def _nlm_u8(i):
+def _nlm_arr(u8):
     """Non-local-means denoising with h tied to the estimated noise level (as in src/features.py)."""
     import cv2
     from skimage import restoration
-    raw = read_img(i)
-    h = float(np.clip(restoration.estimate_sigma(raw) * 255 * 1.2, 3, 40))
-    return cv2.fastNlMeansDenoising(_raw_u8(i), None, h=h, templateWindowSize=7, searchWindowSize=21)
+    h = float(np.clip(restoration.estimate_sigma(u8.astype(np.float32) / 255.0) * 255 * 1.2, 3, 40))
+    return cv2.fastNlMeansDenoising(u8, None, h=h, templateWindowSize=7, searchWindowSize=21)
+
+
+def _nlm_u8(i):
+    return _nlm_arr(_raw_u8(i))
+
+
+DEG_CHANNELS = {"raw": [0], "nlm": [1], "raw+nlm": [0, 1]}  # bank channels are (raw, nlm)
+
+
+def deg_bank(k=8, snr_min=0.5, build=False):
+    """Synthetic degradations of the cleaner TRAIN images -> {ID: uint8 (k, 2, 256, 256)} (raw, nlm).
+    Uses src.features._degrade_v2 read-only (feature-engineer's model matched to the real images)."""
+    import pandas as pd
+    fp = CACHE / "_pre" / f"deg2_k{k}_snr{snr_min}.npz"
+    if fp.exists():
+        z = np.load(fp)
+        return dict(zip(z["ids"].tolist(), z["img"]))
+    if not build:
+        raise SystemExit(f"{fp} missing: build it first with --build-deg --deg-k {k} --deg-snr-min {snr_min}")
+    import cv2
+    from .features import _degrade_v2
+    cv2.setNumThreads(1)
+    v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet", columns=["ID", "ic_ridge_snr"]).set_index("ID")
+    src = [i for i in load_train().ID if v3.loc[i, "ic_ridge_snr"] > snr_min]  # train images only
+    out = np.zeros((len(src), k, 2, 256, 256), np.uint8)
+    t = time.time()
+    for n, i in enumerate(src):
+        raw8 = _raw_u8(i)
+        for j in range(k):
+            d, _ = _degrade_v2(raw8, np.random.default_rng([SEED, int(i.split("_")[-1]), j]))
+            out[n, j, 0], out[n, j, 1] = d, _nlm_arr(d)
+        if n % 50 == 0:
+            print(f"deg bank {n}/{len(src)} {time.time() - t:.0f}s", flush=True)
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(fp, ids=np.array(src), img=out)
+    print(f"deg bank: {len(src)} sources x {k} copies -> {fp} in {time.time() - t:.0f}s", flush=True)
+    return dict(zip(src, out))
+
+
+def snr_tercile_rmse(tr, oof):
+    """OOF RMSE per tercile of train ic_ridge_snr (noisy, mid, clean); None if features_v3 is missing."""
+    import pandas as pd
+    fp = DATA_DIR / "features_v3.parquet"
+    if not fp.exists():
+        return None
+    s = pd.read_parquet(fp, columns=["ID", "ic_ridge_snr"]).set_index("ID").loc[tr.ID, "ic_ridge_snr"].values
+    t = np.digitize(s, np.quantile(s, [1 / 3, 2 / 3]))
+    y = tr.hardness.values
+    return [rmse(oof[t == k], y[t == k]) for k in range(3)]
 
 
 def _cached(kind, ids):
@@ -153,6 +206,29 @@ class Aug:
             x = torch.cat([x[:1] + n, x[1:]])
         return x
 
+    # replayable version (same geometry/jitter for an image and its degraded twin; used by --cons)
+    def sample(self, size):
+        a, rng = self.a, self.rng
+        return {"rc": rng.integers(0, size - a.crop + 1, 2) if a.crop < size else None,
+                "k": int(rng.integers(8)),
+                "blur": float(rng.uniform(0.3, a.blur)) if (self.raw and a.blur_p > 0 and rng.random() < a.blur_p) else 0.0,
+                "c": float(rng.uniform(1 - a.contrast, 1 + a.contrast)) if a.contrast > 0 else 1.0,
+                "b": float(rng.uniform(-a.bright, a.bright)) if a.bright > 0 else 0.0,
+                "n": float(rng.uniform(0, a.noise)) if (self.raw and a.noise > 0 and rng.random() < a.noise_p) else 0.0}
+
+    def apply(self, x, p):
+        if p["rc"] is not None:
+            r, c = p["rc"]
+            x = x[:, r:r + self.a.crop, c:c + self.a.crop]
+        x = d4(x, p["k"])
+        if p["blur"] > 0:
+            x = torch.cat([gauss_blur(x[:1], p["blur"]), x[1:]])
+        m = x.mean((-2, -1), keepdim=True)
+        x = (x - m) * p["c"] + m + p["b"]
+        if p["n"] > 0:
+            x = torch.cat([x[:1] + p["n"] * torch.randn(x[:1].shape, generator=self.gen), x[1:]])
+        return x
+
 
 def to_input(x, mu, sd):  # x: (B, C, H, W) float in [0,1]; mu, sd: (1, C, 1, 1) or None
     if mu is None:  # per-image standardization (--norm image)
@@ -190,12 +266,14 @@ def param_groups(model, a):
     return out
 
 
-def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte):
-    """Train one model with a fixed schedule; return predictions of the chosen weights."""
+def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
+    """Train one model with a fixed schedule; return predictions of the chosen weights.
+    bank: uint8 tensor (Nb, K, C, H, W) of degraded copies; bidx[i] = bank row of training image i or -1."""
     seed = SEED + 1000 * s + f
     torch.manual_seed(seed)
     aug = Aug(a, seed)
     rng = np.random.default_rng(seed + 7)  # batch order
+    drng = np.random.default_rng(seed + 13)  # degraded-copy sampling (separate stream)
     ymu, ysd = float(ytr.mean()), float(ytr.std())
     yt = torch.tensor((ytr - ymu) / ysd, dtype=torch.float32, device=RT["dev"])
     pix = Xtr.float() / 255.0  # input normalization from this fold's training images only
@@ -227,11 +305,31 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte):
         tl = 0.0
         for b in range(spe):
             idx = perm[b * a.bs:(b + 1) * a.bs]
-            x = torch.stack([aug(Xtr[i].float() / 255.0) for i in idx])
+            xs, xd, di = [], [], []
+            for j, i in enumerate(idx):
+                if a.cons > 0:  # original + (with prob deg_p) its degraded twin under identical augmentation
+                    prm = aug.sample(Xtr.shape[-1])
+                    xs.append(aug.apply(Xtr[i].float() / 255.0, prm))
+                    if bank is not None and bidx[i] >= 0 and drng.random() < a.deg_p:
+                        d = bank[bidx[i], int(drng.integers(bank.shape[1]))]
+                        xd.append(aug.apply(d.float() / 255.0, prm))
+                        di.append(j)
+                    continue
+                xi = Xtr[i]
+                if bank is not None and bidx[i] >= 0 and drng.random() < a.deg_p:
+                    xi = bank[bidx[i], int(drng.integers(bank.shape[1]))]
+                xs.append(aug(xi.float() / 255.0))
+            x = torch.stack(xs + xd)
             x = to_input(x, mu, sd).to(RT["dev"], non_blocking=True)
             with amp(a.bf16):
                 p = model(x)
-            loss = loss_fn(p.float(), yt[torch.as_tensor(idx, device=RT["dev"])])
+            p = p.float()
+            tb = yt[torch.as_tensor(idx, device=RT["dev"])]
+            loss = loss_fn(p[:len(idx)], tb)
+            if di:  # degraded twins: supervised + consistency with the (stop-grad) original prediction
+                dj = torch.as_tensor(di, device=RT["dev"])
+                pdg = p[len(idx):]
+                loss = loss + loss_fn(pdg, tb[dj]) + a.cons * F.mse_loss(pdg, p[:len(idx)][dj].detach())
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             if a.clip > 0:
@@ -282,9 +380,21 @@ def main(a):
         torch.set_num_interop_threads(1)
     except RuntimeError:
         pass
+    if a.build_deg:
+        deg_bank(a.deg_k, a.deg_snr_min, build=True)
+        return
     tr, te = load_train(), load_test()
     y = tr.hardness.values.astype(np.float64)
     folds = a.folds if a.folds else list(range(5))
+    bank_t, row = None, {}
+    if a.deg_p > 0:
+        b = deg_bank(a.deg_k, a.deg_snr_min)
+        ch = DEG_CHANNELS[a.input]
+        bank_ids = list(b)
+        bank_t = torch.from_numpy(np.stack([b[i][:, ch] for i in bank_ids]))
+        row = {i: r for r, i in enumerate(bank_ids)}
+        del b
+        print(f"degradation bank: {len(bank_ids)} train sources x {bank_t.shape[1]} copies, p={a.deg_p}", flush=True)
     cache = CACHE / a.name
     cache.mkdir(parents=True, exist_ok=True)
     (cache / "args.json").write_text(json.dumps(vars(a), indent=2))
@@ -302,7 +412,8 @@ def main(a):
             if fp.exists() and not a.overwrite:
                 print(f"fold {f} seed {s}: cached", flush=True)
                 continue
-            r = train_one(a, f, s, Xall[trn], y[trn], Xall[val], y[val], Xte)
+            bidx = np.array([row.get(i, -1) for i in tr.ID.values[trn]]) if bank_t is not None else None
+            r = train_one(a, f, s, Xall[trn], y[trn], Xall[val], y[val], Xte, bank=bank_t, bidx=bidx)
             np.savez(fp, val_idx=val, val=r["val"], val_other=r.get("val_other", np.full(len(val), np.nan)),
                      test=r["test"] if r["test"] is not None else np.zeros(0))
 
@@ -326,11 +437,18 @@ def main(a):
         m = tr.fold.values == f
         print(f"fold {f}: rmse {rmse(oof[m], y[m]):.3f}" +
               (f" (other weights {rmse(oof_other[m], y[m]):.3f})" if not np.isnan(oof_other[m]).any() else ""))
+    terc = snr_tercile_rmse(tr, oof) if len(done) == 5 else None
+    if terc is not None:
+        print(f"OOF rmse by train ic_ridge_snr tercile (noisy/mid/clean): {terc[0]:.3f} / {terc[1]:.3f} / {terc[2]:.3f}")
     if len(done) == 5 and have_test and not a.no_save:
         notes = (f"{a.backbone} in={a.input} norm={a.norm} ep{a.epochs} bs{a.bs} crop{a.crop} lr{a.lr} hlr{a.head_lr_mult} wd{a.wd} "
                  f"{a.loss} pool={a.pool} drop{a.drop} dp{a.drop_path} ema{a.ema}->{a.use} seeds{a.seeds} "
                  f"aug(b{a.bright} c{a.contrast} n{a.noise}@{a.noise_p} blur{a.blur}@{a.blur_p}) tta{a.tta}; "
                  f"fixed schedule, no val checkpoint selection")
+        if a.deg_p > 0:
+            notes += f"; deg_v2 aug p{a.deg_p} k{a.deg_k} src snr>{a.deg_snr_min}" + (f" cons{a.cons}" if a.cons > 0 else "")
+        if terc is not None:
+            notes += f"; snr-tercile rmse noisy/mid/clean {terc[0]:.2f}/{terc[1]:.2f}/{terc[2]:.2f}"
         save_experiment(a.name, tr, oof, te, pred, notes=notes)
     else:
         m = ~np.isnan(oof)
@@ -362,6 +480,13 @@ def parse(argv=None):
     ap.add_argument("--norm", default="global", choices=["global", "image"],
                     help="global: fold-level pixel mean/std; image: standardize each image/channel")
     ap.add_argument("--crop", type=int, default=224)
+    ap.add_argument("--deg-p", type=float, default=0.0, help="prob. of using a synthetic degraded copy (0 = off)")
+    ap.add_argument("--deg-k", type=int, default=8, help="degraded copies per source image in the bank")
+    ap.add_argument("--deg-snr-min", type=float, default=0.5, help="bank sources: train ic_ridge_snr above this")
+    ap.add_argument("--build-deg", action="store_true", help="build the degradation bank and exit")
+    ap.add_argument("--cons", type=float, default=0.0,
+                    help="consistency weight: degraded twin (prob --deg-p) is trained on the label and pulled "
+                         "towards the stop-grad prediction of its original under identical augmentation")
     ap.add_argument("--bright", type=float, default=0.03)
     ap.add_argument("--contrast", type=float, default=0.1)
     ap.add_argument("--noise", type=float, default=0.03, help="max extra gaussian noise sigma (pixel units)")
