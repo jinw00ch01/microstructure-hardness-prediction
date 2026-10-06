@@ -349,3 +349,20 @@ Method: as in the afternoon, with the **base switched to the feat4_v3cal_ridge_h
   This is untested by me and needs a nested check.
 * Scripts: `eda_cf.py`, a33–a40. Outputs: `blend_v4_nested_oof.csv`, `a35_mi_spearman_clean.csv`,
   `a36_scan_clean_coarse_mid.csv`, `m_v4_extremes_clean_{coarse,mid}.png`.
+
+### Addendum (evening): per-grain interior texture and boundary contrast, null (a41, a42)
+Raw image divided by the local matrix level; watershed grains with interiors eroded 3 px; number-weighted per phase.
+Cross-fitted against feat4 on clean images (snr > 0.9) and on all images.
+* **Interior texture ("etch roughness")**: within-grain std, the MAD of the 3x3 residual, and G0.7−G2 band energy.
+  - Normalised by the wavelet noise σ, by noise measured inside pores, or by spread across grains, with a
+    sampling-corrected excess.
+  - Also the dark − matrix difference and the within-image relation to size and level.
+  - Every probe group is at the null (permutation p 0.10–0.71).
+  - Spearman with the blend_v4 residual: max |rho| on clean coarse+mid is 0.21 (null median 0.24); on all clean images
+    it is 0.15 (null median 0.20).
+* **Boundary contrast per grain** (mean darkness of the grain's own watershed-line pixels, against its interior and
+  against the matrix level, from both the raw-based and the NLM image):
+  - median, spread across grains, and the relation to size, per phase
+  - null: the best group, all boundary features on all images, gives 12.603 (4/5 folds, p 0.24)
+  - matrix boundary darkness tracks y (rho +0.36 on clean images) but not the residual (−0.10); feat4 already explains it
+* Nothing exported.
