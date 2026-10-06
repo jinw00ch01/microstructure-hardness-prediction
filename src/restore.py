@@ -19,6 +19,22 @@ Applied as a fixed per-image transform (8-view D4 average) to all 1500 images ->
   python -m src.restore train --threads 2                                                          # -> model + val report
   python -m src.restore apply --part 0 --nparts 2 &  python -m src.restore apply --part 1 --nparts 2
   python -m src.restore check                                                                      # pass-through + montages
+
+High-noise specialist (--tag; untagged commands behave exactly as before). The same U-Net fine-tuned from
+restore_unet.pt on high-noise pairs only (q >= 0.4, i.e. _degrade_v2 noise_t >= 10.8): the original bank's pairs plus a
+dedicated bank drawn by exact rejection sampling of _degrade_v2 on its latent q (same 120 train / 11 held-out sources).
+A tag writes model + checkpoint to data/restore_cache/<tag>/, reports to experiments/restore/<tag>/ and images to
+data_restored_<tag>/. `compare` evaluates restorers on the same held-out pairs (paired, by noise band) and optionally
+the fidelity of v3 features on restored high-noise copies. `apply --apply-noise-min` restores only images whose raw
+ic_noise (data/features_v3.parquet) passes a fixed cut and copies the rest from --fill-from.
+
+  python -m src.restore bank --bank-name hn --q-min 0.4 --k-train 16 --k-val 24 --seed-base 9 --part P --nparts 4  # P=0..3
+  python -m src.restore train --tag hn --banks main,hn --train-q-min 0.4 --init data/restore_cache/restore_unet.pt \
+      --fp32 --threads 4 --patch 128 --bs 16 --steps 3000 --lr 5e-4 --identity 0 --mon-n 48 --ckpt-every 250 --no-validate
+  python -m src.restore compare --tags base,hn --banks main,hn --threads 4 --jobs 4 --features --report-tag hn
+  python -m src.restore apply --tag hn --apply-noise-min 11.92 --fill-from data_restored --part P --nparts 4  # P=0..3
+  python -m src.restore check --tag hn --fill-from data_restored
+The specialist is much worse than the original on low-noise inputs (never trained there): use it only above the cut.
 """
 import argparse
 import json
@@ -41,6 +57,34 @@ OUT_DIR = ROOT / "data_restored"
 REPORT_DIR = EXP_DIR / "restore"
 SRC_SNR, N_VAL, K_TRAIN, K_VAL = 0.9, 11, 32, 6
 MU, SD, SIG_SCALE = 0.55, 0.10, 20.0  # input normalisation (pixel/255) and noise-channel scale (grey levels)
+BASE_CH = (32, 64, 96, 128)
+CHECK_FEATS = ["ic_seg_fd93", "ic_fdo_93", "ic_gmm_w", "ic_acg_len50_perp", "ic_seg_nfrac91"]
+
+
+def paths(tag=""):
+    """'' = the original restorer's locations (unchanged); a tag gets its own model, checkpoint, report and images."""
+    if not tag:
+        return {"cache": CACHE, "model": CACHE / "restore_unet.pt", "ckpt": CACHE / "restore_ckpt.pt",
+                "report": REPORT_DIR, "out": OUT_DIR}
+    c = CACHE / tag
+    return {"cache": c, "model": c / "restore_unet.pt", "ckpt": c / "restore_ckpt.pt", "report": REPORT_DIR / tag,
+            "out": ROOT / f"data_restored_{tag}"}
+
+
+def bank_dir(name=""):
+    return CACHE if name in ("", "main") else CACHE / f"bank_{name}"
+
+
+def _bank_names(s):
+    return ["" if n == "main" else n for n in s.split(",") if n]
+
+
+def _root_path(p):
+    return Path(p) if os.path.isabs(p) else ROOT / p
+
+
+def _threads(a):
+    return max(1, min(a.threads, os.cpu_count() or 1))
 
 
 # ----------------------------------------------------------------------------------------------- data
@@ -102,21 +146,43 @@ def photometric_target(clean8, coef):
     return np.clip(gain * clean8.astype(np.float32) + coef[-1], 0, 255)
 
 
-def build_bank(part, nparts):
+def _accepted(prefix, num, n, q_min):
+    """First n degradation indices k whose _degrade_v2 latent q is >= q_min. q is the first draw of
+    default_rng([prefix, num, k]) inside _degrade_v2 (everything before it is deterministic), so this is exact
+    rejection sampling of _degrade_v2 conditioned on q >= q_min. q_min <= 0 gives range(n) (the original bank)."""
+    if q_min <= 0:
+        return list(range(n))
+    ks, k = [], 0
+    while len(ks) < n:
+        if np.random.default_rng([prefix, num, k]).uniform() >= q_min:
+            ks.append(k)
+        k += 1
+    return ks
+
+
+def build_bank(part, nparts, name="", q_min=0.0, k_train=K_TRAIN, k_val=K_VAL, seed_base=7):
+    """Defaults = the original bank (rng prefixes 7 train / 8 val, all q). name -> data/restore_cache/bank_<name>/."""
     from .features import _degrade_v2
     cv2.setNumThreads(1)
     trn, val = sources()
-    jobs = [(i, k, "train") for i in trn for k in range(K_TRAIN)] + [(i, k, "val") for i in val for k in range(K_VAL)]
+    num = lambda i: int(i.split("_")[-1])
+    jobs = ([(i, k, "train") for i in trn for k in _accepted(seed_base, num(i), k_train, q_min)] +
+            [(i, k, "val") for i in val for k in _accepted(seed_base + 1, num(i), k_val, q_min)])
     jobs = sorted(jobs[part::nparts])  # group by source so per-source layers are computed once
     layers, out = {}, {"id": [], "kind": [], "deg": [], "coef": [], "sigma": [], "noise_t": [], "q": [], "sb": [],
                        "contrast": [], "fit_rms": [], "gain0": []}
+    if name:
+        out["k"] = []
     t = time.time()
     for n, (i, k, kind) in enumerate(jobs):
         clean = _read8(i)
         if i not in layers:
             layers = {i: _src_layers(clean)}  # sources are contiguous within a part, keep one
-        rng = np.random.default_rng([7 if kind == "train" else 8, int(i.split("_")[-1]), k])
+        rng = np.random.default_rng([seed_base if kind == "train" else seed_base + 1, num(i), k])
         deg, p = _degrade_v2(clean, rng)
+        assert p["q"] >= q_min, (i, k, p["q"])
+        if name:
+            out["k"].append(k)
         recon = _reconstruct(layers[i], p)
         coef = photometric_fit(recon, deg)
         gain = sum(c_ * b for c_, b in zip(coef[:-1], _BASIS))
@@ -127,16 +193,24 @@ def build_bank(part, nparts):
             out[key].append(v)
         if n % 200 == 0:
             print(f"part {part}: {n}/{len(jobs)} {time.time() - t:.0f}s", flush=True)
-    CACHE.mkdir(parents=True, exist_ok=True)
-    np.savez(CACHE / f"bank_part{part}.npz", **{k: np.array(v) for k, v in out.items()})
+    d = bank_dir(name)
+    d.mkdir(parents=True, exist_ok=True)
+    np.savez(d / f"bank_part{part}.npz", **{k: np.array(v) for k, v in out.items()})
     print(f"part {part}: {len(jobs)} pairs in {time.time() - t:.0f}s; median fit rms {np.median(out['fit_rms']):.2f}",
           flush=True)
 
 
-def load_bank():
-    parts = sorted(CACHE.glob("bank_part*.npz"))
-    zs = [np.load(p) for p in parts]
-    b = {k: np.concatenate([z[k] for z in zs]) for k in zs[0].files}
+def load_bank(names=("",)):
+    """Concatenate the parts of one or more banks ('' = the original); b['bank'] tells them apart."""
+    zs, tags = [], []
+    for nm in names:
+        parts = sorted(bank_dir(nm).glob("bank_part*.npz"))
+        assert parts, f"no bank_part*.npz in {bank_dir(nm)}"
+        zs += [np.load(p) for p in parts]
+        tags += [nm or "main"] * len(parts)
+    keys = [k for k in zs[0].files if all(k in z.files for z in zs)]
+    b = {k: np.concatenate([z[k] for z in zs]) for k in keys}
+    b["bank"] = np.concatenate([np.full(len(z["id"]), t) for z, t in zip(zs, tags)])
     ids = sorted(set(b["id"].tolist()))
     clean = {i: _read8(i) for i in ids}
     return b, clean
@@ -149,8 +223,9 @@ def _block(cin, cout):
 
 
 class UNet(nn.Module):
-    def __init__(self, ch=(32, 64, 96, 128), cin=2):
+    def __init__(self, ch=BASE_CH, cin=2):
         super().__init__()
+        self.ch = tuple(ch)
         self.e1, self.e2, self.e3, self.b = _block(cin, ch[0]), _block(ch[0], ch[1]), _block(ch[1], ch[2]), _block(ch[2], ch[3])
         self.u3, self.u2, self.u1 = _block(ch[3] + ch[2], ch[2]), _block(ch[2] + ch[1], ch[1]), _block(ch[1] + ch[0], ch[0])
         self.out = nn.Conv2d(ch[0], 1, 1)
@@ -168,6 +243,31 @@ class UNet(nn.Module):
         d1 = self.u1(torch.cat([up(d2), e1], 1))
         with torch.autocast(x.device.type, enabled=False):
             return x[:, :1].float() + self.out(d1.float())
+
+
+def _ch_from_state(sd):
+    return tuple(int(sd[f"{k}.0.weight"].shape[0]) for k in ("e1", "e2", "e3", "b"))
+
+
+def widen_init(model, old_sd):
+    """Zero-expanded init of a wider UNet from a narrower state dict: the old weights fill the leading channels and
+    every weight that reads a new channel is zero, so the wider network starts as exactly the old function."""
+    o, n = _ch_from_state(old_sd), model.ch
+    segs = {"e1.0": [(2, 2)], "e1.2": [(o[0], n[0])], "e2.0": [(o[0], n[0])], "e2.2": [(o[1], n[1])],
+            "e3.0": [(o[1], n[1])], "e3.2": [(o[2], n[2])], "b.0": [(o[2], n[2])], "b.2": [(o[3], n[3])],
+            "u3.0": [(o[3], n[3]), (o[2], n[2])], "u3.2": [(o[2], n[2])],  # decoder input = cat(upsampled, skip)
+            "u2.0": [(o[2], n[2]), (o[1], n[1])], "u2.2": [(o[1], n[1])],
+            "u1.0": [(o[1], n[1]), (o[0], n[0])], "u1.2": [(o[0], n[0])], "out": [(o[0], n[0])]}
+    sd = {k: v.clone() for k, v in model.state_dict().items()}
+    for name, seg in segs.items():
+        w_old, w = old_sd[f"{name}.weight"], sd[f"{name}.weight"]
+        r, oi, ni = w_old.shape[0], 0, 0
+        for lo, ln in seg:
+            w[:, ni + lo:ni + ln] = 0
+            w[:r, ni:ni + lo] = w_old[:, oi:oi + lo]
+            oi, ni = oi + lo, ni + ln
+        sd[f"{name}.bias"][:r] = old_sd[f"{name}.bias"]
+    model.load_state_dict(sd)
 
 
 def to_input(img8, sigma):
@@ -193,15 +293,17 @@ def d4_inv(x, k):
 
 
 @torch.no_grad()
-def restore(model, imgs8, sigmas, tta=8, bs=8):
-    """imgs8: uint8 tensor (N, H, W) -> float restored (N, H, W) in grey levels (mean over D4 views)."""
+def restore(model, imgs8, sigmas, tta=8, bs=8, amp=None):
+    """imgs8: uint8 tensor (N, H, W) -> float restored (N, H, W) in grey levels (mean over D4 views).
+    amp: bf16 autocast; None = the model's own setting (model.amp, True for the original restorer)."""
+    amp = getattr(model, "amp", True) if amp is None else amp
     model.eval()
     out = []
     for s in range(0, len(imgs8), bs):
         x = to_input(imgs8[s:s + bs], sigmas[s:s + bs])
         acc = 0
         for k in range(tta):
-            with torch.autocast("cpu", dtype=torch.bfloat16):
+            with torch.autocast("cpu", dtype=torch.bfloat16, enabled=amp):
                 y = model(d4(x, k).contiguous(memory_format=torch.channels_last))
             acc = acc + d4_inv(y.float(), k)
         out.append(from_output(acc / tta))
@@ -214,14 +316,17 @@ def psnr(a, b):
 
 # ----------------------------------------------------------------------------------------------- training
 def train(a):
-    torch.set_num_threads(min(a.threads, 2))
+    pth = paths(a.tag)
+    torch.set_num_threads(_threads(a))
     torch.manual_seed(0)
     rng = np.random.default_rng(0)
-    b, clean = load_bank()
-    tr = np.where(b["kind"] == "train")[0]
-    va = np.where(b["kind"] == "val")[0]
+    names = _bank_names(a.banks)
+    b, clean = load_bank(names)
+    tr = np.where((b["kind"] == "train") & (b["q"] >= a.train_q_min))[0]
+    va = np.where((b["kind"] == "val") & (b["q"] >= a.train_q_min))[0]
+    va_mon = va if not a.mon_n or a.mon_n >= len(va) else va[np.linspace(0, len(va) - 1, a.mon_n).round().astype(int)]
     print(f"bank: {len(tr)} train pairs from {len(set(b['id'][tr]))} sources, {len(va)} val pairs", flush=True)
-    clean_sig = {i: _sigma(c) for i, c in clean.items()}
+    clean_sig = {i: _sigma(c) for i, c in clean.items()} if a.identity > 0 else {}
     deg = torch.from_numpy(b["deg"])
     tgt_cache = {}
 
@@ -230,16 +335,31 @@ def train(a):
             tgt_cache[j] = torch.from_numpy(photometric_target(clean[b["id"][j]], b["coef"][j])).half()
         return tgt_cache[j].float()
 
-    model = UNet().to(memory_format=torch.channels_last)
+    amp = not a.fp32
+    ch = tuple(int(round(c * a.width)) for c in BASE_CH)
+    model = UNet(ch=ch)
+    if a.init:
+        sd0 = torch.load(_root_path(a.init), map_location="cpu")
+        if _ch_from_state(sd0) == ch:
+            model.load_state_dict(sd0)
+        else:
+            widen_init(model, sd0)
+        print(f"init from {a.init} (channels {_ch_from_state(sd0)} -> {ch})", flush=True)
+    model = model.to(memory_format=torch.channels_last)
+    model.amp = amp
     print(f"UNet params {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
-    sch = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=0.05)
+    sch = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=a.pct_start)
     P = a.patch
     t0 = time.time()
     run = 0.0
     # checkpoint / resume (a container suspend kills background jobs): weights + optimizer + scheduler + RNG + step
-    ckpt, start = CACHE / "restore_ckpt.pt", 1
+    ckpt, start = pth["ckpt"], 1
     cfg = {k: getattr(a, k) for k in ("steps", "bs", "patch", "lr", "grad_w", "identity")}
+    extra = {"tag": a.tag, "banks": ",".join(n or "main" for n in names), "train_q_min": a.train_q_min,
+             "init": a.init, "width": a.width, "fp32": a.fp32, "pct_start": a.pct_start}
+    dflt = {"tag": "", "banks": "main", "train_q_min": 0.0, "init": "", "width": 1.0, "fp32": False, "pct_start": 0.05}
+    cfg.update({k: v for k, v in extra.items() if v != dflt[k]})  # default runs keep the original cfg (and checkpoint)
     if ckpt.exists() and not a.fresh:
         st = torch.load(ckpt, map_location="cpu", weights_only=False)
         if st["cfg"] == cfg:
@@ -254,12 +374,16 @@ def train(a):
             print(f"checkpoint cfg {st['cfg']} != {cfg}: starting fresh", flush=True)
 
     def save_ckpt(step):
-        CACHE.mkdir(parents=True, exist_ok=True)
+        pth["cache"].mkdir(parents=True, exist_ok=True)
         tmp = ckpt.with_suffix(".tmp")
         torch.save({"cfg": cfg, "step": step, "model": model.state_dict(), "opt": opt.state_dict(),
                     "sch": sch.state_dict(), "rng": rng.bit_generator.state, "torch_rng": torch.get_rng_state()}, tmp)
         os.replace(tmp, ckpt)
 
+    if a.init and start == 1:  # starting point of a fine-tune on the monitoring pairs
+        rest = restore(model, deg[va_mon], b["sigma"][va_mon], tta=1).numpy()
+        pa = np.mean([psnr(rest[n], target(j)) for n, j in enumerate(va_mon)])
+        print(f"  step 0 val PSNR (tta1, {len(va_mon)} pairs) restored {pa:.2f} dB", flush=True)
     for step in range(start, a.steps + 1):
         model.train()
         xs, ys, sg = [], [], []
@@ -278,7 +402,7 @@ def train(a):
             sg.append(s)
         xin = to_input(torch.stack(xs), sg)
         yt = (torch.stack(ys)[:, None] / 255.0 - MU) / SD
-        with torch.autocast("cpu", dtype=torch.bfloat16):
+        with torch.autocast("cpu", dtype=torch.bfloat16, enabled=amp):
             out = model(xin)
         out = out.float()
         loss = F.l1_loss(out, yt)
@@ -296,42 +420,54 @@ def train(a):
                   flush=True)
             run = 0.0
         if step % a.eval_every == 0 or step == a.steps:  # monitoring only (fixed schedule, last weights are kept)
-            rest = restore(model, deg[va], b["sigma"][va], tta=1).numpy()
-            pa = np.mean([psnr(rest[n], target(j)) for n, j in enumerate(va)])
-            pb = np.mean([psnr(deg[j].numpy(), target(j)) for j in va])
-            print(f"  val PSNR (tta1) degraded {pb:.2f} -> restored {pa:.2f} dB", flush=True)
+            rest = restore(model, deg[va_mon], b["sigma"][va_mon], tta=1).numpy()
+            pa = np.mean([psnr(rest[n], target(j)) for n, j in enumerate(va_mon)])
+            pb = np.mean([psnr(deg[j].numpy(), target(j)) for j in va_mon])
+            print(f"  val PSNR (tta1, {len(va_mon)} pairs) degraded {pb:.2f} -> restored {pa:.2f} dB", flush=True)
         if step % a.ckpt_every == 0 or step == a.steps:
             save_ckpt(step)
-    CACHE.mkdir(parents=True, exist_ok=True)
-    tmp = CACHE / "restore_unet.tmp"
+    pth["cache"].mkdir(parents=True, exist_ok=True)
+    tmp = pth["model"].with_suffix(".tmp")
     torch.save(model.state_dict(), tmp)
-    os.replace(tmp, CACHE / "restore_unet.pt")
-    print(f"saved {CACHE / 'restore_unet.pt'} after {time.time() - t0:.0f}s", flush=True)
-    validate(model, b, va, target)
+    os.replace(tmp, pth["model"])
+    if a.tag:
+        (pth["cache"] / "meta.json").write_text(json.dumps({"ch": list(ch), "amp": amp, "cfg": cfg}, indent=2))
+    print(f"saved {pth['model']} after {time.time() - t0:.0f}s", flush=True)
+    if not a.no_validate:
+        validate(model, b, va, target, pth["report"])
 
 
-def validate(model, b, va, target):
-    """PSNR before/after by noise band, boundary PSNR / ridge correlation and dark-phase contrast on held-out sources."""
+def _target_info(t):
+    """Reference maps of a (float) target image used by the held-out metrics."""
     from skimage import filters
+    rid = filters.sato(t, sigmas=[1.0, 1.5], black_ridges=True)
+    den = cv2.GaussianBlur(t, (0, 0), 2.0)
+    return {"t": t, "rid": rid, "bmask": rid > np.percentile(rid, 85), "den": den,
+            "dark": den < np.percentile(den, 20), "mat": den > np.percentile(den, 50)}
+
+
+def _img_metrics(img, ti, tag):
+    """PSNR, PSNR on boundary pixels (top 15% target ridge), ridge-map correlation, dark-phase contrast ratio."""
+    from skimage import filters
+    t, den, dark, mat, bmask = ti["t"], ti["den"], ti["dark"], ti["mat"], ti["bmask"]
+    r2 = filters.sato(img, sigmas=[1.0, 1.5], black_ridges=True)
+    sm = cv2.GaussianBlur(img, (0, 0), 2.0)
+    return {f"psnr_{tag}": psnr(img, t), f"psnr_bd_{tag}": psnr(img[bmask], t[bmask]),
+            f"ridge_corr_{tag}": float(np.corrcoef(r2.ravel(), ti["rid"].ravel())[0, 1]),
+            f"dark_contrast_{tag}": float((sm[mat].mean() - sm[dark].mean()) /
+                                          max(den[mat].mean() - den[dark].mean(), 1e-3))}
+
+
+def validate(model, b, va, target, report_dir=REPORT_DIR):
+    """PSNR before/after by noise band, boundary PSNR / ridge correlation and dark-phase contrast on held-out sources."""
     deg = torch.from_numpy(b["deg"][va])
     rest = restore(model, deg, b["sigma"][va], tta=8).numpy()
     rows = []
     for n, j in enumerate(va):
-        t = target(j).numpy()
-        clean8 = np.clip(np.round(t), 0, 255).astype(np.uint8)
-        rid = filters.sato(t, sigmas=[1.0, 1.5], black_ridges=True)
-        bmask = rid > np.percentile(rid, 85)
-        den = cv2.GaussianBlur(t, (0, 0), 2.0)
-        dark = den < np.percentile(den, 20)
-        mat = den > np.percentile(den, 50)
+        ti = _target_info(target(j).numpy())
         row = {"noise_t": float(b["noise_t"][j]), "sb": float(b["sb"][j]), "contrast": float(b["contrast"][j])}
-        for tag, img in (("deg", deg[n].numpy().astype(np.float32)), ("rest", rest[n])):
-            row[f"psnr_{tag}"] = psnr(img, t)
-            row[f"psnr_bd_{tag}"] = psnr(img[bmask], t[bmask])
-            r2 = filters.sato(img, sigmas=[1.0, 1.5], black_ridges=True)
-            row[f"ridge_corr_{tag}"] = float(np.corrcoef(r2.ravel(), rid.ravel())[0, 1])
-            sm = cv2.GaussianBlur(img, (0, 0), 2.0)
-            row[f"dark_contrast_{tag}"] = float((sm[mat].mean() - sm[dark].mean()) / max(den[mat].mean() - den[dark].mean(), 1e-3))
+        row.update(_img_metrics(deg[n].numpy().astype(np.float32), ti, "deg"))
+        row.update(_img_metrics(rest[n], ti, "rest"))
         rows.append(row)
     df = pd.DataFrame(rows)
     df["band"] = pd.cut(df.noise_t, [0, 9, 15, 99], labels=["low noise (<9)", "mid (9-15)", "high (>15)"])
@@ -340,13 +476,13 @@ def validate(model, b, va, target):
     summ = df.groupby("band", observed=True)[cols].mean().round(3)
     summ["n"] = df.groupby("band", observed=True).size()
     allm = df[cols].mean().round(3)
-    print("held-out validation (11 clean sources x 6 degradations; targets = clean in degraded photometry):")
+    print(f"held-out validation ({len(va)} pairs of the 11 held-out sources; targets = clean in degraded photometry):")
     print(summ.to_string())
     print("all:", allm.to_dict())
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORT_DIR / "val_metrics.json").write_text(json.dumps(
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "val_metrics.json").write_text(json.dumps(
         {"by_band": summ.reset_index().astype({"band": str}).to_dict(orient="records"), "all": allm.to_dict()}, indent=2))
-    df.to_csv(REPORT_DIR / "val_pairs.csv", index=False)
+    df.to_csv(report_dir / "val_pairs.csv", index=False)
     # held-out synthetic montage: degraded | restored | target (128 px crops), 6 pairs spanning the noise range
     order = np.argsort(b["noise_t"][va])
     tiles, c = [], 128
@@ -356,54 +492,80 @@ def validate(model, b, va, target):
         row = np.concatenate([deg[n].numpy()[:c, :c], sep, u8(rest[n][:c, :c]), sep, u8(target(j).numpy()[:c, :c])], 1)
         cv2.putText(row, f"nt{b['noise_t'][j]:.0f} sb{b['sb'][j]:.1f}", (3, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, 255, 1)
         tiles.append(np.pad(row, ((0, 5), (0, 5)), constant_values=255))
-    cv2.imwrite(str(REPORT_DIR / "montage_val_synthetic.png"),
+    cv2.imwrite(str(report_dir / "montage_val_synthetic.png"),
                 np.concatenate([np.concatenate(tiles[k:k + 2], 1) for k in range(0, len(tiles), 2)], 0))
 
 
 # ----------------------------------------------------------------------------------------------- apply / checks
-def load_model():
-    m = UNet().to(memory_format=torch.channels_last)
-    m.load_state_dict(torch.load(CACHE / "restore_unet.pt", map_location="cpu"))
-    return m.eval()
+def load_model(tag=""):
+    """The original restorer ('') or a tagged specialist (channels from the weights, bf16 setting from meta.json)."""
+    pth = paths(tag)
+    sd = torch.load(pth["model"], map_location="cpu")
+    m = UNet(ch=_ch_from_state(sd))
+    m.load_state_dict(sd)
+    meta = pth["cache"] / "meta.json"
+    m.amp = bool(json.loads(meta.read_text()).get("amp", True)) if tag and meta.exists() else True
+    return m.to(memory_format=torch.channels_last).eval()
 
 
 def validate_saved(a):
-    torch.set_num_threads(min(a.threads, 2))
-    b, clean = load_bank()
-    va = np.where(b["kind"] == "val")[0]
-    validate(load_model(), b, va, lambda j: torch.from_numpy(photometric_target(clean[b["id"][j]], b["coef"][j])))
+    torch.set_num_threads(_threads(a))
+    b, clean = load_bank(_bank_names(a.banks))
+    va = np.where((b["kind"] == "val") & (b["q"] >= a.train_q_min))[0]
+    validate(load_model(a.tag), b, va, lambda j: torch.from_numpy(photometric_target(clean[b["id"][j]], b["coef"][j])),
+             paths(a.tag)["report"])
 
 
 def apply(a):
-    assert DATA_DIR.resolve() != OUT_DIR.resolve(), "run apply with the original DATA_DIR (unset), not data_restored"
-    torch.set_num_threads(min(a.threads, 2))
+    """Restore every image (default) or, with --apply-noise-min, only those whose raw ic_noise >= the cut, copying the
+    rest byte-for-byte from --fill-from. Writes are atomic; --resume skips images already written."""
+    pth = paths(a.tag)
+    out_dir = pth["out"]
+    assert DATA_DIR.resolve() != out_dir.resolve(), f"run apply with the original DATA_DIR (unset), not {out_dir.name}"
+    torch.set_num_threads(_threads(a))
     cv2.setNumThreads(1)
     ids = load_train().ID.tolist() + load_test().ID.tolist()
     ids = ids[a.part::a.nparts]
-    model = load_model()
+    use, fill = set(ids), None
+    if a.apply_noise_min > 0:  # fixed per-image rule on the raw image's noise estimate (nothing fitted)
+        assert a.fill_from, "--apply-noise-min needs --fill-from (the set the other images are copied from)"
+        fill = _root_path(a.fill_from)
+        nz = pd.read_parquet(DATA_DIR / "features_v3.parquet", columns=["ID", "ic_noise"]).set_index("ID").ic_noise
+        use = {i for i in ids if nz[i] >= a.apply_noise_min}
+        pth["cache"].mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"ID": ids, "ic_noise": [float(nz[i]) for i in ids], "specialist": [int(i in use) for i in ids]}
+                     ).to_csv(pth["cache"] / f"applied_part{a.part}.csv", index=False)
+        print(f"part {a.part}: {len(use)} of {len(ids)} images have ic_noise >= {a.apply_noise_min}", flush=True)
+    model = load_model(a.tag) if use else None
     for split in ("train", "test"):
-        (OUT_DIR / split).mkdir(parents=True, exist_ok=True)
-    tmpdir = OUT_DIR.parent / f".data_restored_tmp{a.part}"  # outside data_restored/ so no stray files appear there
+        (out_dir / split).mkdir(parents=True, exist_ok=True)
+    tmpdir = out_dir.parent / f".{out_dir.name}_tmp{a.part}"  # outside the output dir so no stray files appear there
     tmpdir.mkdir(exist_ok=True)
-    out = lambda i: OUT_DIR / ("train" if i.startswith("TRAIN") else "test") / f"{i}.png"
+    rel = lambda i: Path("train" if i.startswith("TRAIN") else "test") / f"{i}.png"
+    out = lambda i: out_dir / rel(i)
     if a.resume:
         done = [i for i in ids if out(i).exists()]
         ids = [i for i in ids if not out(i).exists()]
         print(f"part {a.part}: resume, {len(done)} already written, {len(ids)} to go", flush=True)
     t = time.time()
-    for s in range(0, len(ids), 16):
-        chunk = ids[s:s + 16]
+    run_ids = [i for i in ids if i in use]
+    for s in range(0, len(run_ids), 16):
+        chunk = run_ids[s:s + 16]
         imgs = [_read8(i) for i in chunk]
         rest = restore(model, torch.from_numpy(np.stack(imgs)), [_sigma(x) for x in imgs], tta=a.tta).numpy()
         for i, r in zip(chunk, rest):
             cv2.imwrite(str(tmpdir / f"{i}.png"), np.clip(np.round(r), 0, 255).astype(np.uint8))
             os.replace(tmpdir / f"{i}.png", out(i))
         if s % 160 == 0:
-            print(f"part {a.part}: {s + len(chunk)}/{len(ids)} {time.time() - t:.0f}s", flush=True)
+            print(f"part {a.part}: {s + len(chunk)}/{len(run_ids)} {time.time() - t:.0f}s", flush=True)
+    copy_ids = [i for i in ids if i not in use]
+    for i in copy_ids:
+        shutil.copyfile(fill / rel(i), tmpdir / f"{i}.png")
+        os.replace(tmpdir / f"{i}.png", out(i))
     for f in ("train.csv", "sample_submission.csv", "folds.csv"):
-        shutil.copy(DATA_DIR / f, OUT_DIR / f)
+        shutil.copy(DATA_DIR / f, out_dir / f)
     shutil.rmtree(tmpdir, ignore_errors=True)
-    print(f"part {a.part}: wrote {len(ids)} images in {time.time() - t:.0f}s", flush=True)
+    print(f"part {a.part}: restored {len(run_ids)}, copied {len(copy_ids)} images in {time.time() - t:.0f}s", flush=True)
 
 
 def check(a):
@@ -461,9 +623,238 @@ def check(a):
     print("montages:", REPORT_DIR / "montage_noisy_before_after.png", REPORT_DIR / "montage_mid_clean_before_after.png")
 
 
+def _boot_ci(stat, groups, n_boot=2000, seed=0):
+    """90% interval of stat(index array) under a bootstrap over sources (pairs of one source are correlated)."""
+    rng = np.random.default_rng(seed)
+    ug = np.unique(groups)
+    idx = {g: np.where(groups == g)[0] for g in ug}
+    vals = [stat(np.concatenate([idx[g] for g in rng.choice(ug, len(ug))])) for _ in range(n_boot)]
+    return [round(float(np.percentile(vals, 5)), 4), round(float(np.percentile(vals, 95)), 4)]
+
+
+def _pair_row(meta, t, imgs):
+    cv2.setNumThreads(1)
+    ti = _target_info(t)
+    row = dict(meta)
+    for tag, img in imgs:
+        row.update(_img_metrics(img, ti, tag))
+    return row
+
+
+def _v3_feats(key, img):
+    from .features import extract_v3
+    cv2.setNumThreads(1)
+    f = extract_v3(key, img=img)
+    return {"key": key, **{c: float(f[c]) for c in CHECK_FEATS}}
+
+
+def compare(a):
+    """Paired held-out comparison of restorers (--tags, 'base' = the original) on the same synthetic pairs: every val
+    pair of the given banks (all from the 11 held-out sources), by noise band, with source-bootstrap 90% intervals of
+    the paired differences. --features: R^2 / bias of a few v3 measures on the restored high-noise copies
+    (estimated sigma >= --rule-noise) against the clean source's value."""
+    from joblib import Parallel, delayed
+    torch.set_num_threads(_threads(a))
+    tags = ["" if t == "base" else t for t in a.tags.split(",")]
+    tn = lambda t: t or "base"
+    vers = ["deg"] + [tn(t) for t in tags]
+    rdir = paths(a.report_tag)["report"]
+    ccache = CACHE / "compare"
+    ccache.mkdir(parents=True, exist_ok=True)
+    b, clean = load_bank(_bank_names(a.banks))
+    va = np.where(b["kind"] == "val")[0]
+    deg = b["deg"][va]
+    rest = {}
+    for t in tags:  # restored val pairs, cached per restorer (invalidated when the model file changes)
+        f = ccache / f"val_restored_{tn(t)}{'_fp32' if a.force_fp32 else ''}.npz"
+        mt = paths(t)["model"].stat().st_mtime
+        if f.exists():
+            z = np.load(f)
+            if (np.array_equal(z["id"], b["id"][va]) and np.array_equal(z["noise_t"], b["noise_t"][va])
+                    and int(z["tta"]) == a.tta and float(z["mtime"]) == mt):
+                rest[t] = z["rest"]
+                print(f"{tn(t)}: cached restorations {f}", flush=True)
+                continue
+        m = load_model(t)
+        t0 = time.time()
+        rest[t] = restore(m, torch.from_numpy(deg), b["sigma"][va], tta=a.tta, amp=False if a.force_fp32 else None).numpy()
+        print(f"{tn(t)}: restored {len(va)} pairs in {time.time() - t0:.0f}s (bf16 {bool(m.amp) and not a.force_fp32})",
+              flush=True)
+        np.savez(f, rest=rest[t], id=b["id"][va], noise_t=b["noise_t"][va], tta=a.tta, mtime=mt)
+    metas = [{"bank": str(b["bank"][j]), "id": str(b["id"][j]), "noise_t": float(b["noise_t"][j]),
+              "sigma": float(b["sigma"][j]), "q": float(b["q"][j]), "sb": float(b["sb"][j]),
+              "contrast": float(b["contrast"][j])} for j in va]
+    tgt = lambda n: photometric_target(clean[b["id"][va[n]]], b["coef"][va[n]]).astype(np.float32)
+    t0 = time.time()
+    rows = Parallel(n_jobs=a.jobs)(delayed(_pair_row)(metas[n], tgt(n), [("deg", deg[n].astype(np.float32))] +
+                                                      [(tn(t), rest[t][n]) for t in tags]) for n in range(len(va)))
+    df = pd.DataFrame(rows)
+    print(f"metrics for {len(df)} pairs in {time.time() - t0:.0f}s", flush=True)
+    for v in vers:
+        df[f"dark_err_{v}"] = (df[f"dark_contrast_{v}"] - 1.0).abs()
+    bands = [("low (<=9)", df.noise_t <= 9), ("mid (9-15]", (df.noise_t > 9) & (df.noise_t <= 15)),
+             ("high (>15)", df.noise_t > 15), (f"rule: sigma_est >= {a.rule_noise}", df.sigma >= a.rule_noise),
+             ("all", df.noise_t > 0)]
+    mets = ["psnr", "psnr_bd", "ridge_corr", "dark_contrast", "dark_err"]
+    grp = df.id.values
+    summary = []
+    for bn, m in bands:
+        m = m.values
+        if not m.any():
+            continue
+        row = {"band": bn, "n": int(m.sum()), "n_sources": int(df.id[m].nunique())}
+        for me in mets:
+            for v in vers:
+                row[f"{me}_{v}"] = round(float(df[f"{me}_{v}"][m].mean()), 4)
+        if "" in tags:
+            for t in tags:
+                if not t:
+                    continue
+                for me in mets:
+                    d = (df[f"{me}_{tn(t)}"] - df[f"{me}_base"]).values[m]
+                    row[f"d_{me}_{tn(t)}"] = round(float(d.mean()), 4)
+                    row[f"d_{me}_{tn(t)}_ci90"] = _boot_ci(lambda ii: d[ii].mean(), grp[m])
+        summary.append(row)
+    print("held-out pairs (targets = clean source in the degraded photometry), means; d_* = restorer - base:")
+    hdr = ["band", "n"] + [f"{me} " + " / ".join(vers) for me in ("psnr", "psnr_bd", "ridge_corr", "dark_contrast")]
+    print("| " + " | ".join(hdr) + " |")
+    for r in summary:
+        cells = [r["band"], str(r["n"])] + [" / ".join(f"{r[f'{me}_{v}']:.3f}" if "psnr" not in me else f"{r[f'{me}_{v}']:.2f}"
+                                                     for v in vers) for me in ("psnr", "psnr_bd", "ridge_corr", "dark_contrast")]
+        print("| " + " | ".join(cells) + " |")
+    for r in summary:
+        ds = {k: v for k, v in r.items() if k.startswith("d_")}
+        if ds:
+            print(r["band"], {k: v for k, v in ds.items()})
+    out = {"tags": [tn(t) for t in tags], "banks": a.banks, "tta": a.tta, "force_fp32": a.force_fp32,
+           "n_pairs": len(df), "by_band": summary}
+    # ---------------------------------------------------------------- feature-level check on high-noise copies
+    rdir.mkdir(parents=True, exist_ok=True)
+    if a.features:
+        sel = np.where(df.sigma.values >= a.rule_noise)[0]
+        u8 = lambda z: np.clip(np.round(z), 0, 255).astype(np.uint8)
+        pos = {f"{df.bank[n]}:{df.id[n]}:{df.noise_t[n]:.6f}": n for n in sel}
+        keys = {v: list(pos) for v in vers}
+        keys["clean"] = sorted(set(df.id.values[sel]))
+
+        def img_of(v, k):
+            if v == "clean":
+                return clean[k]
+            return deg[pos[k]] if v == "deg" else u8(rest["" if v == "base" else v][pos[k]])
+
+        have, jobs = {}, []
+        for v in keys:  # deg / base / clean features never change: cached; specialists are always recomputed
+            fc = ccache / f"v3feats_{v}.parquet"
+            have[v] = pd.read_parquet(fc).set_index("key") if (v in ("deg", "base", "clean") and fc.exists()) else None
+            jobs += [(v, k) for k in keys[v] if have[v] is None or k not in have[v].index]
+        t0 = time.time()
+        res = Parallel(n_jobs=a.jobs)(delayed(_v3_feats)(k, img_of(v, k)) for v, k in jobs)
+        print(f"v3 features for {len(jobs)} images in {time.time() - t0:.0f}s", flush=True)
+        F = {}
+        for v in keys:
+            got = [r for (vv, _), r in zip(jobs, res) if vv == v]
+            parts = ([have[v]] if have[v] is not None else []) + ([pd.DataFrame(got).set_index("key")] if got else [])
+            F[v] = pd.concat(parts)
+            F[v] = F[v][~F[v].index.duplicated(keep="last")]
+            if v in ("deg", "base", "clean"):
+                F[v].reset_index().to_parquet(ccache / f"v3feats_{v}.parquet", index=False)
+            F[v] = F[v].loc[keys[v]]
+        sub = df.iloc[sel].reset_index(drop=True)
+        r2 = lambda x, c: 1 - np.sum((x - c) ** 2) / max(np.sum((c - c.mean()) ** 2), 1e-12)
+        fb = []
+        for bn, m in ((f"rule: sigma_est >= {a.rule_noise}", np.ones(len(sub), bool)), ("high (>15)", sub.noise_t.values > 15)):
+            g = sub.id.values[m]
+            for fe in CHECK_FEATS:
+                c = F["clean"].loc[g, fe].values
+                xs = {v: F[v][fe].values[m] for v in vers}
+                row = {"band": bn, "feature": fe, "n": int(m.sum()), "clean_sd": round(float(c.std()), 4)}
+                for v in vers:
+                    row[f"r2_{v}"] = round(float(r2(xs[v], c)), 4)
+                    row[f"bias_{v}"] = round(float(np.mean(xs[v] - c)), 4)
+                if "" in tags:
+                    for t in tags:
+                        if t:
+                            row[f"d_r2_{tn(t)}_ci90"] = _boot_ci(lambda ii: r2(xs[tn(t)][ii], c[ii]) - r2(xs["base"][ii], c[ii]), g)
+                fb.append(row)
+        print("v3 feature fidelity vs the clean source (R^2 over pairs; bias = mean(restored - clean)):")
+        print(pd.DataFrame(fb).to_string(index=False))
+        out["features"] = fb
+        pd.concat([F[v].assign(version=v) for v in list(vers) + ["clean"]]).reset_index().to_csv(
+            rdir / "compare_features.csv", index=False)
+    rdir.mkdir(parents=True, exist_ok=True)
+    (rdir / "compare_metrics.json").write_text(json.dumps(out, indent=2))
+    df.to_csv(rdir / "compare_pairs.csv", index=False)
+    # held-out synthetic montage (high band): degraded | each restorer | target, 128 px crops
+    hi = np.where(df.noise_t.values > 15)[0]
+    if len(hi):
+        order = hi[np.argsort(df.noise_t.values[hi])]
+        tiles, c = [], 128
+        u8 = lambda z: np.clip(np.round(z), 0, 255).astype(np.uint8)
+        sep = np.full((c, 3), 255, np.uint8)
+        for n in order[np.linspace(0, len(order) - 1, 6).round().astype(int)]:
+            cols = [deg[n][:c, :c]] + [u8(rest[t][n][:c, :c]) for t in tags] + [u8(tgt(n)[:c, :c])]
+            row = np.concatenate(sum([[x, sep] for x in cols], [])[:-1], 1)
+            cv2.putText(row, f"nt{df.noise_t[n]:.0f} sb{df.sb[n]:.1f}", (3, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, 255, 1)
+            tiles.append(np.pad(row, ((0, 5), (0, 0)), constant_values=255))
+        cv2.imwrite(str(rdir / "montage_compare_synthetic.png"), np.concatenate(tiles, 0))
+    print(f"wrote {rdir / 'compare_metrics.json'}, compare_pairs.csv, montage_compare_synthetic.png "
+          f"(columns: degraded | {' | '.join(tn(t) for t in tags)} | target)")
+
+
+def check_tag(a):
+    """Tagged set: every image present, CSVs copied, non-specialist images byte-identical to --fill-from; change of
+    the specialist images vs the base restorer. Per-image table and a real-image montage (raw | base | specialist) go to
+    the git-ignored data/restore_cache/<tag>/ (they show / measure competition images, incl. test)."""
+    pth = paths(a.tag)
+    out_dir, fill = pth["out"], _root_path(a.fill_from) if a.fill_from else OUT_DIR
+    ids = load_train().ID.tolist() + load_test().ID.tolist()
+    rel = lambda i: Path("train" if i.startswith("TRAIN") else "test") / f"{i}.png"
+    miss = [i for i in ids if not (out_dir / rel(i)).exists()]
+    assert not miss, f"{len(miss)} images missing in {out_dir}"
+    for f in ("train.csv", "sample_submission.csv", "folds.csv"):
+        assert (out_dir / f).read_bytes() == (DATA_DIR / f).read_bytes(), f
+    man = pd.concat([pd.read_csv(f) for f in sorted(pth["cache"].glob("applied_part*.csv"))]).set_index("ID")
+    assert sorted(man.index) == sorted(ids), "applied_part*.csv do not cover all images"
+    spec = set(man.index[man.specialist == 1])
+    bad = [i for i in ids if i not in spec and (out_dir / rel(i)).read_bytes() != (fill / rel(i)).read_bytes()]
+    assert not bad, f"{len(bad)} non-specialist images differ from {fill}"
+    rows = []
+    for i in sorted(spec):
+        raw, base, sp = (_read8(i).astype(np.float32), _read8(i, fill).astype(np.float32),
+                         _read8(i, out_dir).astype(np.float32))
+        lp = lambda z: cv2.GaussianBlur(z, (0, 0), 3)
+        rows.append({"ID": i, "split": "train" if i.startswith("TRAIN") else "test", "ic_noise": man.ic_noise[i],
+                     "mad_spec_base": float(np.abs(sp - base).mean()), "mad_spec_raw": float(np.abs(sp - raw).mean()),
+                     "mad_base_raw": float(np.abs(base - raw).mean()), "psnr_spec_base": psnr(sp, base),
+                     "lowpass_mad_spec_base": float(np.abs(lp(sp) - lp(base)).mean()),
+                     "mean_shift_spec_base": float(sp.mean() - base.mean())})
+    df = pd.DataFrame(rows)
+    df.to_csv(pth["cache"] / "check_specialist.csv", index=False)
+    print(f"{out_dir}: all {len(ids)} images present; {len(spec)} from the specialist "
+          f"(train {int((df.split == 'train').sum())}, test {int((df.split == 'test').sum())}); "
+          f"the other {len(ids) - len(spec)} are byte-identical to {fill.name}/")
+    df["noise_bin"] = pd.cut(df.ic_noise, [0, 15, 18, 99], labels=["<15", "15-18", ">18"])
+    cols = ["mad_spec_base", "mad_spec_raw", "mad_base_raw", "psnr_spec_base", "lowpass_mad_spec_base", "mean_shift_spec_base"]
+    summ = df.groupby("noise_bin", observed=True)[cols].median().round(3)
+    summ["n"] = df.groupby("noise_bin", observed=True).size()
+    print("specialist images, medians (all splits):")
+    print(summ.to_string())
+    tr = df[df.split == "train"].sort_values("ic_noise")
+    pick = tr.iloc[np.linspace(0, len(tr) - 1, 8).round().astype(int)].ID.tolist()
+    tiles, c = [], 160
+    sep = np.full((c, 3), 255, np.uint8)
+    for i in pick:
+        row = np.concatenate([_read8(i)[:c, :c], sep, _read8(i, fill)[:c, :c], sep, _read8(i, out_dir)[:c, :c]], 1)
+        cv2.putText(row, f"{i[-4:]} n{man.ic_noise[i]:.1f}", (3, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, 255, 1)
+        tiles.append(np.pad(row, ((0, 5), (0, 0)), constant_values=255))
+    cv2.imwrite(str(pth["cache"] / "montage_real_raw_base_spec.png"), np.concatenate(tiles, 0))
+    print(f"montage (raw | base | {a.tag}, 8 noisy train images): {pth['cache'] / 'montage_real_raw_base_spec.png'}")
+
+
 def bench(a):
-    torch.set_num_threads(min(a.threads, 2))
-    m = UNet().to(memory_format=torch.channels_last)
+    torch.set_num_threads(_threads(a))
+    m = UNet(ch=tuple(int(round(c * a.width)) for c in BASE_CH)).to(memory_format=torch.channels_last)
+    m.amp = not a.fp32
     print(f"params {sum(p.numel() for p in m.parameters()) / 1e6:.2f}M")
     opt = torch.optim.AdamW(m.parameters(), 1e-3)
     x = to_input(torch.randint(0, 255, (a.bs, a.patch, a.patch), dtype=torch.uint8), [10.0] * a.bs)
@@ -471,7 +862,7 @@ def bench(a):
     for n in range(4):
         if n == 1:
             t = time.time()
-        with torch.autocast("cpu", dtype=torch.bfloat16):
+        with torch.autocast("cpu", dtype=torch.bfloat16, enabled=m.amp):
             out = m(x)
         loss = F.l1_loss(out.float(), y)
         opt.zero_grad(); loss.backward(); opt.step()
@@ -483,7 +874,7 @@ def bench(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["bank", "train", "validate", "apply", "check", "bench"])
+    ap.add_argument("cmd", choices=["bank", "train", "validate", "compare", "apply", "check", "bench"])
     ap.add_argument("--part", type=int, default=0)
     ap.add_argument("--nparts", type=int, default=1)
     ap.add_argument("--threads", type=int, default=1)
@@ -498,8 +889,32 @@ if __name__ == "__main__":
     ap.add_argument("--ckpt-every", type=int, default=500)
     ap.add_argument("--fresh", action="store_true", help="ignore an existing training checkpoint")
     ap.add_argument("--resume", action="store_true", help="apply: skip images already written")
+    # high-noise specialist options (defaults = the original restorer)
+    ap.add_argument("--tag", default="", help="model/ckpt in data/restore_cache/<tag>/, report in "
+                    "experiments/restore/<tag>/, images in data_restored_<tag>/ ('' = the original restorer)")
+    ap.add_argument("--bank-name", default="", help="bank: write to data/restore_cache/bank_<name>/ ('' = original)")
+    ap.add_argument("--q-min", type=float, default=0.0, help="bank: only _degrade_v2 draws with q >= this (rejection)")
+    ap.add_argument("--k-train", type=int, default=K_TRAIN, help="bank: degradations per train source")
+    ap.add_argument("--k-val", type=int, default=K_VAL, help="bank: degradations per held-out source")
+    ap.add_argument("--seed-base", type=int, default=7, help="bank: rng prefix of train pairs, val = +1 (original 7/8)")
+    ap.add_argument("--banks", default="main", help="train/validate/compare: comma list of banks ('main' = original)")
+    ap.add_argument("--train-q-min", type=float, default=0.0, help="train/validate: only pairs with q >= this")
+    ap.add_argument("--init", default="", help="train: initial state dict (a narrower one is zero-expanded)")
+    ap.add_argument("--width", type=float, default=1.0, help="train/bench: channel multiplier of the U-Net")
+    ap.add_argument("--fp32", action="store_true", help="train/bench without bf16 autocast (faster on CPUs without AMX)")
+    ap.add_argument("--pct-start", type=float, default=0.05, help="train: OneCycle warm-up fraction")
+    ap.add_argument("--mon-n", type=int, default=0, help="train: monitor on at most this many val pairs (0 = all)")
+    ap.add_argument("--no-validate", action="store_true", help="train: skip the final held-out report (use compare)")
+    ap.add_argument("--tags", default="base", help="compare: comma list of restorers ('base' = the original)")
+    ap.add_argument("--report-tag", default="", help="compare: report goes to experiments/restore/<report-tag>/")
+    ap.add_argument("--features", action="store_true", help="compare: v3 feature fidelity on high-noise copies")
+    ap.add_argument("--rule-noise", type=float, default=11.92, help="compare: sigma cut of the 'rule' band / features")
+    ap.add_argument("--force-fp32", action="store_true", help="compare: run every restorer without bf16 autocast")
+    ap.add_argument("--jobs", type=int, default=1, help="compare: processes for metrics / feature extraction")
+    ap.add_argument("--apply-noise-min", type=float, default=0.0, help="apply: restore only raw ic_noise >= this")
+    ap.add_argument("--fill-from", default="", help="apply/check: directory the other images are copied from")
     a = ap.parse_args()
-    torch.set_num_threads(min(a.threads, 2))
-    {"bank": lambda: build_bank(a.part, a.nparts), "train": lambda: train(a), "validate": lambda: validate_saved(a),
-     "apply": lambda: apply(a),
-     "check": lambda: check(a), "bench": lambda: bench(a)}[a.cmd]()
+    torch.set_num_threads(_threads(a))
+    {"bank": lambda: build_bank(a.part, a.nparts, a.bank_name, a.q_min, a.k_train, a.k_val, a.seed_base),
+     "train": lambda: train(a), "validate": lambda: validate_saved(a), "compare": lambda: compare(a),
+     "apply": lambda: apply(a), "check": lambda: check_tag(a) if a.tag else check(a), "bench": lambda: bench(a)}[a.cmd]()

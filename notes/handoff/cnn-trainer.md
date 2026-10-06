@@ -1,4 +1,4 @@
-# cnn-trainer handoff (updated 2026-10-06 06:05 UTC; nothing of mine is running)
+# cnn-trainer handoff (updated 2026-10-06 16:20 UTC; nothing of mine is running)
 
 ## Saved experiments (shared folds; experiments/<name>/ + LEADERBOARD line; fold RMSE order 0..4)
 SNR terciles: OOF RMSE by train `ic_ridge_snr` tercile (cuts 0.283 / 0.774), noisy / mid / clean.
@@ -110,3 +110,87 @@ Fold-paired against raw+nlm with 2 seeds (same seeds; image-bootstrap 90% CI, wh
   `.gitignore` does not cover `data_restored/` yet; the orchestrator should add it.
 - Rebuild: `bank --part 0/1 --nparts 2` (about 3.5 min each, 1 core), then `train --threads 2 --patch 96 --bs 16 --steps 5000`,
   then `apply --part 0/1 --nparts 2` (about 7 min each), then `check`.
+
+## High-noise specialist restorer `--tag hn` (2026-10-06 15:09-16:15 UTC, cnn-trainer) -> `data_restored_hn/`
+- Why: blend_v11 error tied to image noise (orchestrator: c = 9.0 in r^2 ~ a + b/N + c*noise); the base restorer only
+  helped the features in the mid tercile.
+- What: the same 0.90M U-Net fine-tuned from `data/restore_cache/restore_unet.pt` on high-noise pairs only:
+  q >= 0.4 (noise_t >= 10.8). That is 2335 pairs of the original bank plus a new bank of 1920 pairs (120 train sources x 16),
+  drawn by exact rejection sampling on `_degrade_v2`'s latent q, which is the first draw of `default_rng([9, src, k])`.
+  The same 11 held-out sources get 24 fresh high-noise pairs each (prefix 10). Training: 3000 steps, patch 128, bs16,
+  OneCycle lr 5e-4 (5% warm-up), L1 + 0.5 gradient-L1, no identity pairs, fp32.
+- `src/restore.py` changes (untagged commands behave as before; checked that the original bank pairs reproduce
+  bit-exactly; the default checkpoint cfg is unchanged):
+  - `bank --bank-name --q-min --k-train --k-val --seed-base`
+  - `train --tag --banks --train-q-min --init --width --fp32 --pct-start --mon-n --no-validate`. `--width` > 1 with
+    `--init` is a zero-expanded init that keeps the function exactly (tested; not used in this run).
+  - new `compare`: paired held-out comparison by noise band with source-bootstrap 90% intervals; `--features` adds v3
+    feature fidelity.
+  - `apply --apply-noise-min --fill-from` and `check --tag`.
+  - The thread cap is now the CPU count (it was 2).
+- This cloud host has no AMX (avx512f only): bf16 autocast is about 2.2x SLOWER than fp32 here (patch 128 bs16 step:
+  1.87 s vs 0.81 s on 4 threads). So the specialist trains and infers in fp32 (`data/restore_cache/hn/meta.json`).
+  The base model stays bf16; on this host it reproduces `data_restored/` 99.8% bit-exact (max diff 1 grey level).
+- Held-out comparison (`experiments/restore/hn/compare_metrics.json`, `compare_pairs.csv`): 330 pairs of the 11
+  held-out sources (66 original + 264 fresh), 8-view TTA, means for degraded / base / hn:
+  | band (noise_t) | n | PSNR | boundary PSNR | ridge corr | dark contrast |
+  |---|---|---|---|---|---|
+  | low (<=9) | 20 | 37.13 / 37.31 / 34.41 | 36.69 / 36.84 / 33.58 | 0.974 / 0.976 / 0.972 | 0.983 / 0.984 / 1.006 |
+  | mid (9-15] | 142 | 26.12 / 30.62 / 31.13 | 25.05 / 28.41 / 29.37 | 0.697 / 0.837 / 0.866 | 0.884 / 0.945 / 0.960 |
+  | high (>15) | 168 | 22.27 / 28.25 / 28.65 | 20.87 / 25.07 / 25.59 | 0.347 / 0.603 / 0.641 | 0.772 / 0.876 / 0.901 |
+  | rule: sigma_est >= 11.92 | 228 | 23.02 / 28.85 / 29.26 | 21.73 / 25.88 / 26.50 | 0.418 / 0.654 / 0.690 | 0.797 / 0.894 / 0.914 |
+  Paired hn - base, with source-bootstrap 90% intervals:
+  - high band: PSNR +0.39 (0.34, 0.44), boundary PSNR +0.53 (0.46, 0.59), ridge corr +0.037 (0.032, 0.042),
+    |1 - dark contrast| -0.028 (-0.037, -0.018).
+  - rule domain: +0.42 (0.37, 0.47), +0.62 (0.55, 0.69), +0.036, -0.023.
+  - mid band: +0.50, +0.96, +0.029.
+  - Near the cut (sigma_est 11.92-13): +0.51 dB, with 97% of pairs better. In the rule domain, 2 of 228 pairs are
+    worse by more than 0.1 dB.
+  - **Low band: -2.90 (-4.83, -1.24)**. The specialist never saw clean inputs and over-smooths them, so apply it
+    above the cut only.
+  - The base's high-band numbers differ from its own report (28.1 / 25.2 / 0.621) because that band now has 168
+    pairs instead of 18.
+- Feature fidelity: R^2 of the v3 measure on the restored copy against the clean source's value, over the 228
+  rule-domain pairs (degraded / base / hn); in the high band (168 pairs) hn beats base on all 5.
+  | feature | R^2 deg / base / hn | bias base / hn | hn - base 90% CI |
+  |---|---|---|---|
+  | ic_seg_fd93 | -0.30 / 0.65 / 0.82 | -0.030 / -0.014 | (0.09, 0.46) |
+  | ic_fdo_93 | -1.04 / 0.70 / 0.75 | -0.018 / -0.019 | (0.00, 0.24) |
+  | ic_gmm_w | -0.35 / 0.73 / 0.74 | -0.023 / -0.026 | (-0.18, 0.22) |
+  | ic_acg_len50_perp | -3.04 / 0.41 / 0.52 | +0.83 / +0.62 | (0.05, 0.63) |
+  | ic_seg_nfrac91 | -7.67 / -0.80 / -0.33 | +0.089 / +0.065 | (0.08, 1.51) |
+  R^2 is relative to the spread of only 11 sources. ic_seg_nfrac91 stays below 0 (it is still worse than the mean of
+  the sources).
+- Visual check: `experiments/restore/hn/montage_compare_synthetic.png` (synthetic: degraded | base | hn | target) and
+  `data/restore_cache/hn/montage_real_raw_base_spec.png` (real train images, git-ignored). Dark-phase regions are cleaner,
+  but thin bright-bright boundaries are still mostly not recovered at noise_t >= 18 with blur. On real images it draws a
+  few more boundaries in bright matrix areas than the base. The synthetic ridge-corr gain says these are mostly real,
+  but this cannot be verified on real images.
+- Applied (fixed rule, nothing fitted on test): raw `ic_noise` (data/features_v3.parquet) >= 11.92 gets the specialist
+  with 8-view D4 TTA. That is **500 images: 167 train, 333 test**.
+  - The other 1000 images are byte-identical copies of `data_restored/`, so their features in `data_restored/*.parquet`
+    can be reused; only the 500 need recomputing.
+  - Layout as `data_restored/`: train/, test/, train.csv, sample_submission.csv, folds.csv (58 MB). Use with
+    `DATA_DIR=data_restored_hn`.
+  - Per-image list: `data/restore_cache/hn/applied_part*.csv`.
+  - Real-image change vs base (median MAD): 1.5 / 1.7 / 1.8 grey levels for ic_noise < 15 / 15-18 / > 18, no mean
+    shift. Per-image table in `data/restore_cache/hn/check_specialist.csv` (git-ignored, has test images).
+- Commands and timings (4 cores, about 65 min wall in total):
+  ```
+  for P in 0 1 2 3; do OMP_NUM_THREADS=1 python -W ignore -m src.restore bank --bank-name hn --q-min 0.4 --k-train 16 --k-val 24 --seed-base 9 --part $P --nparts 4 & done; wait   # 71 s
+  OMP_NUM_THREADS=4 python -W ignore -m src.restore train --tag hn --banks main,hn --train-q-min 0.4 --init data/restore_cache/restore_unet.pt --fp32 --threads 4 --patch 128 --bs 16 --steps 3000 --lr 5e-4 --identity 0 --mon-n 48 --ckpt-every 250 --eval-every 500 --no-validate   # 2695 s
+  OMP_NUM_THREADS=4 python -W ignore -m src.restore compare --tags base,hn --banks main,hn --threads 4 --jobs 4 --features --report-tag hn   # 12.6 min (base bf16 416 s, hn 169 s, features 121 s)
+  for P in 0 1 2 3; do OMP_NUM_THREADS=1 python -W ignore -m src.restore apply --tag hn --apply-noise-min 11.92 --fill-from data_restored --part $P --nparts 4 --threads 1 & done; wait   # 220 s
+  python -W ignore -m src.restore check --tag hn --fill-from data_restored   # 10 s
+  ```
+  - Training resumes from `data/restore_cache/hn/restore_ckpt.pt` (every 250 steps). `apply` takes `--resume`.
+  - `compare` caches restorations and deg/base/clean features in `data/restore_cache/compare/` (166 MB, regenerable).
+- Files (all git-ignored except `experiments/restore/hn/*` minus the montage):
+  - `data/restore_cache/hn/{restore_unet.pt, meta.json, restore_ckpt.pt}`
+  - `data/restore_cache/bank_hn/` (137 MB)
+  - `experiments/restore/hn/{compare_metrics.json, compare_pairs.csv, compare_features.csv}` (synthetic pairs of
+    train images only, no labels)
+  - logs in `logs/restore_hn_*.log`
+- Next: the feature-engineer's restored features + ridge screen on `data_restored_hn/`, especially the noisy tercile.
+  If the restored features help, a wider model (`--width 1.5`, zero-expanded from hn) or more steps is the next lever.
+  At fp32 on this host it costs about 1.6 s/step at patch 128 (2x).
