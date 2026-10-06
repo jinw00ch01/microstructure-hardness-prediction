@@ -13,13 +13,10 @@ git-ignored) or figures that show competition images. This session does not comm
 - `python -m src.train_cnn --build-deg --deg-k 8 --deg-snr-min 0.5` builds `data/cnn_cache/_pre/nlm.npz` and
   `deg2_k8_snr0.5.npz`. If another cached file is missing, `notes/handoff/feature-engineer.md` has its build command.
 
-## 3. GPU (only after the user's approval is written in the thread)
-Timing (user, 2026-10-06 18:38 KST): the robot project's last GPU queue ends around 19:10 KST, then the GPU is handed
-to this project. Do steps 1-2 now and start step 3 after that, still through the wrapper. With no paused robot job,
-the full 8 GB of VRAM should be free.
-Wrap every GPU command:
-`python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- <command>`
-Add `--device cuda`. The paused robot job may hold about 4 GB of VRAM, so on CUDA out of memory lower `--bs`.
+## 3. GPU (exclusive use granted by the user, 2026-10-06 19:16 KST)
+The user stopped the robot project's GPU work and gave this project the GPU to itself: run directly with
+`--device cuda`, **without** gpu_turn.py. All 8 GB of VRAM are free. When ALL GPU work is finished (including the 3-seed
+run), return the GPU by running in PowerShell: `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done`.
 Never touch the robot project in any other way.
 
 Base flags (best CPU config, `notes/handoff/cnn-trainer.md`):
