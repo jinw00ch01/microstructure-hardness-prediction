@@ -228,3 +228,124 @@ New scripts: a17, a17b, a17c, a18, a18b, a20–a32. Figures: `m_cellstd_probe_co
 * Test images are slightly *more* heterogeneous: SMD +0.10 for `ll2_edge_sd`, +0.14 for `ecs_blk0_std`. If the effect
   is real, the gain should carry over to the LB, or slightly exceed CV.
 * NaN rate of `lf_*`: 3.2% train, 3.3% test.
+
+## 2026-10-06 (evening): second hunt on the blend_v4 residual (nested 12.619)
+Method: as in the afternoon, with the **base switched to the feat4_v3cal_ridge_het_spat_v4 setup** (`eda_cf.py`).
+* The base uses the same 187 columns, RidgeCV and in-fold hetero weights via `src.train_gbm.hetero_weights` on
+  `ic_acg_len50_gm`. It reproduces feat4 exactly: CV 12.686 with the same fold RMSEs.
+* Its residual correlates 0.983 with the blend_v4 residual.
+* Each probe is fitted on the inner cross-fitted residuals and added to the blend_v4 nested OOF.
+* Nulls: a constant probe gives 12.619 → 12.616, and 10 noise columns give 12.650. Each candidate also gets a
+  permutation null (20–40 row shuffles).
+* "Clean" means `ic_ridge_snr > 0.9` (n=131: coarse 56, mid 40, fine 35).
+
+### 1. blend_v4 nested OOF and the variance model (a33)
+* `blend_v4_nested_oof.csv` reproduces 12.619. Gaussian-ML fit of v = a + b/N + c/snr on nested residuals:
+
+  | | RMSE | a | b | c | mean b/N | mean c/snr |
+  |---|---|---|---|---|---|---|
+  | blend_v2 | 12.963 | 0 | 28,227 | 10.9 | 131 | 39 |
+  | blend_v4 | 12.619 | 0 | 25,305 | 11.9 | 118 | 43 |
+
+  **b(v4)/b(v2) = 0.896, paired bootstrap 90% CI [0.86, 0.97].** About 10% of the 1/N term has been removed so far,
+  and about 90% is left. The b/N term is still 118 of the 159 MSE units.
+* Where the gain landed:
+  - RMSE by N tercile, all images: 16.33 / 12.05 / 9.59 → 15.79 / 11.89 / 9.33
+  - clean images: 15.18 / 9.74 / 7.36 → 13.88 / 9.33 / 6.91
+  - So most of the gain is on clean-coarse.
+* **1/N vs 1/N_eff.** N_eff = (Σa)²/Σa² is what an area-weighted mean of independent per-grain values would give.
+  CV negative log-likelihood, lower is better:
+  - All images: b/N_cal 1941.9 beats the area-weighted proxies b·exp(v4c_la_mean)/A (1945.2) and b·L²/A (1946.5).
+  - Clean images: b/N_cal 495.2 ≈ b/N_ws 495.6 beat b/N_eff_ws 498.6. In a joint fit N_eff gets weight 0.
+  - corr(log N, log N_eff) = 0.91.
+  - **The residual variance scales with the number of grains, not the effective (area-weighted) number.** It
+    behaves like independent, equally weighted per-grain terms (or model error with that form), not like an
+    area-weighted per-grain random hardness.
+
+### 2. Per-grain size x phase, area-weighted multiple-instance view, and N_eff (a34, a35): null
+* Per-grain table: `grains2_*`, watershed grains with area ≥ 12 and pore share ≤ 0.5. Recorded per grain: moments,
+  solidity, interior median and IQR of rn. Dark means median rn < 0.91.
+* Per-image views, all null as cross-fitted probes against the feat4 base. Each was probed both clean-only and on all
+  images, giving blend 12.615–12.643 with permutation p 0.24–0.57. RidgeCV takes the maximum alpha and the probe
+  collapses to its intercept.
+  - area fractions in phase × log-area bins (8 bins, 12–3200 px)
+  - the same as number fractions
+  - a smooth area-weighted basis (z^0..3 of log area, per phase)
+  - grey-level bins per phase
+  - elongation per phase
+  - N_ws, N_eff, log(N_eff/N)
+* Direct clean-image fits of y, for orientation:
+  - area-weighted bins 13.56 vs number-weighted bins 14.17 (area weighting is better)
+  - both worse than fd + porosity (12.61)
+  - feat4 OOF on the same rows: 10.82
+  So no nonlinear per-grain f(size, phase) is visible beyond what feat4 has.
+* log(N_eff/N) has a consistent within-tercile Spearman with the residual (−0.20 / −0.28 / −0.33 on clean images).
+  It is mostly N and size spread again (rho 0.81 with N, −0.78 with v4c_bd_sd), and its probe is null (p 0.17).
+
+### 3. Clean-image extremes of the blend_v4 residual (a36; `m_v4_extremes_clean_{coarse,mid}.png`)
+* Scan of 702 per-image features on the 96 clean coarse+mid images:
+  - max |rho| is 0.30 (`lf32_sd_rel`); the permutation null of max |rho| has median 0.28 and 95% at 0.37
+  - **nothing passes multiple testing**
+  - the top 20 are nearly all one family, **local grain-size heterogeneity**: `lf*_sd_rel`, the raw-map spreads
+    `v4r_la_{sd,sd4,rng4,max_m_mean}`, `sp_cellcv_count_128`, `seg_area_cv`, at +0.22 to +0.30
+  - the calibrated `v4c_la_*` spreads that feat4 uses are weaker on clean images (+0.16 to +0.23)
+* Visually, under-predicted clean images are zoned: fine bands through coarse grains, or coarse clusters. Over-predicted
+  ones are more uniform, and several mid ones are banded (dark grains in horizontal layers).
+  - Banding (`sp_band_32` −0.04) and dark-phase grey level (`gf_lvl_dk` +0.04, `ic_gmm_mu_lo` +0.09) are null.
+* **Elongated lens/needle grains by phase: null.**
+  - Area-weighted log aspect: dark −0.00, matrix −0.07.
+  - Area share with aspect > 3: dark +0.01, matrix −0.06.
+  - Solidity, v2/v3 aspect and alignment features: all |rho| ≤ 0.2 with mixed signs between coarse and mid.
+  - Medians, under- vs over-predicted thirds: dark aspect > 3 share 0.026 vs 0.029; matrix 0.140 vs 0.175.
+  - Strongly elongated, aligned dark grains appear in both groups (coarse #1 under-predicted and #1 over-predicted in
+    the montage). The morning impression came from the blend_v2 residual and does not hold now.
+
+### 4. Candidate and CV gain: the SNR-gated raw size-spread is a null at blend level (a37, a38)
+* Definition (`a37_gated_spread.py`):
+  - g = clip((ic_ridge_snr − 0.7)/0.4, 0, 1)
+  - columns g and g·x for x in `v4r_la_{sd,sd4,rng4,max_m_mean,q90_m_q10}`, `lf32_sd_rel`, `lf48_sd_rel`,
+    `lf32_max_minus_w`
+* Cross-fitted probe: 12.619 → 12.600–12.605 (3–4/5 folds, p 0.05–0.10).
+* Fold-paired screen with `--no_save` setups (a38):
+  - feat4 ridge 12.686 → 12.675 (3/5 folds)
+  - feat3 lgbs 12.789 → 12.780 (2/5)
+  - blend: fixed blend_v4 weights −0.004 (2/5); **nested NNLS re-fit over all 37 blend_v4 experiments −0.017 (2/5)**
+  - clean-coarse 13.88 → 13.74
+  - The screen's base re-fit reproduces 12.619 exactly.
+* Not exported. `data/x_gsp.parquet` was deleted; a37 regenerates it in seconds.
+* Upper bound for this family: rho +0.44 on 56 clean-coarse images. Even if fully exploited that is worth at most
+  about −0.15 overall, and in practice it has to be learned from about 45 training images.
+
+### Other checks this round, all null against the feat4 base
+* **4x4 cross-cell spread of CNN maps** (a39; effv2s `c24n_cells`, stages 0–2): exactly at the intercept line
+  (p 0.24–0.33).
+* **2x2 cross-cell spread from the same extraction**: 12.619 → 12.580–12.586 (2–3/5 folds, p 0.05), and the fine
+  tercile gets worse (9.33 → 9.43). The cs2 member and ecs already carry this.
+* a40, cross-fitted probes, permutation p 0.05–0.90; none gives a consistent gain:
+  - Moran's I and size-field (a29): clean 12.609 (2/5)
+  - size–dark-phase co-location
+  - number-weighted per-grain grey level per phase, and number fractions in 8 grey bins (motivated by the 1/N
+    variance)
+  - within-phase size–grey correlation
+  - absolute elongation direction
+* Grain-boundary depth/width (morning a13): Spearman with the residual −0.02.
+
+### Verdict and recommendations (evening)
+* No new visible signal was found. About 90% of the 1/N term remains. Its variance signature (number-weighted, not
+  area-weighted) is what independent, equal-weight per-grain terms would give.
+* None of the visible per-grain attributes we can measure carries it: size, phase, grey level, shape, orientation,
+  neighbours, boundaries.
+* This does **not** prove the term is irreducible. A full-resolution model could still find something we did not
+  measure. The only remaining measurable residual is the zoning family on clean-coarse images, and it is too small
+  and too sparse to move the blend.
+* For the ensembler: on coarse images the feat4 ridge member alone beats the blend.
+
+  | | clean-coarse (n=56) | noisy-coarse (snr tercile 1, n=45) | all coarse |
+  |---|---|---|---|
+  | feat4 ridge | 13.25 | 18.57 | 15.58 |
+  | blend_v4 | 13.88 | 18.94 | 15.79 |
+
+  The blend wins on mid and fine. An N-tercile-specific weight might help where a linear covariate stacker did not.
+  This is untested by me and needs a nested check.
+* Scripts: `eda_cf.py`, a33–a40. Outputs: `blend_v4_nested_oof.csv`, `a35_mi_spearman_clean.csv`,
+  `a36_scan_clean_coarse_mid.csv`, `m_v4_extremes_clean_{coarse,mid}.png`.
