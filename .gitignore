@@ -1,4 +1,5 @@
-data/
+data/*
+!data/folds.csv
 *.npy
 *.pt
 *.pth

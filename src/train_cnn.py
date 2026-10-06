@@ -8,7 +8,8 @@ Inference runs on the full 256x256 image with D4 TTA. Target is standardized per
 --input raw|nlm|raw+nlm: optional non-local-means denoised channel (a fixed per-image transform,
 nothing is fitted on test). Input normalization stats come from the training fold only.
 CPU-friendly: bf16 autocast + channels_last (uses AMX on Sapphire/Emerald Rapids), threads capped
-at 2, no DataLoader workers. Per-fold predictions are cached in data/cnn_cache/<name>/ so a run
+at 2 on CPU, no DataLoader workers. --device auto|cpu|cuda: on a GPU, autocast uses bf16 when the card
+supports it, else fp16 with a GradScaler. Per-fold predictions are cached in data/cnn_cache/<name>/ so a run
 can be resumed; experiments/<name>/ is written only when all 5 folds exist.
 
   python -m src.train_cnn --backbone resnet18.a1_in1k --epochs 30 --name cnn_r18
@@ -31,6 +32,11 @@ import torch.nn.functional as F
 from .common import DATA_DIR, SEED, create_timm, load_test, load_train, read_img, rmse, save_experiment
 
 CACHE = DATA_DIR / "cnn_cache"
+RT = {"dev": torch.device("cpu"), "dtype": torch.bfloat16}  # runtime device / autocast dtype
+
+
+def amp(enabled):
+    return torch.autocast(RT["dev"].type, dtype=RT["dtype"], enabled=enabled)
 
 
 def d4(x, k):  # x: (..., H, W); k in 0..7 -> the 8 dihedral transforms
@@ -113,7 +119,7 @@ class Net(nn.Module):
 
     def forward(self, x):
         f = self.body.forward_features(x)
-        with torch.autocast("cpu", enabled=False):  # pooling + regression head in fp32
+        with torch.autocast(x.device.type, enabled=False):  # pooling + regression head in fp32
             f = f.float()
             f = self.pool(f) if self.pool is not None else f.mean((-2, -1))
             return self.fc(self.drop(f)).squeeze(-1)
@@ -160,12 +166,12 @@ def predict(model, X, mu, sd, tta=8, bs=32, bf16=True, views=False):
     model.eval()
     out = []
     for i in range(0, len(X), bs):
-        x = to_input(X[i:i + bs].float() / 255.0, mu, sd)
+        x = to_input(X[i:i + bs].float() / 255.0, mu, sd).to(RT["dev"], non_blocking=True)
         ps = []
         for k in range(tta):
-            with torch.autocast("cpu", dtype=torch.bfloat16, enabled=bf16):
+            with amp(bf16):
                 ps.append(model(d4(x, k).contiguous(memory_format=torch.channels_last)).float())
-        out.append(torch.stack(ps))
+        out.append(torch.stack(ps).cpu())
     out = torch.cat(out, 1).numpy().astype(np.float64)
     return out if views else out.mean(0)
 
@@ -191,14 +197,15 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte):
     aug = Aug(a, seed)
     rng = np.random.default_rng(seed + 7)  # batch order
     ymu, ysd = float(ytr.mean()), float(ytr.std())
-    yt = torch.tensor((ytr - ymu) / ysd, dtype=torch.float32)
+    yt = torch.tensor((ytr - ymu) / ysd, dtype=torch.float32, device=RT["dev"])
     pix = Xtr.float() / 255.0  # input normalization from this fold's training images only
     mu, sd = pix.mean((0, 2, 3)).view(1, -1, 1, 1), pix.std((0, 2, 3)).view(1, -1, 1, 1)
     del pix
     if a.norm == "image":
         mu = sd = None
 
-    model = Net(a).to(memory_format=torch.channels_last)
+    model = Net(a).to(RT["dev"]).to(memory_format=torch.channels_last)
+    scaler = torch.amp.GradScaler("cuda", enabled=RT["dev"].type == "cuda" and a.bf16 and RT["dtype"] == torch.float16)
     groups = param_groups(model, a)
     opt = torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.wd)
     n = len(Xtr)
@@ -221,15 +228,17 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte):
         for b in range(spe):
             idx = perm[b * a.bs:(b + 1) * a.bs]
             x = torch.stack([aug(Xtr[i].float() / 255.0) for i in idx])
-            x = to_input(x, mu, sd)
-            with torch.autocast("cpu", dtype=torch.bfloat16, enabled=a.bf16):
+            x = to_input(x, mu, sd).to(RT["dev"], non_blocking=True)
+            with amp(a.bf16):
                 p = model(x)
-            loss = loss_fn(p.float(), yt[idx])
+            loss = loss_fn(p.float(), yt[torch.as_tensor(idx, device=RT["dev"])])
             opt.zero_grad(set_to_none=True)
-            loss.backward()
+            scaler.scale(loss).backward()
             if a.clip > 0:
+                scaler.unscale_(opt)
                 nn.utils.clip_grad_norm_(model.parameters(), a.clip)
-            opt.step()
+            scaler.step(opt)
+            scaler.update()
             sch.step()
             step += 1
             if ema is not None:
@@ -261,7 +270,13 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte):
 
 
 def main(a):
-    a.threads = min(a.threads, 2)  # shared machine: never more than 2 threads
+    use_cuda = a.device == "cuda" or (a.device == "auto" and torch.cuda.is_available())
+    RT["dev"] = torch.device("cuda" if use_cuda else "cpu")
+    if use_cuda:
+        RT["dtype"] = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        torch.backends.cudnn.benchmark = True
+    else:
+        a.threads = min(a.threads, 2)  # shared cloud machine: never more than 2 threads
     torch.set_num_threads(a.threads)
     try:
         torch.set_num_interop_threads(1)
@@ -277,7 +292,8 @@ def main(a):
     Xall = load_u8(tr.ID, a.input)
     Xte = None if a.no_test else load_u8(te.ID, a.input)
     print(f"loaded {len(Xall)} train / {0 if Xte is None else len(Xte)} test images "
-          f"in {time.time() - t_all:.0f}s; threads={a.threads}", flush=True)
+          f"in {time.time() - t_all:.0f}s; device={RT['dev']} amp={RT['dtype'] if a.bf16 else 'off'} "
+          f"threads={a.threads}", flush=True)
 
     for f in folds:
         trn, val = np.where(tr.fold.values != f)[0], np.where(tr.fold.values == f)[0]
@@ -359,7 +375,8 @@ def parse(argv=None):
     ap.add_argument("--no-save", action="store_true", help="do not write experiments/ even if complete")
     ap.add_argument("--monitor", type=int, default=1, help="log val rmse every N epochs (no selection)")
     ap.add_argument("--threads", type=int, default=2)
-    ap.add_argument("--no-bf16", dest="bf16", action="store_false")
+    ap.add_argument("--no-bf16", dest="bf16", action="store_false", help="disable mixed precision")
+    ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     ap.add_argument("--scratch", action="store_true")
     ap.add_argument("--folds", type=int, nargs="*")
     ap.add_argument("--no-test", action="store_true", help="skip test inference (sanity checks)")
