@@ -31,6 +31,15 @@ Goal: public LB RMSE <= 10.
   2. A CNN on raw + restored channels on the laptop GPU (needs `data_restored/` and `restore_unet.pt` on the laptop).
   3. Only if 2 gets real blend weight: more GPU seeds/backbones.
 
+## Repo history rewrite (2026-10-06 ~11:30 UTC, user's choice)
+- The user asked for the work on `main`: main was fast-forwarded to `claude/lb-under-10-7080jr`.
+- Before that, 16 early `experiments/*/test.csv`, two EDA tables that copied the train labels
+  (`experiments/eda/blend_v*_nested_oof.csv`) and the restorer's per-image test statistics
+  (`experiments/restore/apply_change.csv`) were still tracked. They were untracked, git-ignored, and on the user's
+  choice removed from every commit; main and the branch were force-pushed. Local copies:
+  hardness-cache `experiments-test.tar` and `local-only-files.tar`. Pre-rewrite history: `git/lb-under-10-prepurge.bundle`.
+- Old clones (the laptop) must re-sync once with `git fetch origin && git reset --hard origin/claude/lb-under-10-7080jr`.
+
 ## Cloud container lesson (pause 2026-10-06 07:05-07:38 UTC)
 - The container sleeps a few minutes after the session goes idle and kills every detached job (the restorer's training
   died at step 3500 that day). Checkpoint long jobs (`src/restore.py --ckpt-every`, `train_cnn` per fold-seed caches).

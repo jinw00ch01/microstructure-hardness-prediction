@@ -7,6 +7,12 @@ git-ignored) or figures that show competition images. This session does not comm
 ## 1. Pull
 `git pull origin claude/lb-under-10-7080jr`
 
+The branch history was rewritten on 2026-10-06 (about 20:30 KST) to drop test predictions and train-label copies from
+every commit, and `main` now matches the branch. A clone made before that cannot pull; re-sync it once with
+`git fetch origin` then `git reset --hard origin/claude/lb-under-10-7080jr`. Ignored files (`data\`, the GPU runs'
+`experiments\*\test.csv`, caches) stay; the 16 early tracked `test.csv` files are removed from the working tree (the
+cloud keeps copies).
+
 ## 2. CPU prep (no GPU, no wrapper)
 - If `data/features_v3.parquet` is missing: `python -W ignore -m src.features --v3 --n_jobs 4`
   (about 13-15 min on 1 core).
