@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.978745804746396,
+  "fold_rmse": [
+    13.83029988520838,
+    11.878195812514832,
+    12.982325710693997,
+    13.651705578075813,
+    12.448318625294682
+  ],
+  "notes": "gridge3 head (inner-CV hp: lam_view=4,lam_cell=0,lam_aug=0,alpha=316.2 x2 lam_view=4,lam_cell=0,lam_aug=0,alpha=100 x2 lam_view=4,lam_cell=0,lam_aug=4,alpha=100 x1) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views); emb=tf_efficientnetv2_s.in21k_ft_in1k_256_c24n; stages=1,2,3 pools=mean,std view_mode=aug cells=global augs=True extra_rows=- view_std=False cellstats=std@g2,4:orig:s0,1,2:mean,std:none:log:w1.0 transform=none block_norm=False pca=0 feats=no hetero=ic_noise@features_v3.parquet (in-fold inverse-variance weights); licenses: apache-2.0; cs24 + in-fold inverse-variance sample weights from a log-variance fit on log raw ic_noise (weights 0.6-1.6); screen vs parent emb_effv2s_256_gridge3_noise_cs24: -0.042, 4/5 folds better (fold deltas -0.030 -0.046 -0.028 -0.124 +0.026), paired bootstrap 95% [-0.145, +0.059], residual corr 0.996; raw-ic_noise terciles N1/N2/N3 10.740/12.394/15.372 vs 10.878/12.386/15.387; best of 3 hetero screens (ic_noise+ic_acg_len50_gm 13.032, ic_acg_len50_gm 13.038); own-slope variants for the high-noise third (--own-col ic_noise) did not beat the parent"
+}

@@ -608,6 +608,7 @@ if __name__ == "__main__":
     ap.add_argument("--no-save", action="store_true")
     ap.add_argument("--oof-out", default="", help="also write the OOF predictions to this CSV path")
     ap.add_argument("--test-out", default="", help="also write the test predictions to this CSV path (scratch)")
+    ap.add_argument("--note", default="", help="free text appended to the saved notes (e.g. the screen result)")
     ap.add_argument("--threads", type=int, default=1)
     a = ap.parse_args()
     if a.extra_rows:
@@ -667,5 +668,6 @@ if __name__ == "__main__":
                  f"{' hp_avg=' + str(a.hp_avg) if a.hp_avg > 1 else ''}"
                  f"{' ' + a.own_info + ' (own slopes per group; NaN outside -> in-fold group mean -> 0)' if a.own_info else ''}; "
                  f"{'grid=' + a.grid_json + '; ' if a.grid_json else ''}"
-                 f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}")
+                 f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}"
+                 f"{'; ' + a.note if a.note else ''}")
         save_experiment(name, tr, oof, te, pte, notes=notes)

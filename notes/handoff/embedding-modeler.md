@@ -1,7 +1,7 @@
-# embedding-modeler handoff (updated 2026-10-06, afternoon)
+# embedding-modeler handoff (updated 2026-10-06, night: own-slope screen)
 
 Owner files: `src/extract_embeddings.py`, `src/train_head.py`. No shared files edited. Nothing committed by me.
-CPU: every run uses 1 thread. Latest assignment is core 3, shared with the feature-engineer: prefix with `taskset -c 3` and keep `--threads 1`.
+CPU: every run uses 1 thread. Latest assignment (night screen) was at most 2 cores; I used cores 2 and 3 with `taskset -c 2` / `taskset -c 3` and `--threads 1`, while the feature-engineer ran on core 0.
 Every backbone is timm weights from GitHub releases, licensed Apache-2.0.
 
 ## Best saved experiments (CV = shared 5 folds; all hyperparameters chosen by inner CV inside each outer fold)
@@ -11,6 +11,8 @@ Every backbone is timm weights from GitHub releases, licensed Apache-2.0.
 | emb_effv2s_256_gridge3_noise_csbag_rest | 13.038 | 14.566 11.617 13.288 13.339 12.180 | same 7-spec csbag on c248n_rest (cnn-trainer UNet-restored images, `DATA_DIR=data_restored`) |
 | emb_effv2s_256_gridge3_noise_csbag | **12.909** | 13.763 11.544 13.123 13.590 12.397 | equal-weight bag of 7 full CV runs, one per cellstat grid spec (2;4;8;2,4;2,8;4,8;2,4,8) on c248n |
 | emb_effv2s_256_gridge3_noise_cs24 | 13.020 | 13.860 11.924 13.010 13.776 12.422 | effv2s noise model + cross-cell std on grids 2 and 4 (c24n, `--cs-rows orig`) |
+| emb_effv2s_256_gridge3_noise_cs24_hetnz | 12.979 | 13.830 11.878 12.982 13.652 12.448 | cs24 + in-fold inverse-variance weights on log raw ic_noise (night screen below) |
+| emb_effv2s_256_gridge3_noise_cs24_n3own_hpavg5 | 12.976 | 14.277 11.444 13.324 13.464 12.178 | cs24 + own columns for the high-noise third + hp-avg 5; like-for-like vs cs24 hp-avg 5 a tie (below) |
 | emb_effv2s_256_gridge3_noise_cs2 | 13.134 | 14.172 11.780 13.631 13.503 12.442 | effv2s noise model + cross-cell std on grid 2 (g2a + augs2 noise rows) |
 | emb_effv2s_256_gridge3_aug_featv3 | 13.254 | 13.924 13.023 13.226 13.388 12.677 | effv2s noise/blur-penalised + features_v3 side features |
 | emb_effv2s_r18_256_gridge3_noise | 13.403 | 14.307 11.908 13.949 13.737 12.979 | effv2s + resnet18, 4 views, noise-invariance penalty (0.03 + 0.06) |
@@ -42,6 +44,52 @@ $H --emb $E,$R --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --grid-
 $H --emb $E --extra-rows $EX --pools mean,std --stages 1,2,3 --head gridge3 --aug-filter noise --name emb_effv2s_256_gridge3_noise
 $H --emb $E --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --name emb_effv2s_256_gridge3_aug
 $H --emb $E --pools mean,std --stages 1,2,3 --head gridge3 --use-augs --with-feats --feats features_v3.parquet --name emb_effv2s_256_gridge3_aug_featv3
+```
+
+## Own slopes for the high-noise third (2026-10-06 night): no gain for the embedding head
+Assignment: the feature-engineer's own-column trick (`src.features.n3own`; feature ridge 12.53 -> 12.26) on cs24.
+`--own-col ic_noise --own-q 2/3` duplicates the whole head input (global + cellstats, every view and noise row) for the images with raw ic_noise > 11.9159. That is the train-only top-tercile cut; 167 train / 333 test images. Elsewhere the copy is NaN. Prep imputes the in-fold group mean, so after scaling the copy is exactly 0 for other images, in every row.
+`--own-q 1/3,2/3` gives the mid tercile (7.4912 < ic_noise <= 11.9159) its own copy as well, i.e. 3 slope sets. The gridge3 grid key `own_w` is the own blocks' column weight: their own ridge group, with penalty alpha/own_w^2.
+cs24 was rebuilt first: CV 13.0204, OOF and test identical to the saved files (max diff 1.7e-12 / 5.4e-13).
+
+Fold-paired vs cs24 (13.020; folds 13.860 11.924 13.010 13.776 12.422):
+- N1/N2/N3 = RMSE by raw ic_noise tercile (train cuts 7.49 / 11.92).
+- boot95 = paired bootstrap of the RMSE difference (2000 resamples).
+- blend = cross-validated 2-member non-negative blend with `feat7_rawn3own_ridge_all` (diagnostic only).
+- Times are on 1 core.
+
+| variant | CV | dCV | better | fold deltas | N1 | N2 | N3 | boot95 | blend | s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| cs24 (parent) | 13.020 | | | | 10.878 | 12.386 | 15.387 | | 12.171 | 113 |
+| own top third, own_w=1 | 13.150 | +0.130 | 3/5 | +.515 -.512 +.631 -.018 -.080 | 11.071 | 12.127 | 15.780 | [-.199, +.465] | 12.188 | 635 |
+| own top third, own_w {0.5,1,2} (0.5 in every fold) | 13.033 | +0.013 | 3/5 | +.326 -.299 +.400 -.208 -.215 | 10.916 | 12.181 | 15.555 | [-.230, +.252] | 12.157 | 1847 |
+| own mid + top (3 slope sets), own_w=1 | 13.050 | +0.029 | 3/5 | +.460 -.535 +.391 -.017 -.266 | 10.832 | 12.273 | 15.582 | [-.347, +.398] | 12.156 | 2160 |
+| cs24 + hp-avg 5 (control) | 12.988 | -0.032 | 3/5 | +.036 -.259 +.189 -.128 -.022 | 10.745 | 12.277 | 15.485 | [-.143, +.079] | 12.176 | 97 |
+| own top third, own_w grid + hp-avg 5: **saved `_n3own_hpavg5`** | 12.976 | -0.044 | 3/5 | +.416 -.481 +.314 -.312 -.244 | 10.957 | 12.042 | 15.489 | [-.289, +.200] | 12.174 | 1815 |
+| hetero log ic_noise: **saved `_hetnz`** | 12.979 | -0.042 | 4/5 | -.030 -.046 -.028 -.124 +.026 | 10.740 | 12.394 | 15.372 | [-.145, +.059] | 12.138 | 169 |
+| hetero ic_noise + ic_acg_len50_gm | 13.032 | +0.012 | 3/5 | -.001 -.268 +.410 -.191 +.091 | 10.662 | 12.551 | 15.435 | [-.163, +.189] | 12.161 | 168 |
+| hetero ic_acg_len50_gm | 13.038 | +0.018 | 2/5 | +.025 -.249 +.399 -.199 +.098 | 10.674 | 12.565 | 15.431 | [-.154, +.191] | 12.159 | 165 |
+
+- With the same protocol, own slopes do not beat cs24. In every own variant the high-noise tercile gets worse (15.39 -> 15.56-15.78) and only the mid tercile improves.
+  - The 1088-column own block is fitted on about 133 high-noise images per outer fold and overfits.
+  - Inner CV also switches to lam_aug=4 in folds 0 and 2, where cs24 always picks 0. Those folds lose 0.3-0.6.
+  - Best-fixed-hp diagnostics are 12.82-12.90 vs cs24's 12.92, so the ceiling is at most about 0.1.
+- `_n3own_hpavg5` passes the save rule (CV and 3/5 folds) only through hp averaging. Against cs24 + hp-avg 5 it is -0.012 (3/5 folds), a tie, with N3 unchanged and the blend diagnostic unchanged.
+- The usable part of the split is down-weighting noisy images. `--hetero ic_noise` does this without extra capacity: log-variance slope 0.3-0.6, weights 0.6-1.6. It gives 12.979, 4/5 folds better, with the gain in the clean tercile. It is the only variant that moves the blend diagnostic (12.171 -> 12.138); the feature-engineer saw a tie when adding noise to their already-own-slope ridge.
+- A random-group control (`--own-random 1`) was started but dropped once the noise split itself showed no gain.
+
+Commands (cores 2-3 at 1 thread each). `_n3own_hpavg5` was saved from its screen outputs with the scratchpad `save_scratch.py`, which writes the same notes format via `common.save_experiment`; the command below with `--name` reproduces it.
+```
+H="taskset -c 2 python -m src.train_head --threads 1"; C4=tf_efficientnetv2_s.in21k_ft_in1k_256_c24n
+CS="--pools mean,std --stages 1,2,3 --head gridge3 --use-augs --cellstats std --cs-stages 0,1,2 --cs-rows orig --cs-grid 2,4"
+$H --emb $C4 $CS --no-save --oof-out <p> --test-out <p>                                          # cs24 rebuild
+$H --emb $C4 $CS --own-col ic_noise --own-q 2/3 --no-save                                         # own_w=1
+$H --emb $C4 $CS --own-col ic_noise --own-q 2/3 --grid-json '{"own_w": [0.5, 1, 2]}' --no-save    # own_w grid
+$H --emb $C4 $CS --own-col ic_noise --own-q 1/3,2/3 --no-save                                     # mid + top
+$H --emb $C4 $CS --hp-avg 5 --no-save
+$H --emb $C4 $CS --own-col ic_noise --own-q 2/3 --grid-json '{"own_w": [0.5, 1, 2]}' --hp-avg 5 --name emb_effv2s_256_gridge3_noise_cs24_n3own_hpavg5
+$H --emb $C4 $CS --hetero ic_noise --name emb_effv2s_256_gridge3_noise_cs24_hetnz
+$H --emb $C4 $CS --hetero ic_noise,ic_acg_len50_gm --no-save; $H --emb $C4 $CS --hetero ic_acg_len50_gm --no-save
 ```
 
 ## Restored images (2026-10-06 evening)
@@ -143,9 +191,13 @@ Head and outputs:
 - `--head ridge|gridge|gridge3|krr|svr|lgb`, `--grid-json '{...}'` (override the head grid)
 - `--hetero COL[,COL] --hetero-file features_v3.parquet` (gridge3 only): two-pass in-fold inverse-variance weights
 - `--hp-avg K`: average the K best grid points
-- `--name`, `--no-save`, `--oof-out path.csv` (writes a scratch OOF without registering an experiment)
+- `--own-col COL --own-file features_v3.parquet --own-q 2/3|1/3,2/3`: own columns per group of a label-free per-image column.
+  - Cuts are quantiles over the train images only; group = number of cuts the value exceeds. Every group above 0 gets a NaN-elsewhere copy of the whole input.
+  - Grid key `own_w` (default [1]) is their column weight (own ridge group, gridge3).
+  - `--own-random SEED` permutes the groups as a control.
+- `--name`, `--no-save`, `--oof-out path.csv` (writes a scratch OOF without registering an experiment), `--test-out path.csv` (scratch test predictions), `--note TEXT` (appended to the saved notes)
 
-Defaults are unchanged: with no `--hetero` and `--hp-avg 1`, the outputs are bit-identical to before. Checked on c248n grid 2: 13.2318 both ways.
+Defaults are unchanged: with no `--hetero`, `--hp-avg 1` and no `--own-col`, the outputs are bit-identical to before. Checked on c248n grid 2 (13.2318 both ways) and on cs24 (OOF and test identical, 2026-10-06 night).
 
 ## Cached files in data/emb/ (command prefix: `taskset -c 3 python -m src.extract_embeddings --threads 1`)
 | tag | args | seconds at 1 thread |
@@ -164,11 +216,12 @@ Defaults are unchanged: with no `--hetero` and `--hp-avg 1`, the outputs are bit
 | tf_efficientnetv2_s.in21k_ft_in1k_256_ic_v2n | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 2 --pools mean,std --prep ic --augs noise0.03,noise0.06 --tag <tag>` | 651 |
 | _img_nlm_1500, _img_ic_1500 | image caches, built automatically by `--prep nlm` / `--prep ic` | ~100 / ~150 |
 
-## Status at hand-back (2026-10-06, after the restored-image run)
-Nothing of mine is running. Score.json notes now record `emb=<tags>`, plus `[DATA_DIR=...]` when it is not `data`. I added this by hand to `emb_effv2s_256_gridge3_noise_csbag_rest/score.json`. That run's LEADERBOARD line was written before the change, so it lacks the tag; its name carries `_rest`.
+## Status at hand-back (2026-10-06 night, after the own-slope screen)
+Nothing of mine is running. Score.json notes record `emb=<tags>`, plus `[DATA_DIR=...]` when it is not `data`. I added this by hand to `emb_effv2s_256_gridge3_noise_csbag_rest/score.json`. That run's LEADERBOARD line was written before the change, so it lacks the tag; its name carries `_rest`.
 
 ## Next steps (prioritized)
-1. Blend: give the ensembler the two singles, `emb_effv2s_256_gridge3_noise_csbag` (12.909, raw) and `emb_effv2s_256_gridge3_noise_csbag_rest` (13.038, restored). Their residual correlation is 0.960. Alternatively use the fixed average `emb_effv2s_256_gridge3_noise_csbag_rawrest` (12.842). These supersede cs2 and cs24.
+0. Blend (night): blend_v12 uses cs24 (weight 0.24) next to the own-slope feature ridge. Try `emb_effv2s_256_gridge3_noise_cs24_hetnz` in place of cs24 or alongside it: the 2-member CV-blend diagnostic gives 12.138 vs 12.171. Don't spend more time on own slopes in the embedding head.
+1. Blend: give the ensembler the two singles, `emb_effv2s_256_gridge3_noise_csbag` (12.909, raw) and `emb_effv2s_256_gridge3_noise_csbag_rest` (13.038, restored). Their residual correlation is 0.960. Alternatively use the fixed average `emb_effv2s_256_gridge3_noise_csbag_rawrest` (12.842). These supersede cs2. Next to the feature ridge, cs24 blends better than csbag (diagnostic 12.171 vs 12.195).
 2. Cheap follow-up (~10-17 min on 1 core): the same bag with `--hetero ic_acg_len50_gm` or `--hp-avg 5`. Each was about -0.03 on a single spec, which is within noise.
 3. Bigger ideas, uncertain:
    - Per-cell nonlinear MIL: the mean over cells of random Fourier or quadratic features of an in-fold PCA of the cell vectors. This generalises the cross-cell std, which is only the 2nd-order Jensen term.

@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.976033973987736,
+  "fold_rmse": [
+    14.276502357404151,
+    11.443622247597729,
+    13.323940221488133,
+    13.463819447931673,
+    12.178278269585052
+  ],
+  "notes": "gridge3 head (inner-CV hp: lam_view=4,lam_cell=0,lam_aug=4,alpha=100,own_w=0.5 x1 lam_view=4,lam_cell=0,lam_aug=0,alpha=100,own_w=0.5 x2 lam_view=16,lam_cell=0,lam_aug=4,alpha=100,own_w=0.5 x1 lam_view=4,lam_cell=0,lam_aug=0,alpha=316.2,own_w=0.5 x1) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views); emb=tf_efficientnetv2_s.in21k_ft_in1k_256_c24n; stages=1,2,3 pools=mean,std view_mode=aug cells=global augs=True extra_rows=- view_std=False cellstats=std@g2,4:orig:s0,1,2:mean,std:none:log:w1.0 transform=none block_norm=False pca=0 feats=no hp_avg=5 own=ic_noise@features_v3.parquet q=2/3 cuts=11.9159 groups train 333/167 test 667/333 (own slopes per group; NaN outside -> in-fold group mean -> 0); grid={\"own_w\": [0.5, 1, 2]}; licenses: apache-2.0; own columns: the whole head input (global + cellstats, every view and noise row) duplicated for the images with raw ic_noise > 11.916 (train top-tercile cut, as src.features.n3own), own ridge group own_w in {0.5,1,2} by inner CV (0.5 in every fold), K=5 hp averaging; vs parent emb_effv2s_256_gridge3_noise_cs24 -0.044, 3/5 folds (deltas +0.416 -0.481 +0.314 -0.312 -0.244), paired bootstrap 95% [-0.289, +0.200], residual corr 0.981; vs the same parent with --hp-avg 5 (12.988) only -0.012 (3/5 folds), so the own block itself is a tie and most of the gain is hp averaging; raw-ic_noise terciles N1/N2/N3 10.957/12.042/15.489 vs parent 10.878/12.386/15.387 (no gain in the high-noise third); same-protocol own variants without hp averaging do not beat the parent: own_w=1 13.150, own_w grid 13.033, mid+top own (3 slope sets) 13.050; saved from the screen outputs (src.train_head --no-save --oof-out/--test-out); the same command with --name reproduces it"
+}
