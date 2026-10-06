@@ -8,7 +8,7 @@ submissions/*.csv
 !submissions/.gitkeep
 logs/
 catboost_info/
-data_restored/
+data_restored*/
 # Public repo (user OK 2026-10-06): keep test-set predictions and figures showing competition images local
 experiments/*/test.csv
 experiments/**/m_*.png

@@ -13,7 +13,14 @@ Goal: public LB RMSE <= 10.
   further along v10's direction (v11 - v7 sd 0.60, correlation 0.96 with v10 - v7): expect public about 11.79 if the
   CNN effect is linear in its share, about 11.86 (v7 minus the CV gain) if v10's drop was luck.
 - Next GPU runs (user picks exclusive or shared GPU mode in the thread first): `notes/handoff/laptop-gpu.md` section 6.
-- Cloud CPU next: idea 1 below (low-SNR restorer).
+- Where the noise error is (orchestrator, 23:50 KST): blend_v11 OOF RMSE by calibrated grain count
+  (`cal_seg_count_density`, Spearman 0.02 with noise) x raw `ic_noise` tercile (train cuts 7.49 / 11.92):
+  fine 7.75 / 7.89 / 11.36, mid 8.82 / 11.03 / 14.15, coarse 13.43 / 14.14 / 18.19. A fit r^2 ~ a + b/N + c*noise gives
+  c = 9.0 (90% CI 5.3-13.0): about 56 of the ~151 MSE units are tied to noise, in every grain-size tercile.
+  Do not stratify by `ic_acg_len50_gm` or `ic_seg_L_gm` for this: they are biased by noise (Spearman 0.43 with
+  ic_noise) and make the noisy tercile look like a coarse-grain confound.
+- Cloud CPU next (running): idea 1 below, a high-noise specialist restorer (cnn-trainer; outputs to
+  `data_restored_hn/`, git-ignored), then restored features and a ridge screen (feature-engineer).
 
 ## End of day 2026-10-06
 - Public LB so far: blend_v2 12.3454, v4 12.0329, v6 11.9248, **v7 11.8795** (best). In all four, public came in
