@@ -183,6 +183,12 @@ def apply_aug(x, aug, ids):
         return gaussian_blur(x, float(aug[4:]))
     if aug.startswith("gamma"):
         return x.clamp_min(1e-6) ** float(aug[5:])
+    if aug.startswith("shade"):  # smooth multiplicative illumination field, +-s relative (bicubic 4x4 grid)
+        s = float(aug[5:])
+        fld = torch.stack([torch.rand((1, 4, 4), generator=torch.Generator().manual_seed(id_seed(i) + 7)) * 2 - 1
+                           for i in ids])
+        fld = F.interpolate(fld, size=x.shape[-2:], mode="bicubic", align_corners=True)
+        return (x * (1 + s * fld)).clamp(0, 1)
     if aug.startswith("contrast"):
         mu = x.mean((2, 3), keepdim=True)
         return ((x - mu) * float(aug[8:]) + mu).clamp(0, 1)

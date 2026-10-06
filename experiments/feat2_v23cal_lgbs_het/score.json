@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.991467322555232,
+  "fold_rmse": [
+    13.347637127850893,
+    12.910832082513114,
+    13.309959957837323,
+    12.800647828447424,
+    12.571018061330596
+  ],
+  "notes": "lgbs on features_v3.parquet,features_v2.parquet,features_cal.parquet; cols=all(335); 3 seeds; hetero weights ~ log-var(log ic_acg_len50_gm) in-fold"
+}

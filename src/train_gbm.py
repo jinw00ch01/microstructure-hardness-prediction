@@ -127,8 +127,9 @@ def forward_select(X, y, max_k=20, inner_folds=5, alpha=3.0, tol=0.01, seed=SEED
 def hetero_weights(Xtr, ytr, z, inner=5, clip=(0.25, 4.0)):
     """Inverse-variance sample weights, estimated on training rows only.
 
-    Inner-CV ridge residuals r give log(r^2 + 1) ~ a + b * log(z) (z = a coarseness measure such as the
-    correlation length); w = 1 / exp(fit), normalised to mean 1 and clipped.
+    Inner-CV ridge residuals r give log(r^2 + 1) ~ a + Z b by OLS, where Z holds the variance columns
+    (log-transformed when strictly positive), e.g. correlation length and noise level.
+    w = 1 / exp(fit), normalised to mean 1 and clipped.
     """
     from sklearn.model_selection import KFold
     res = np.zeros(len(ytr))
@@ -136,14 +137,14 @@ def hetero_weights(Xtr, ytr, z, inner=5, clip=(0.25, 4.0)):
         A, B = _std_matrix(Xtr.iloc[a], Xtr.iloc[b])
         m = RidgeCV(alphas=np.logspace(-2, 4, 40)).fit(A, ytr[a])
         res[b] = ytr[b] - m.predict(B)
-    zz = pd.Series(np.asarray(z, float))
-    zz = zz.fillna(zz.median()).values
-    if (zz > 0).all():
-        zz = np.log(zz)
-    coef = np.polyfit(zz, np.log(res ** 2 + 1.0), 1)
-    w = 1.0 / np.exp(np.polyval(coef, zz))
+    Z = pd.DataFrame(np.asarray(z, float).reshape(len(ytr), -1))
+    Z = Z.fillna(Z.median())
+    Z = Z.apply(lambda c: np.log(c) if (c > 0).all() else c)
+    D = np.column_stack([np.ones(len(ytr)), Z.values])
+    coef, *_ = np.linalg.lstsq(D, np.log(res ** 2 + 1.0), rcond=None)
+    w = 1.0 / np.exp(D @ coef)
     w = np.clip(w / w.mean(), *clip)
-    return w / w.mean(), coef
+    return w / w.mean(), coef[1:]
 
 
 def mono_vector(cols, spec):
@@ -170,7 +171,7 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     X = X.replace([np.inf, -np.inf], np.nan)
     Xt = Xt.replace([np.inf, -np.inf], np.nan)
     y = tr.hardness.values
-    feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hetero].values if hetero else None
+    feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hetero.split(",")].values if hetero else None
     oof, pred = np.zeros(len(tr)), np.zeros(len(te))
     imp = pd.Series(0.0, index=use)
     kind = "lgb_es" if (model == "lgb" and es) else model
@@ -185,7 +186,7 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
         w = None
         if hetero:
             w, coef = hetero_weights(X.loc[trn, cols_f], y[trn], feats_tr_z[trn])
-            print(f"fold {f}: hetero log-var slope {coef[0]:+.3f}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
+            print(f"fold {f}: hetero log-var slopes {np.round(coef, 3).tolist()}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
         if kind in ("ridge_fs", "fwd"):
             from sklearn.linear_model import RidgeCV
             A, Av, At = _std_matrix(X.loc[trn, cols_f], X.loc[val, cols_f], Xt[cols_f])

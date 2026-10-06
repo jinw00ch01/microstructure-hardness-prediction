@@ -47,7 +47,7 @@ from .common import DATA_DIR, load_test, load_train, rmse, save_experiment  # no
 # ----------------------------------------------------------------------------------------- data
 
 
-def load_emb(tag, stages="all", pools=("mean", "std"), n_views=0, cells="global", use_augs=False):
+def load_emb(tag, stages="all", pools=("mean", "std"), n_views=0, cells="global", use_augs=False, aug_filter=""):
     """Returns ids, X (N, R, d), blocks, meta, is_orig (R,). The stored row axis is [view][cell] (cell 0 =
     global pooling, 1.. = grid cells when extracted with --grid); `cells` picks global / cells / all.
     Views named 'aug:*' are nuisance augmentations (noise/blur/...): only used when use_augs, and then
@@ -66,6 +66,8 @@ def load_emb(tag, stages="all", pools=("mean", "std"), n_views=0, cells="global"
     orig = [k for k, n in enumerate(names) if not n.startswith("aug:")]
     orig = orig[:n_views] if n_views else orig
     augs = [k for k, n in enumerate(names) if n.startswith("aug:")] if use_augs else []
+    if aug_filter:  # keep only aug views whose name contains one of the comma-separated substrings
+        augs = [k for k in augs if any(f in names[k] for f in aug_filter.split(","))]
     keep = {"global": [0], "cells": list(range(1, nc)) or [0], "all": list(range(nc))}[cells]
     vidx = [v * nc + c for v in orig + augs for c in keep]
     is_orig = np.array([v in orig for v in orig + augs for c in keep])
@@ -341,9 +343,20 @@ def run_cv(X3, y, folds, X3te, cfg, grid, verbose=True):
 
 def build(args, tr, te):
     blocks, Xs, lic, base_ids, is_orig, rows = [], [], [], None, None, None
-    for tag in args.emb.split(","):
+    tags = args.emb.split(",")
+    extra = args.extra_rows.split(",") if args.extra_rows else [""] * len(tags)
+    assert len(extra) == len(tags), "--extra-rows needs one tag per --emb tag"
+    for tag, xtag in zip(tags, extra):
         ids, X, bl, meta, io, rw = load_emb(tag, args.stages, args.pools.split(","), args.views, args.cells,
-                                            args.use_augs)
+                                            args.use_augs, args.aug_filter)
+        if xtag:  # append the 'aug:' rows of a second extraction of the same backbone (same columns)
+            ids2, X2, bl2, _, _, rw2 = load_emb(xtag, args.stages, args.pools.split(","), 0, "global", True,
+                                                args.aug_filter)
+            assert [b[1] for b in bl2] == [b[1] for b in bl], f"{xtag}: column layout differs from {tag}"
+            sel = [k for k, (v, c) in enumerate(rw2) if v.startswith("aug:") and (v, c) not in rw]
+            X = np.concatenate([X, X2[pd.Series(np.arange(len(ids2)), index=ids2)[ids].values][:, sel]], 1)
+            io = np.concatenate([io, np.zeros(len(sel), bool)])
+            rw = rw + [rw2[k] for k in sel]
         if base_ids is None:
             base_ids, is_orig, rows = ids, io, rw
         else:  # align rows to the first tag's id order
@@ -361,11 +374,12 @@ def build(args, tr, te):
         blocks += [(n + "|viewstd", s) for n, s in blocks]
     col_w = np.concatenate([np.full(s, (1 / np.sqrt(s)) if args.block_norm else 1.0) for _, s in blocks])
     if args.with_feats:
-        F = pd.read_parquet(DATA_DIR / "features.parquet").set_index("ID").loc[base_ids]
+        F = pd.concat([pd.read_parquet(DATA_DIR / f).set_index("ID") for f in args.feats.split(",")], axis=1)
+        F = F.loc[base_ids, ~F.columns.duplicated()]
         X = np.concatenate([X, np.repeat(F.values.astype(np.float64)[:, None], V, 1)], 2)
         w = args.feat_weight / (np.sqrt(F.shape[1]) if args.block_norm else 1.0)
         col_w = np.concatenate([col_w, np.full(F.shape[1], w)])
-        blocks.append(("features.parquet", F.shape[1]))
+        blocks.append((args.feats, F.shape[1]))
     if args.view_mode == "mean":
         X, is_orig, rows = X[:, is_orig].mean(1, keepdims=True), np.array([True]), [("mean", 0)]
     pos = pd.Series(np.arange(len(base_ids)), index=base_ids)
@@ -382,6 +396,9 @@ if __name__ == "__main__":
     ap.add_argument("--view-mode", default="mean", choices=["mean", "aug"])
     ap.add_argument("--cells", default="global", choices=["global", "cells", "all"],
                     help="for --grid extractions: rows from global pooling, grid cells, or both")
+    ap.add_argument("--extra-rows", default="", help="comma list (one per --emb tag) of augs-only extractions "
+                    "whose 'aug:' rows are appended (needs --use-augs semantics; implies it)")
+    ap.add_argument("--aug-filter", default="", help="only aug views containing one of these substrings")
     ap.add_argument("--use-augs", action="store_true",
                     help="include stored 'aug:' nuisance views as training/deviation rows (never predicted on)")
     ap.add_argument("--transform", default="none", choices=["none", "sqrt", "log"])
@@ -389,13 +406,17 @@ if __name__ == "__main__":
     ap.add_argument("--view-std", action="store_true", help="append per-channel std across views")
     ap.add_argument("--with-feats", action="store_true")
     ap.add_argument("--feat-weight", type=float, default=1.0)
+    ap.add_argument("--feats", default="features.parquet", help="comma list of data/*.parquet feature files")
     ap.add_argument("--pca", type=int, default=0)
     ap.add_argument("--whiten", action="store_true")
     ap.add_argument("--head", default="ridge", choices=list(HEADS))
+    ap.add_argument("--grid-json", default=None, help='override head grid keys, e.g. {"lam_aug": [0, 16, 64]}')
     ap.add_argument("--name", default=None)
     ap.add_argument("--no-save", action="store_true")
     ap.add_argument("--threads", type=int, default=1)
     a = ap.parse_args()
+    if a.extra_rows:
+        a.use_augs = True
     if a.head in ("gridge", "gridge3"):  # need the individual view/cell rows
         a.view_mode = "aug"
     t0 = time.time()
@@ -405,7 +426,8 @@ if __name__ == "__main__":
     cfg = {"head": a.head, "col_w": col_w, "pca": a.pca, "whiten": a.whiten, "n_pass": n_pass,
            "is_orig": is_orig, "rows": rows}
     print(f"X {Xtr.shape} test {Xte.shape} blocks {len(blocks)} head {a.head}", flush=True)
-    oof, pte, chosen, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, HEADS[a.head][1])
+    grid = dict(HEADS[a.head][1], **(json.loads(a.grid_json) if a.grid_json else {}))
+    oof, pte, chosen, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, grid)
     fr = [rmse(oof[folds == f], y[folds == f]) for f in sorted(np.unique(folds))]
     print(f"CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} | best-fixed-hp (diagnostic, optimistic) "
           f"{orc:.4f} {orc_hp} | {time.time() - t0:.0f}s")
@@ -414,9 +436,11 @@ if __name__ == "__main__":
         hp_s = [",".join(f"{k}={float(v):.4g}" for k, v in h.items()) for h in chosen]
         hp_txt = " ".join(f"{h} x{hp_s.count(h)}" for h in dict.fromkeys(hp_s))
         notes = (f"{a.head} head (inner-CV hp: {hp_txt}) on {' + '.join(lic)}; stages={a.stages} "
-                 f"pools={a.pools} view_mode={a.view_mode} cells={a.cells} augs={a.use_augs} view_std={a.view_std} "
+                 f"pools={a.pools} view_mode={a.view_mode} cells={a.cells} augs={a.use_augs}{':' + a.aug_filter if a.aug_filter else ''} "
+                 f"extra_rows={a.extra_rows or '-'} "
+                 f"view_std={a.view_std} "
                  f"transform={a.transform} "
                  f"block_norm={a.block_norm} "
-                 f"pca={a.pca}{'w' if a.whiten else ''} feats={'features.parquet x' + str(a.feat_weight) if a.with_feats else 'no'}; "
+                 f"pca={a.pca}{'w' if a.whiten else ''} feats={a.feats + ' x' + str(a.feat_weight) if a.with_feats else 'no'}; "
                  f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}")
         save_experiment(name, tr, oof, te, pte, notes=notes)

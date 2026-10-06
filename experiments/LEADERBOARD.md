@@ -19,3 +19,11 @@
 | feat2_v123_fwd | 14.165 |  | fwd on features_v3.parquet,features_v2.parquet,features.parquet; cols=all(408); in-fold forward selection (ridge inner-CV, max 20) |
 | cnn_r18_c224_e30 | 13.787 |  | resnet18.a1_in1k ep30 bs16 crop224 lr0.001 hlr1.0 wd0.01 mse pool=avg drop0.0 dp0.0 ema0.0->final seeds1 aug(b0.03 c0.1 n0.03@0.5 blur1.0@0.0) tta8; fixed schedule, no val checkpoint selection |
 | blend_v1 (blend) | 13.151 |  | nested-CV, 16 models |
+| emb_effv2s_256_gridge3_aug | 13.514 |  | gridge3 head (inner-CV hp: lam_view=0,lam_cell=0,lam_aug=16,alpha=3.162 x2 lam_view=4,lam_cell=0,lam_aug=16,alpha=0.3162 x1 lam_view=4,lam_cell=0,lam_aug=4,alpha=10 x2) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views); stages=1,2,3 pools=mean,std view_mode=aug cells=global augs=True view_std=False transform=none block_norm=False pca=0 feats=no; licenses: apache-2.0 |
+| emb_effv2s_256_gridge3_aug_featv3 | 13.254 |  | gridge3 head (inner-CV hp: lam_view=0,lam_cell=0,lam_aug=4,alpha=316.2 x2 lam_view=0,lam_cell=0,lam_aug=64,alpha=100 x1 lam_view=16,lam_cell=0,lam_aug=64,alpha=316.2 x1 lam_view=0,lam_cell=0,lam_aug=64,alpha=316.2 x1) on tf_efficientnetv2_s.in21k_ft_in1k (apache-2.0, 256px, 4 views); stages=1,2,3 pools=mean,std view_mode=aug cells=global augs=True extra_rows=- view_std=False transform=none block_norm=False pca=0 feats=features_v3.parquet x1.0; licenses: apache-2.0 |
+| feat2_v3cal_ridge | 13.177 |  | ridge on features_v3.parquet,features_cal.parquet; cols=all(157) |
+| feat2_v3cal_lgbs | 13.346 |  | lgbs on features_v3.parquet,features_cal.parquet; cols=all(157) |
+| feat2_v23_lgbs | 13.212 |  | lgbs on features_v3.parquet,features_v2.parquet; cols=all(312); 3 seeds |
+| feat2_v3cal_ridge_het | 13.101 |  | ridge on features_v3.parquet,features_cal.parquet; cols=all(157); hetero weights ~ log-var(log ic_acg_len50_gm) in-fold |
+| feat2_v23cal_lgbs_het | 12.991 |  | lgbs on features_v3.parquet,features_v2.parquet,features_cal.parquet; cols=all(335); 3 seeds; hetero weights ~ log-var(log ic_acg_len50_gm) in-fold |
+| blend_v2 (blend) | 12.963 |  | nested-CV, 23 models |
