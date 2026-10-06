@@ -73,15 +73,52 @@
 taskset -c 0 python -W ignore -m src.train_gbm --feat features_v3.parquet,features_v2.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,eda_feats_lf.parquet,$HN/features_v3.parquet,$HN/features_cal.parquet --model lgbs --seeds 3 --drop $D1 --hetero ic_acg_len50_gm --name feat7_resthn_lgbs_add
 python -W ignore -m src.features --n3own --n3own_src $HN/features_v3.parquet,$HN/features_cal.parquet --cal_out $HN/features_n3own_v3cal.parquet
 taskset -c 1 python -W ignore -m src.train_gbm --mil splmean --mil_design --mil_blocks_file $R/mil_blocks.parquet --feat $R/features_v3.parquet,$R/features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,$R/features_v4.parquet,$HN/features_n3own_v3cal.parquet --model ridge --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --hetero ic_acg_len50_gm --name feat7_resthn_ridge_all_n3own
-# raw-own lead (not saved): --n3own --n3own_src features_v3.parquet,features_cal.parquet --cal_out features_n3own_raw_v3cal.parquet,
+# raw-own lead: --n3own --n3own_src features_v3.parquet,features_cal.parquet --cal_out features_n3own_raw_v3cal.parquet,
 # then the ridge command above with features_n3own_raw_v3cal.parquet in place of $HN/features_n3own_v3cal.parquet
 ```
-   - Next:
-     - Run the raw-own variant as its own experiment. Check its fold-1 swing (+0.62) and RidgeCV's alpha per fold.
-     - A continuous form: columns x noise interactions instead of a hard N3 split.
-     - The same split for the lgbs is unlikely to help: the trees can already split on raw ic_noise.
-   - Screen scripts: scratchpad `hn/` (`screen_hn.py`, `check_transfer.py`, `null_own.py`, `blend_swap.py`).
-     Logs: `logs/resthn_*.log`.
+   - The orchestrator saved the raw-own lead as **feat7_rawn3own_ridge_all** (CV 12.2623). In blend_v12 it has weight 0.59:
+     nested CV 12.407 -> 12.162, 5/5 folds better, N3 14.85 -> 14.37.
+   - Next: check the recurring fold-1 swing and RidgeCV's alpha per fold. Fold 1 has the fewest N3 images (23).
+     The same split for the lgbs is unlikely to help: the trees can already split on raw ic_noise.
+   - Screen scripts: scratchpad `hn/` (`screen_hn.py`, `check_transfer.py`, `null_own.py`, `blend_swap.py`,
+     `screen_r2.py`). Logs: `logs/resthn_*.log`.
+5. Round 2 (orchestrator's pre-registered list, 2 cores). Every comparator reproduces its saved OOF exactly.
+   - New builders in `src.features` (DATA_DIR unset; all constants from train raw ic_noise only):
+     - `--n3own --n3own_q 1/3 --n3own_qhi 2/3 --n3own_prefix n2_` -> `data/features_n2own_raw_v3cal.parquet`.
+       Mid band 7.49 < ic_noise <= 11.916: 166 train + 355 test images.
+     - `--nz_interact ramp|z` -> `data/features_nz{ramp,z}_raw_v3cal.parquet`: raw v3+cal x t, plus t itself.
+       - ramp: t = clip((ic_noise - 7.4912) / (11.9159 - 7.4912), 0, 1)
+       - z: t = (ic_noise - 10.3647) / 4.5331
+     - The defaults reproduce `features_n3own_raw_v3cal` exactly.
+   - Results (fold-paired; N1/N2/N3 = raw ic_noise terciles):
+
+     | variant | comparator (CV) | CV | delta | fold deltas | better | N1 / N2 / N3 (comparator) |
+     |---|---|---|---|---|---|---|
+     | 1. N3 + N2 own columns | feat7_rawn3own_ridge_all (12.2623) | 12.6993 | +0.437 | +1.046 +0.266 +0.117 +0.476 +0.224 | 0/5 | 10.98/12.32/14.54 (10.68/11.33/14.44) |
+     | 2a. x * t ramp (instead of N3 own) | same | 12.4253 | +0.163 | +0.043 +0.098 +0.060 +0.331 +0.295 | 0/5 | 10.86/11.53/14.57 |
+     | 2b. x * t z-score | same | 12.5299 | +0.268 | +0.118 -0.020 +0.329 +0.375 +0.541 | 1/5 | 10.79/11.34/15.03 |
+     | 3a. feat5 splmean + N3 own | feat5 splmean (12.5952) | **12.3648** | -0.230 | -0.067 +0.169 -0.146 -0.652 -0.470 | 4/5 | 10.65/11.92/14.25 (10.62/11.88/14.90) |
+     | 3b. feat5 milspl + N3 own | feat5 milspl (12.6162) | **12.3225** | -0.294 | -0.091 +0.164 -0.145 -0.849 -0.570 | 4/5 | 10.49/12.01/14.19 (10.56/11.94/14.95) |
+     | 3c. feat6_rest_ridge_add + N3 own | feat6_rest_ridge_add (12.5249) | **12.3396** | -0.185 | -0.006 +0.245 -0.192 -0.530 -0.445 | 4/5 | 10.72/11.68/14.33 (10.75/11.63/14.82) |
+
+   - Only the noisiest third gains from its own slopes. Own slopes for the mid third hurt N2 (11.33 -> 12.32). The
+     smooth forms lose to the hard split.
+   - Saved (CLI, OOF = screen to 6e-14):
+     - **feat7_rawn3own_ridge_splmean** 12.3648
+     - **feat7_rawn3own_ridge_milspl** 12.3225
+     - **feat7_rawn3own_ridge_add** 12.3396
+   - Error correlations:
+     - splmean vs milspl 0.996: use one of them, as with the feat5 pair
+     - add vs feat7_rawn3own_ridge_all 0.987
+     - splmean / milspl vs ridge_all 0.97
+   - Fold 1 loses in every N3-own member.
+   - Commands (`F5=features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,features_v4.parquet`,
+     `N3=features_n3own_raw_v3cal.parquet`, `KEEP='^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)$|c_(bd|la)_hp$)'`):
+```
+python -W ignore -m src.train_gbm --mil splmean --mil_design --feat $F5,$N3 --model ridge --drop "$D1,$KEEP" --hetero ic_acg_len50_gm --name feat7_rawn3own_ridge_splmean
+python -W ignore -m src.train_gbm --mil spl --mil_design --feat $F5,$N3 --model ridge --drop "$D1,$KEEP" --hetero ic_acg_len50_gm --name feat7_rawn3own_ridge_milspl
+python -W ignore -m src.train_gbm --mil splmean --mil_design --feat $F5,$R/features_v3.parquet,$R/features_cal.parquet,$N3 --model ridge --drop "$D1,$KEEP" --hetero ic_acg_len50_gm --name feat7_rawn3own_ridge_add
+```
 
 ## Session 6 summary
 1. Calibrated block-mean phase/pore columns for the lgbs: `data/features_v5blk.parquet`

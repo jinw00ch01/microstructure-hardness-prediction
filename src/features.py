@@ -1518,27 +1518,71 @@ def v5_blockmeans(src="mil_blocks.parquet", out="features_v5blk.parquet"):
     print(out_df.shape, "->", out)
 
 
+def _merge_src(src):
+    df = None
+    for f in src.split(","):
+        d = pd.read_parquet(DATA_DIR / f)
+        df = d if df is None else df.merge(d, on="ID")
+    return df
+
+
+def _train_noise(noise_file):
+    nz = pd.read_parquet(DATA_DIR / noise_file)[["ID", "ic_noise"]]
+    return nz, nz.set_index("ID").loc[pd.read_csv(DATA_DIR / "train.csv").ID, "ic_noise"]
+
+
 def n3own(src="features_v3.parquet,features_cal.parquet", out="features_n3own_v3cal.parquet", q=2 / 3,
-          noise_file="features_v3.parquet"):
+          noise_file="features_v3.parquet", q_hi=None, prefix="n3_"):
     """'Own columns' for the noisiest images (label-free, per image). The src tables (merged on ID) are copied with an
     n3_ prefix and set to NaN for every image whose RAW ic_noise (noise_file; run with DATA_DIR unset so it is the raw
     data/features_v3) is at or below the train q-quantile. q = 2/3 gives the train tercile cut 11.92, i.e. exactly the
     500 images the high-noise restorer (src.restore --tag hn) was applied to. A linear member then fits separate slopes
     for the high-noise images (NaN rows are median-imputed in fold). The cut uses train images only.
+    q_hi: optional upper train quantile (band q < . <= q_hi), e.g. q=1/3, q_hi=2/3, prefix="n2_" for the mid tercile.
     python -m src.features --n3own --n3own_src $HN/features_v3.parquet,$HN/features_cal.parquet --cal_out $HN/features_n3own_v3cal.parquet"""
-    nz = pd.read_parquet(DATA_DIR / noise_file)[["ID", "ic_noise"]]
-    tr_ids = pd.read_csv(DATA_DIR / "train.csv").ID
-    cut = float(np.quantile(nz.set_index("ID").loc[tr_ids, "ic_noise"], q))
-    hi = set(nz.ID[nz.ic_noise > cut])
-    df = None
-    for f in src.split(","):
-        d = pd.read_parquet(DATA_DIR / f)
-        df = d if df is None else df.merge(d, on="ID")
+    nz, trn = _train_noise(noise_file)
+    cut = float(np.quantile(trn, q))
+    keep = nz.ic_noise > cut
+    cut_hi = float(np.quantile(trn, q_hi)) if q_hi is not None else np.inf
+    keep &= nz.ic_noise <= cut_hi
+    hi = set(nz.ID[keep])
+    df = _merge_src(src)
     cols = [c for c in df.columns if c != "ID"]
     df.loc[~df.ID.isin(hi), cols] = np.nan
-    df = df.rename(columns={c: f"n3_{c}" for c in cols})
+    df = df.rename(columns={c: f"{prefix}{c}" for c in cols})
     df.to_parquet(DATA_DIR / out, index=False)
-    print(df.shape, f"cut {cut:.4f}: {len(hi)} high-noise images ->", out)
+    print(df.shape, f"band {cut:.4f} < raw ic_noise <= {cut_hi:.4f}: {len(hi)} images ->", out)
+
+
+def noise_interact(src="features_v3.parquet,features_cal.parquet", out=None, form="ramp",
+                   noise_file="features_v3.parquet"):
+    """Continuous alternative to n3own(): columns x * t for every image plus t itself, where t is a fixed label-free
+    function of the image's RAW ic_noise (constants from train images only):
+      form "ramp": t = clip((ic_noise - c1) / (c2 - c1), 0, 1), c1 / c2 = train tercile cuts 7.49 / 11.92
+                   (0 for the cleanest third, 1 for the noisiest third, linear in between); prefix nzr_
+      form "z":    t = (ic_noise - train mean) / train sd (sd with ddof 1); prefix nzz_
+    A linear member then has slopes that vary with the noise level (NaN x are median-imputed in fold).
+    python -m src.features --nz_interact ramp --n3own_src features_v3.parquet,features_cal.parquet --cal_out features_nzramp_raw_v3cal.parquet"""
+    nz, trn = _train_noise(noise_file)
+    if form == "ramp":
+        c1, c2 = (float(v) for v in np.quantile(trn, [1 / 3, 2 / 3]))
+        t = np.clip((nz.ic_noise.values - c1) / (c2 - c1), 0.0, 1.0)
+        prefix, desc = "nzr_", f"ramp {c1:.4f}..{c2:.4f}"
+    elif form == "z":
+        mu, sd = float(trn.mean()), float(trn.std())
+        t = (nz.ic_noise.values - mu) / sd
+        prefix, desc = "nzz_", f"z mean {mu:.4f} sd {sd:.4f}"
+    else:
+        raise ValueError(form)
+    df = _merge_src(src)
+    tt = pd.Series(t, index=nz.ID.values).loc[df.ID.values].values
+    cols = [c for c in df.columns if c != "ID"]
+    X = df[cols].astype(float).values * tt[:, None]
+    out_df = pd.concat([df[["ID"]].reset_index(drop=True), pd.DataFrame(X, columns=[f"{prefix}{c}" for c in cols])], axis=1)
+    out_df[f"{prefix}t"] = tt
+    out = out or f"features_nz{form}_v3cal.parquet"
+    out_df.to_parquet(DATA_DIR / out, index=False)
+    print(out_df.shape, desc, "->", out)
 
 
 if __name__ == "__main__":
@@ -1567,13 +1611,23 @@ if __name__ == "__main__":
     ap.add_argument("--mil_blocks", action="store_true")
     ap.add_argument("--v5_blockmeans", action="store_true")
     ap.add_argument("--n3own", action="store_true", help="own columns for the high-noise tercile (see n3own())")
-    ap.add_argument("--n3own_src", default="features_v3.parquet,features_cal.parquet")
+    ap.add_argument("--n3own_src", default="features_v3.parquet,features_cal.parquet",
+                    help="source tables for --n3own / --nz_interact")
+    ap.add_argument("--n3own_q", default="2/3", help="lower train quantile of raw ic_noise for --n3own (fraction ok)")
+    ap.add_argument("--n3own_qhi", default=None, help="optional upper train quantile for --n3own, e.g. 2/3")
+    ap.add_argument("--n3own_prefix", default="n3_")
+    ap.add_argument("--nz_interact", default=None, choices=["ramp", "z"], help="x * t(raw ic_noise) columns")
     a = ap.parse_args()
     if a.v5_blockmeans:
         v5_blockmeans()
         raise SystemExit
     if a.n3own:
-        n3own(src=a.n3own_src, out=a.cal_out or "features_n3own_v3cal.parquet")
+        from fractions import Fraction
+        n3own(src=a.n3own_src, out=a.cal_out or "features_n3own_v3cal.parquet", q=float(Fraction(a.n3own_q)),
+              q_hi=float(Fraction(a.n3own_qhi)) if a.n3own_qhi else None, prefix=a.n3own_prefix)
+        raise SystemExit
+    if a.nz_interact:
+        noise_interact(src=a.n3own_src, out=a.cal_out, form=a.nz_interact)
         raise SystemExit
     if a.v4_cal_build:
         v4_cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, seed0=a.seed0 or 500000,
