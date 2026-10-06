@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.823075846646447,
+  "fold_rmse": [
+    13.76025552770864,
+    12.636694591480888,
+    14.725443991836789,
+    14.06905638965275,
+    13.84122098922462
+  ],
+  "notes": "resnet18.a1_in1k in=raw+nlm norm=global ep30 bs16 crop224 lr0.001 hlr1.0 wd0.01 mse pool=avg drop0.0 dp0.0 ema0.0->final seeds3 aug(b0.03 c0.1 n0.03@0.5 blur1.0@0.0) tta8; fixed schedule, no val checkpoint selection"
+}

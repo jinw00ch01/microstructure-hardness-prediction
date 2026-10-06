@@ -34,7 +34,8 @@ min |y - Zbar w|^2 + lam_view*mean|w.(Z_view - Zbar)|^2 + lam_cell*mean|w.(Z_cel
 Here `Z_aug` is the embedding of a deterministically noised (or blurred, shaded, ...) copy of the same image.
 - Noise rows are what help. effv2s goes from 13.636 (4 views, no aug rows) to 13.535 (noise0.03) to 13.442 (noise0.03 + 0.06). resnet18 goes from 13.84 to 13.68. Inner CV picks lam_aug 4-16 in every fold.
 - No help from the other nuisance rows: blur1.0 13.688, shade0.12 13.636, contrast0.75 and blur2.0 in combination with noise make it slightly worse. Grid-cell (spatial) rows: inner CV always picks lam_cell = 0.
-- Orientation views matter: effv2s with 2 views + noise rows gives 13.693, vs 13.442 with 4 views. 8 views is being tested (see below).
+- Orientation views matter up to 4: effv2s with 2 views + noise rows gives 13.693, vs 13.442 with 4 views. All 8 dihedral views do not help: effv2s 13.514, effv2s + resnet18 13.545. The extra 4 views repeat the same orientations mod 180°.
+- Illumination correction (`--prep ic`, divide by the local 70th-pct matrix level) does not help embeddings. Compared at 2 views + noise rows: 13.675 vs 13.693 for raw, and raw + ic concatenated 13.663.
 - Concatenation: effv2s + resnet18 13.403. Adding convnext_nano does not help (13.490). convnext_nano alone: 13.80.
 - Joint model with features_v3: 13.254, about the same as feat2_v3_ridge alone (13.219). Residual correlation of the embedding model with feat2_v3_ridge is 0.92 and with the CNN 0.90. In a nested-CV NNLS blend, feat2_v3_ridge + emb gives 13.18. feat2_v3_ridge + feat2_v23_lgb + emb gives 13.13, vs 13.07 for feat + feat + CNN. The embedding family adds little to the blend.
 
@@ -66,5 +67,21 @@ Earlier negatives (2026-10-05): NL-means input, quantile/max/GeM pooling, stage 
 | tf_efficientnetv2_s.in21k_ft_in1k_256 | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 4` (mean,std,max,gem) | 920 |
 | resnet18.a1_in1k_256 | `--backbone resnet18.a1_in1k --views 4` | 467 |
 | resnet18.a1_in1k_256_nlm, _q | `--prep nlm` / `--pools mean,std,q10,q50,q90 --tag resnet18.a1_in1k_256_q` | 486 / 1597 |
+| tf_efficientnetv2_s.in21k_ft_in1k_256_v8x / resnet18.a1_in1k_256_v8x | `--backbone <bb> --view-names vflip,rot180,rot270,antitranspose --pools mean,std --tag <tag>` (append with `--extra-rows`) | 682 / 386 |
+| tf_efficientnetv2_s.in21k_ft_in1k_256_ic_v2n | `--backbone tf_efficientnetv2_s.in21k_ft_in1k --views 2 --pools mean,std --prep ic --augs noise0.03,noise0.06 --tag <tag>` | 651 |
 | _img_nlm_1500, _img_ic_1500 | image caches, built automatically by `--prep nlm` / `--prep ic` | ~100 / ~150 |
 Unshared speed per image-view at 1 thread: resnet18 ~0.08 s, effv2s ~0.15-0.2 s, convnext_nano ~0.15 s.
+
+## Status at hand-back (2026-10-06 ~04:20 UTC)
+Nothing of mine is running. Every result above is final. The 8-view and ic tests were run with `--no-save`.
+
+## Next steps (prioritized)
+1. Blend: give `emb_effv2s_r18_256_gridge3_noise` (13.403) and `emb_effv2s_256_gridge3_aug_featv3` (13.254) to the ensembler. Expect little gain: residual correlation is 0.92 with feat2_v3_ridge.
+2. Port the noise-invariance idea to the other families. Its embedding analogue was the only clear new gain:
+   - CNN: a consistency penalty between predictions on an image and a noised copy, or simply noise augmentation at train time.
+   - Features: the feature-engineer's degradation-calibration is the same idea.
+3. Embeddings, if more CPU is available:
+   - More noise levels or seeds for effv2s (`--views 1 --augs noise0.1,noise0.045` then `--extra-rows A+B`). Each pass is ~5 min.
+   - resnet50 with `--views 4 --pools mean,std --augs noise0.03,noise0.06` (~40 min at 1 thread), then concat with `--stages "1,2,3;1,2,3;1,2,3"`.
+   - Kernelized gridge3: whiten by (G + lam*S_aug), then RBF KRR.
+4. Don't spend more time on: grid cells, blur/shade/contrast rows, ic/nlm prep, 8 views, convnext_nano, quantile/max pooling, tree heads.
