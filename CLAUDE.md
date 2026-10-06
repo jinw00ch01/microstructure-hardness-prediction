@@ -24,7 +24,7 @@ data/train/TRAIN_xxxxxx.png  data/test/TEST_xxxxxx.png  data/train.csv  data/sam
   Every model uses these same folds so OOF predictions are comparable and stackable.
 - Each experiment writes to `experiments/<exp_name>/`:
   - `oof.csv` (ID, hardness) — out-of-fold prediction for all 500 train images
-  - `test.csv` (ID, hardness) — mean of fold models on test
+  - `test.csv` (ID, hardness) — mean of fold models on test (git-ignored: the repo is public, so test predictions stay local and are backed up to `/mnt/project-files/work/hardness-cache/experiments-test.tar`)
   - `score.json` — `{"cv_rmse": ..., "fold_rmse": [...], "notes": "..."}`
 - Append one line per experiment to `experiments/LEADERBOARD.md` (CV RMSE, public LB if submitted).
 - Final blend: `python -m src.ensemble` fits non-negative weights on OOF only, writes `submissions/`.

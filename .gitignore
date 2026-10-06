@@ -9,3 +9,7 @@ submissions/*.csv
 logs/
 catboost_info/
 data_restored/
+# Public repo (user OK 2026-10-06): keep test-set predictions and figures showing competition images local
+experiments/*/test.csv
+experiments/**/m_*.png
+experiments/**/montage_*.png
