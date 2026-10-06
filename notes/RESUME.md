@@ -1,8 +1,21 @@
-# Resume guide (updated 2026-10-06 ~11:30 UTC = 20:30 KST, end of day)
+# Resume guide (updated 2026-10-06 ~14:45 UTC = 23:45 KST)
 
 Goal: public LB RMSE <= 10.
 
-## End of day 2026-10-06 (read this first)
+## Late 2026-10-06 (read this first)
+- **blend_v10 scored public 11.8267** (user, 23:33 KST), the new best: 0.053 below v7 although the nested CV tied
+  (12.4242 vs 12.4254). The CNN direction helps on test more than OOF shows: v10 - v7 on test has sd 0.30, so for a
+  0.053 drop it must correlate about -0.19 with v7's public errors (if the public subset looks like the whole test),
+  vs about zero on OOF where the CV tied. One public result, about 2-3 SE.
+- Next file: **blend_v11** (`submissions/blend_v11.json`), two-stage: v7-pool NNLS, then the effnetv2-s CNN at a share
+  fit by least squares on the inner nested base OOF (refit per outer fold). CNN share 0.131, nested CV 12.4074 (beats
+  joint NNLS 12.4242). Handed over for the first submission after 00:00 KST 2026-10-07. On test it moves about 1.9x
+  further along v10's direction (v11 - v7 sd 0.60, correlation 0.96 with v10 - v7): expect public about 11.79 if the
+  CNN effect is linear in its share, about 11.86 (v7 minus the CV gain) if v10's drop was luck.
+- Next GPU runs (user picks exclusive or shared GPU mode in the thread first): `notes/handoff/laptop-gpu.md` section 6.
+- Cloud CPU next: idea 1 below (low-SNR restorer).
+
+## End of day 2026-10-06
 - Public LB so far: blend_v2 12.3454, v4 12.0329, v6 11.9248, **v7 11.8795** (best). In all four, public came in
   0.55-0.6 below the nested CV. LB #1 that day: 9.2442.
 - File handed over for the remaining slot (today's last or 00:00 KST 2026-10-07): **blend_v10** = v7 pool + the two
