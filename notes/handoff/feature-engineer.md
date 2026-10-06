@@ -119,6 +119,45 @@ python -W ignore -m src.train_gbm --mil splmean --mil_design --feat $F5,$N3 --mo
 python -W ignore -m src.train_gbm --mil spl --mil_design --feat $F5,$N3 --model ridge --drop "$D1,$KEEP" --hetero ic_acg_len50_gm --name feat7_rawn3own_ridge_milspl
 python -W ignore -m src.train_gbm --mil splmean --mil_design --feat $F5,$R/features_v3.parquet,$R/features_cal.parquet,$N3 --model ridge --drop "$D1,$KEEP" --hetero ic_acg_len50_gm --name feat7_rawn3own_ridge_add
 ```
+   - In the two-stage blend (orchestrator) none of the three adds anything next to feat7_rawn3own_ridge_all
+     (12.1623 -> 12.1708 / 12.1818 / 12.1623).
+6. Round 3 (pre-registered, 2 cores). Every variant is fold-paired against feat7_rawn3own_ridge_all (12.2623, N1/N2/N3
+   10.68/11.33/14.44).
+   - New builders in `src.features`:
+     - `--copy_cols ic_noise --n3own_prefix raw_ --cal_out features_rawnoise.parquet`: raw ic_noise as a column the
+       variance model can use. It is dropped from the design with `^raw_ic_noise$`.
+     - `--v3_nlm --n_jobs 2`: v3 on the CNN's fixed NLM view (`data/cnn_cache/_pre/nlm.npz`), 280 s.
+       - The cache is bit-identical to a fresh `_nlm_view` on 4 images.
+       - Then `F.cal_apply(apply_v3=<abs>/data/features_v3_nlm.parquet, out=<abs>/data/features_cal_nlm.parquet)`,
+         265 s. cal_apply resolves relative paths against the working directory, not DATA_DIR, so pass absolute ones.
+     - Own blocks via `--n3own`:
+       - `features_n3own_raw_v3calv4[v5].parquet`
+       - `features_n3own_nlm_v3cal.parquet` (prefix `n3nlm_`)
+
+     | variant | CV | delta | fold deltas | better | N1 / N2 / N3 |
+     |---|---|---|---|---|---|
+     | 1a. own = raw v3 + cal + v4 (the member's 14 compact v4c columns) | 12.2873 | +0.025 | +0.127 -0.211 -0.014 +0.267 -0.056 | 3/5 | 10.69/11.38/14.46 |
+     | 1b. 1a + v5 block means (15 cols) | 12.3062 | +0.044 | +0.164 -0.244 -0.001 +0.326 -0.041 | 3/5 | 10.71/11.36/14.51 |
+     | 2. raw ic_noise added to the hetero variance model | **12.2558** | -0.0065 | -0.002 +0.001 +0.014 -0.011 -0.036 | 3/5 | 10.66/11.30/14.46 |
+     | 3a. own = NLM-view v3 + cal (instead of raw) | 12.4623 | +0.200 | +0.191 +0.383 +0.059 +0.122 +0.249 | 0/5 | 10.64/11.34/14.97 |
+     | 3b. raw own + NLM-view own | 12.3561 | +0.094 | +0.103 +0.419 -0.073 -0.149 +0.168 | 2/5 | 10.69/11.35/14.66 |
+
+   - Saved: **feat7_rawn3own_ridge_all_hetnz** (CV 12.2558; OOF equal to the screen to 6e-14).
+   - Two-stage blend check, read-only, against 12.1623 (`twostage.py --stage2 cnn_ev2s_rawnlm_degcons_gpu_s3 --add ...`):
+     - added alongside feat7_rawn3own_ridge_all: 12.1643
+     - replacing it: 12.1592 (folds -0.002 +0.006 +0.006 -0.001 -0.026)
+     - Both are ties.
+   - The NLM view does not measure the noisy third better than raw. Train Spearman with hardness in N3, raw vs NLM:
+     - cal_ic_seg_fd93: 0.611 vs 0.591
+     - cal_ic_fdo_93: 0.601 vs 0.602
+     - ic_seg_fd93: 0.513 vs 0.488
+     - So the raw-image calibrated measures (cal maps fitted on degraded originals) remain the best N3 view tried:
+       raw, NLM, first restorer and specialist restorer.
+   - Command (`ALL` = the five feat6_rest_ridge_all files):
+```
+python -W ignore -m src.train_gbm --mil splmean --mil_design --mil_blocks_file $R/mil_blocks.parquet --feat $ALL,features_n3own_raw_v3cal.parquet,features_rawnoise.parquet --model ridge --drop "$D1,$KEEP,^raw_ic_noise\$" --hetero ic_acg_len50_gm,raw_ic_noise --name feat7_rawn3own_ridge_all_hetnz
+```
+   - Screen script: scratchpad `hn/screen_r3.py`. Logs: `logs/resthn_r3_*.log`.
 
 ## Session 6 summary
 1. Calibrated block-mean phase/pore columns for the lgbs: `data/features_v5blk.parquet`

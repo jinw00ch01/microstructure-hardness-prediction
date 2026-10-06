@@ -1554,6 +1554,37 @@ def n3own(src="features_v3.parquet,features_cal.parquet", out="features_n3own_v3
     print(df.shape, f"band {cut:.4f} < raw ic_noise <= {cut_hi:.4f}: {len(hi)} images ->", out)
 
 
+def copy_cols(src="features_v3.parquet", cols="ic_noise", prefix="raw_", out="features_rawnoise.parquet"):
+    """Copy selected columns under a new prefix, e.g. raw ic_noise as `raw_ic_noise` for a variance model of a member
+    whose v3 columns come from restored images (drop it from the design with --drop ^raw_ic_noise$)."""
+    df = _merge_src(src)[["ID"] + cols.split(",")]
+    df = df.rename(columns={c: f"{prefix}{c}" for c in cols.split(",")})
+    df.to_parquet(DATA_DIR / out, index=False)
+    print(df.shape, "->", out)
+
+
+def _nlm_view(u8):
+    """The CNN's fixed NLM view (src/train_cnn.py _nlm_arr): h = clip(1.2 x skimage sigma estimate, 3, 40) grey levels."""
+    h = float(np.clip(restoration.estimate_sigma(u8.astype(np.float32) / 255.0) * 255 * 1.2, 3, 40))
+    return cv2.fastNlMeansDenoising(u8, None, h=h, templateWindowSize=7, searchWindowSize=21)
+
+
+def v3_nlm(n_jobs=1, out="features_v3_nlm.parquet"):
+    """v3 measured on the fixed NLM view of every raw image (label-free, per image). Reads the CNN cache
+    data/cnn_cache/_pre/nlm.npz when present (same rule; checked bit-identical on 4 images 2026-10-06), else recomputes.
+    Transfer the cal_ maps with cal_apply(apply_v3='features_v3_nlm.parquet', out='features_cal_nlm.parquet')."""
+    ids = list(pd.read_csv(DATA_DIR / "train.csv").ID) + list(load_test().ID)
+    fp = DATA_DIR / "cnn_cache" / "_pre" / "nlm.npz"
+    have = {}
+    if fp.exists():
+        z = np.load(fp)
+        have = dict(zip(z["ids"].tolist(), z["img"]))
+    imgs = [have[i] if i in have else _nlm_view(_read8(i)) for i in ids]
+    df = pd.DataFrame(Parallel(n_jobs=n_jobs)(delayed(extract_v3)(i, img=m) for i, m in zip(ids, imgs)))
+    df.to_parquet(DATA_DIR / out, index=False)
+    print(df.shape, f"({sum(i in have for i in ids)} views from the cache) ->", out)
+
+
 def noise_interact(src="features_v3.parquet,features_cal.parquet", out=None, form="ramp",
                    noise_file="features_v3.parquet"):
     """Continuous alternative to n3own(): columns x * t for every image plus t itself, where t is a fixed label-free
@@ -1617,6 +1648,8 @@ if __name__ == "__main__":
     ap.add_argument("--n3own_qhi", default=None, help="optional upper train quantile for --n3own, e.g. 2/3")
     ap.add_argument("--n3own_prefix", default="n3_")
     ap.add_argument("--nz_interact", default=None, choices=["ramp", "z"], help="x * t(raw ic_noise) columns")
+    ap.add_argument("--copy_cols", default=None, help="copy these columns of --n3own_src with --n3own_prefix")
+    ap.add_argument("--v3_nlm", action="store_true", help="v3 on the CNN's fixed NLM view -> features_v3_nlm.parquet")
     a = ap.parse_args()
     if a.v5_blockmeans:
         v5_blockmeans()
@@ -1628,6 +1661,12 @@ if __name__ == "__main__":
         raise SystemExit
     if a.nz_interact:
         noise_interact(src=a.n3own_src, out=a.cal_out, form=a.nz_interact)
+        raise SystemExit
+    if a.copy_cols:
+        copy_cols(src=a.n3own_src, cols=a.copy_cols, prefix=a.n3own_prefix, out=a.cal_out or "features_rawnoise.parquet")
+        raise SystemExit
+    if a.v3_nlm:
+        v3_nlm(n_jobs=a.n_jobs, out=a.cal_out or "features_v3_nlm.parquet")
         raise SystemExit
     if a.v4_cal_build:
         v4_cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, seed0=a.seed0 or 500000,

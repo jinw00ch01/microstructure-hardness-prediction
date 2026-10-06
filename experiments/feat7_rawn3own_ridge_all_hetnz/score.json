@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.255763415432789,
+  "fold_rmse": [
+    12.916549117463289,
+    12.014636136858968,
+    12.523942400351121,
+    11.987052717755253,
+    11.80217758571649
+  ],
+  "notes": "ridge on /home/claude/microstructure-hardness-prediction/data_restored/features_v3.parquet,/home/claude/microstructure-hardness-prediction/data_restored/features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,/home/claude/microstructure-hardness-prediction/data_restored/features_v4.parquet,features_n3own_raw_v3cal.parquet,features_rawnoise.parquet; cols=all(344); drop=/cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv,^v4(?!c_(bd\\|la\\|acd)_(mean\\|sd\\|q90\\|max_m_mean)$\\|c_(bd\\|la)_hp$),^raw_ic_noise$/; hetero weights ~ log-var(log ic_acg_len50_gm,raw_ic_noise) in-fold; + MIL splmean design (B-splines of the valid-weighted image means (Jensen control) of block c_la, c_sfd93, c_pore60, c_acd, acr_len50 + c_sfd93 x spline(c_la), c_sfd93 x spline(c_acd); knots in-fold; blocks /home/claude/microstructure-hardness-prediction/data_restored/mil_blocks.parquet); feat7_rawn3own_ridge_all with raw ic_noise added to the hetero variance model (features_rawnoise.parquet, dropped from the design); vs feat7_rawn3own_ridge_all -0.0065, 3/5 folds, raw-ic_noise terciles N1/N2/N3 10.664/11.302/14.458 vs 10.683/11.328/14.440; two-stage nested CV (v12 12.1623): added alongside 12.1643, replacing feat7_rawn3own_ridge_all 12.1592: a tie"
+}
