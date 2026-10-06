@@ -331,6 +331,12 @@ def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid, sw=None):
     n, R, d = X3tr.shape
     Xbar = X3tr[:, gidx].mean(1)
     prep = Prep(cfg["col_w"], cfg["pca"], cfg["whiten"], cfg.get("n_pass", 0)).fit(Xbar)
+    # own columns (--own-col): NaN outside their group -> Prep imputes the in-fold mean of the group's training
+    # images -> exactly 0 for every other image (all rows, so no view/aug deviation either). grid['own_w'] = column
+    # weight of the own blocks, i.e. their own ridge group (penalty alpha / own_w^2), chosen by inner CV.
+    own = cfg.get("own_grp")
+    own_k = own[prep.keep] if own is not None and (own > 0).any() and not cfg["pca"] else None
+    own_ws = grid.get("own_w", [1.0]) if own_k is not None else [None]
     Zbar = prep.transform(Xbar)
     Zall = prep.transform(X3tr.reshape(n * R, d)).reshape(n, R, -1)
     S = {}
@@ -358,15 +364,22 @@ def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid, sw=None):
     sizes = [len(X) for X in X3evs]
     P_ev = prep.transform(np.concatenate([X[:, gidx].mean(1) for X in X3evs])) - zc
     out, hps = [], []
-    for lv in (grid["lam_view"] if "view" in S else [0.0]):
-        for lc in (grid["lam_cell"] if "cell" in S else [0.0]):
-            for la in (grid["lam_aug"] if "aug" in S else [0.0]):
-                M = G + lv * S.get("view", 0.0) + lc * S.get("cell", 0.0) + la * S.get("aug", 0.0)
-                w_, Q = eigh(M)
-                s2, P, uty = np.maximum(w_, 0), P_ev @ Q, Q.T @ gvec
-                for a in grid["alpha"]:
-                    out.append(ybar + P @ (uty / (s2 + a)))
-                    hps.append({"lam_view": lv, "lam_cell": lc, "lam_aug": la, "alpha": a})
+    for ow in own_ws:
+        if ow is None:  # no own columns: unchanged path
+            G_, gv_, S_, Pev_, ext = G, gvec, S, P_ev, {}
+        else:  # column scaling commutes with the (weighted) centring, so rescale the unit-weight Gram matrices
+            dv = np.where(own_k > 0, float(ow), 1.0)
+            DD = np.outer(dv, dv)
+            G_, gv_, S_, Pev_, ext = G * DD, gvec * dv, {k: M * DD for k, M in S.items()}, P_ev * dv, {"own_w": ow}
+        for lv in (grid["lam_view"] if "view" in S_ else [0.0]):
+            for lc in (grid["lam_cell"] if "cell" in S_ else [0.0]):
+                for la in (grid["lam_aug"] if "aug" in S_ else [0.0]):
+                    M = G_ + lv * S_.get("view", 0.0) + lc * S_.get("cell", 0.0) + la * S_.get("aug", 0.0)
+                    w_, Q = eigh(M)
+                    s2, P, uty = np.maximum(w_, 0), Pev_ @ Q, Q.T @ gv_
+                    for a in grid["alpha"]:
+                        out.append(ybar + P @ (uty / (s2 + a)))
+                        hps.append({"lam_view": lv, "lam_cell": lc, "lam_aug": la, "alpha": a, **ext})
     P = np.stack(out) * ysd + ymu
     return np.split(P, np.cumsum(sizes)[:-1], axis=1), hps
 
@@ -497,6 +510,15 @@ def build(args, tr, te):
         blocks += [(n + "|viewstd", s) for n, s in blocks]
     col_w = np.concatenate([np.full(s, ((1 / np.sqrt(s)) if args.block_norm else 1.0)
                                     * (args.cs_weight if "|cs-" in n else 1.0)) for n, s in blocks])
+    own_grp, args.own_info = np.zeros(X.shape[2], int), ""
+    if args.own_col:  # own columns: separate slopes per group of a label-free per-image statistic (e.g. ic_noise)
+        g_all, args.own_info = own_groups(args, base_ids, tr, te)
+        d0, base_blocks = X.shape[2], list(blocks)
+        for g in range(1, int(g_all.max()) + 1):  # group 0 (at or below the first cut) uses the shared slopes only
+            X = np.concatenate([X, np.where((g_all == g)[:, None, None], X[:, :, :d0], np.nan)], 2)
+            col_w = np.concatenate([col_w, col_w[:d0]])
+            blocks += [(n + f"|own{g}", s) for n, s in base_blocks]
+            own_grp = np.concatenate([own_grp, np.full(d0, g)])
     if args.with_feats:
         F = pd.concat([pd.read_parquet(DATA_DIR / f).set_index("ID") for f in args.feats.split(",")], axis=1)
         F = F.loc[base_ids, ~F.columns.duplicated()]
@@ -504,11 +526,34 @@ def build(args, tr, te):
         w = args.feat_weight / (np.sqrt(F.shape[1]) if args.block_norm else 1.0)
         col_w = np.concatenate([col_w, np.full(F.shape[1], w)])
         blocks.append((args.feats, F.shape[1]))
+        own_grp = np.concatenate([own_grp, np.zeros(F.shape[1], int)])
     if args.view_mode == "mean":
         X, is_orig, rows = X[:, is_orig].mean(1, keepdims=True), np.array([True]), [("mean", 0)]
     pos = pd.Series(np.arange(len(base_ids)), index=base_ids)
     n_pass = blocks[-1][1] if args.with_feats else 0
-    return X[pos[tr.ID].values], X[pos[te.ID].values], col_w, blocks, lic, n_pass, is_orig, rows
+    return X[pos[tr.ID].values], X[pos[te.ID].values], col_w, blocks, lic, n_pass, is_orig, rows, own_grp
+
+
+def own_groups(args, ids, tr, te):
+    """Group index per image for --own-col: cuts = quantiles (--own-q, e.g. '2/3' or '1/3,2/3') of the column over
+    the TRAIN images only (label-free per-image statistic, fixed before any CV); group = number of cuts the value
+    exceeds, so '2/3' -> 1 for the top tercile (value > cut), else 0. --own-random SEED is a control: the same
+    number of images per group, drawn at random from all train + test images."""
+    from fractions import Fraction
+
+    O = pd.read_parquet(DATA_DIR / args.own_file).set_index("ID")[args.own_col]
+    assert O.loc[ids].notna().all(), f"{args.own_col} has missing values"
+    qs = [float(Fraction(q)) for q in args.own_q.split(",")]
+    cuts = [float(np.quantile(O.loc[tr.ID].values, q)) for q in qs]
+    g = (O.loc[ids].values[:, None] > np.array(cuts)[None]).sum(1)
+    if args.own_random >= 0:
+        g = np.random.default_rng(args.own_random).permutation(g)
+    gs = pd.Series(g, index=ids)
+    cnt = lambda idx: "/".join(str(int((gs.loc[idx] == k).sum())) for k in range(len(cuts) + 1))  # noqa: E731
+    info = (f"own={args.own_col}@{args.own_file} q={args.own_q} cuts={','.join(f'{c:.4f}' for c in cuts)} "
+            f"groups train {cnt(tr.ID)} test {cnt(te.ID)}{' RANDOM seed ' + str(args.own_random) if args.own_random >= 0 else ''}")
+    print(info, flush=True)
+    return g, info
 
 
 if __name__ == "__main__":
@@ -545,6 +590,13 @@ if __name__ == "__main__":
                     "variance -> in-fold inverse-variance sample weights (gridge3 only), e.g. ic_acg_len50_gm")
     ap.add_argument("--hetero-file", default="features_v3.parquet")
     ap.add_argument("--hp-avg", type=int, default=1, help="average the K best grid points by inner CV")
+    ap.add_argument("--own-col", default="", help="own columns: the whole head input is duplicated per group of this "
+                    "--own-file column (NaN outside the group -> in-fold group mean -> 0), giving each group above the "
+                    "first cut its own slopes; gridge3 grid key own_w = their column weight (own ridge group)")
+    ap.add_argument("--own-file", default="features_v3.parquet")
+    ap.add_argument("--own-q", default="2/3", help="train-image quantile cut(s) of --own-col, e.g. '2/3' (top "
+                    "tercile gets own slopes) or '1/3,2/3' (mid and top terciles each get own slopes)")
+    ap.add_argument("--own-random", type=int, default=-1, help="control: permute the groups at random (seed)")
     ap.add_argument("--with-feats", action="store_true")
     ap.add_argument("--feat-weight", type=float, default=1.0)
     ap.add_argument("--feats", default="features.parquet", help="comma list of data/*.parquet feature files")
@@ -555,6 +607,7 @@ if __name__ == "__main__":
     ap.add_argument("--name", default=None)
     ap.add_argument("--no-save", action="store_true")
     ap.add_argument("--oof-out", default="", help="also write the OOF predictions to this CSV path")
+    ap.add_argument("--test-out", default="", help="also write the test predictions to this CSV path (scratch)")
     ap.add_argument("--threads", type=int, default=1)
     a = ap.parse_args()
     if a.extra_rows:
@@ -574,9 +627,11 @@ if __name__ == "__main__":
     oofs, ptes, chosen = [], [], []
     for spec in specs:
         a.cs_grid = spec
-        Xtr, Xte, col_w, blocks, lic, n_pass, is_orig, rows = build(a, tr, te)
+        Xtr, Xte, col_w, blocks, lic, n_pass, is_orig, rows, own_grp = build(a, tr, te)
         cfg = {"head": a.head, "col_w": col_w, "pca": a.pca, "whiten": a.whiten, "n_pass": n_pass,
                "is_orig": is_orig, "rows": rows, "hetero_z": hz, "hp_avg": a.hp_avg}
+        if (own_grp > 0).any():
+            cfg["own_grp"] = own_grp
         print(f"X {Xtr.shape} test {Xte.shape} blocks {len(blocks)} head {a.head}"
               f"{' cs_grid=' + spec if a.cellstats else ''}", flush=True)
         oof_k, pte_k, chosen_k, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, grid, verbose=len(specs) == 1)
@@ -593,6 +648,8 @@ if __name__ == "__main__":
         print(f"BAG CV RMSE {rmse(oof, y):.4f} folds {np.round(fr, 3).tolist()} ({len(specs)} members)")
     if a.oof_out:  # scratch OOF dump for paired comparisons (does not register an experiment)
         pd.DataFrame({"ID": tr.ID, "hardness": oof}).to_csv(a.oof_out, index=False)
+    if a.test_out:  # scratch test dump (mean of the fold models; keep it out of the repo)
+        pd.DataFrame({"ID": te.ID, "hardness": pte}).to_csv(a.test_out, index=False)
     if not a.no_save:
         name = a.name or f"emb_{a.emb.split('.')[0]}_{a.head}"
         hp_s = [",".join(f"{k}={float(v):.4g}" for k, v in h.items()) for h in chosen]
@@ -607,7 +664,8 @@ if __name__ == "__main__":
                  f"block_norm={a.block_norm} "
                  f"pca={a.pca}{'w' if a.whiten else ''} feats={a.feats + ' x' + str(a.feat_weight) if a.with_feats else 'no'}"
                  f"{' hetero=' + a.hetero + '@' + a.hetero_file + ' (in-fold inverse-variance weights)' if a.hetero else ''}"
-                 f"{' hp_avg=' + str(a.hp_avg) if a.hp_avg > 1 else ''}; "
+                 f"{' hp_avg=' + str(a.hp_avg) if a.hp_avg > 1 else ''}"
+                 f"{' ' + a.own_info + ' (own slopes per group; NaN outside -> in-fold group mean -> 0)' if a.own_info else ''}; "
                  f"{'grid=' + a.grid_json + '; ' if a.grid_json else ''}"
                  f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}")
         save_experiment(name, tr, oof, te, pte, notes=notes)
