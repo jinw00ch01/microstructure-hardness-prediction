@@ -1,4 +1,113 @@
-# feature-engineer handoff (updated 2026-10-06, session 3: noisy-image measurement)
+# feature-engineer handoff (updated 2026-10-06, session 4: spatial heterogeneity + local grain-size map)
+
+## Session 4 summary
+Best feature members now: **feat4_v3cal_ridge_het_spat_v4 (ridge, CV 12.686)** and
+**feat3_v23cal_lgbs_het_spat (lgbs, CV 12.789)**. Their 50/50 average is 12.549 with error correlation 0.941
+(feat3 pair: 12.611; feat2 pair: 12.868). I recommend these, plus feat3_v3cal_ridge_het_spat, in place of the feat2
+members in the blend.
+
+### Step 1: EDA spatial-heterogeneity files on the saved setups (fold-paired, same flags + new files)
+| exp | added files | CV | folds | T1_noisy / T2 / T3_clean |
+|---|---|---|---|---|
+| **feat3_v3cal_ridge_het_spat** | lledge + ecs | **12.785** | 13.496 12.494 12.877 12.666 12.359 | 14.935 / 12.077 / 11.015 |
+| **feat3_v23cal_lgbs_het_spat** | lledge + ecs + lf | **12.789** | 13.004 13.034 13.216 12.435 12.227 | 14.962 / 11.862 / 11.222 |
+| base feat2_v3cal_ridge_het | - | 13.101 | 13.80 12.76 13.22 13.00 12.70 | 15.119 / 12.179 / 11.741 |
+| base feat2_v23cal_lgbs_het | - | 12.991 | 13.35 12.91 13.31 12.80 12.57 | 15.008 / 11.984 / 11.718 |
+
+- Ridge: lledge+ecs beats base on 5/5 folds. All three files give 12.824, the same as EDA's screen; lf hurts the linear model.
+- lgbs: all three vs lledge+ecs is a tie (12.789 vs 12.785). All three wins 4/5 folds head-to-head and has the
+  best clean tercile, so I saved it. Against base it is better on 4/5 folds (EDA's screen: 12.771). Either lgbs
+  version blends with the ridge member to 12.611.
+- Commands (core 0; `D1` is the failed-calibration drop list below):
+```
+taskset -c 0 python -W ignore -m src.train_gbm --feat features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet --model ridge --drop $D1 --hetero ic_acg_len50_gm --name feat3_v3cal_ridge_het_spat
+taskset -c 0 python -W ignore -m src.train_gbm --feat features_v3.parquet,features_v2.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,eda_feats_lf.parquet --model lgbs --seeds 3 --drop $D1 --hetero ic_acg_len50_gm --name feat3_v23cal_lgbs_het_spat
+```
+
+### Step 2: v4 local grain-size map (EDA recommendation 3), `src/features.py` v4 block
+- Each image is cut into 64 px blocks (7x7 grid, stride 32). Per block, on the v3 pipeline (NLM denoise -> local
+  matrix level -> sato ridge -> h-minima watershed):
+  - watershed boundary density `bd_ws` and area-weighted mean log grain area `la`
+  - region-centroid count density
+  - sato ridge mean / p90 and an 8-orientation line-averaged (9 px) ridge energy with area fractions
+  - gradient energy, dark fraction, grey sd
+  - masked block autocorrelation of the raw image, normalised at lag 1 so white noise drops out
+    (`acr_*`), and of the denoised image (`acd_*`)
+  - image context: `ic_noise`, `ic_spec_*`, ridge SNR, matrix level, image means of every block measure
+- Calibration is label-free and uses train images only. 131 clean train sources (`ic_ridge_snr > 0.9`) x 8
+  `_degrade_v2` copies give 51k block rows; identity rows are added.
+  - Stage 1 (block level): LightGBM maps degraded block measurements + context to the clean block's log `bd_ws`,
+    `la` and `acd_len50`.
+  - Stage 2 (image level): regression calibration of the map statistics.
+  - Both stages are cross-fitted over sources with GroupKFold(5). Source images are always predicted by the fold
+    model that did not see them; every other image (train and test) gets the mean of the 5 fold models.
+- Held-out-source R² per block (stage 1; the raw degraded measurement is strongly biased):
+
+  | target | R² stage 1 | R² raw | R² at noise <8.5 / 8.5-13 / >13 |
+  |---|---|---|---|
+  | log bd | 0.63 | -16 | 0.73 / 0.63 / 0.56 |
+  | la | 0.61 | -7 | 0.65 / 0.58 / 0.59 |
+  | acd_len50 | 0.87 | -0.6 | 0.92 / 0.90 / 0.83 |
+
+  Image-level correlation of the stage-1 map statistic with the clean-image statistic:
+  - mean / q90 / Hall-Petch average: 0.80-0.87
+  - spread (sd, max-mean): 0.27-0.47 for bd/la, 0.88-0.95 for acd
+  - raw spread: 0.12-0.27
+  - Stage 2 is no better than the stage-1 statistics (1179 image rows is too few).
+
+  Full table: `data/features_v4_report.csv`.
+- `data/features_v4.parquet` (1500 x 121), column groups:
+  - `v4r_*` raw-map stats, `v4c_*` stage-1 calibrated-map stats, `v4i_*` stage-2 calibrated stats
+  - per map (`bd` log boundary density, `la`, `acd`): mean, sd, q0/10/25/50/75/90/100, max_m_mean, mean_m_min,
+    q90_m_q10, sd4 and rng4 (non-overlapping 4x4 blocks)
+  - `*_bd_hp` = mean sqrt(bd) and `*_la_hp` = mean area^-1/4: local Hall-Petch averages
+- Screens with `--no_save`, fold-paired against the step-1 members:
+
+  | variant | CV | delta | folds better | T1 / T2 / T3 |
+  |---|---|---|---|---|
+  | R1 ridge + 14 compact v4c cols (bd/la/acd mean, sd, q90, max_m_mean + 2 hp) | 12.686 | -0.099 | 4/5 | 14.854 / 11.987 / 10.879 |
+  | R2 ridge + the same 14 as v4i | 12.681 | -0.104 | 3/5 | 14.751 / 12.019 / 10.967 |
+  | L1 lgbs + all 120 v4 cols | 12.729 | -0.059 | 2/5 | |
+  | L2 lgbs + v4c only | 12.752 | -0.037 | 3/5 | |
+  | L3 lgbs + the 14 compact v4c cols | 12.718 | -0.071 | 2/5 | |
+
+  - Permutation null for R1 (v4 rows shuffled across images, 10x): delta -0.024 to +0.097, mean +0.029. R1's
+    -0.099 lies outside it.
+  - Ablations of R1:
+    - spread-only (sd and max-mean of bd/la/acd, 6 cols): -0.096, 4/5 folds
+    - level-only: -0.053
+    - bd+la only: -0.073
+    - acd only: -0.067
+  - So the between-block heterogeneity carries the gain, as EDA predicted.
+  - Gains by grain-size tercile (`cal_seg_count_density`), coarse / mid / fine / clean-coarse:
+    15.74 / 12.16 / 9.74 / 13.49 -> 15.58 / 12.15 / 9.61 / 13.25.
+- Saved **feat4_v3cal_ridge_het_spat_v4**: CV 12.686, folds 13.235 12.337 12.724 12.882 12.226,
+  T1 14.854 / T2 11.987 / T3 10.879.
+  - Fold 3 is worse (+0.216) and the other four improve.
+  - No lgbs v4 member was saved: no lgbs variant is consistent fold-paired.
+  - Command:
+```
+taskset -c 0 python -W ignore -m src.train_gbm --feat features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,features_v4.parquet --model ridge --drop "$D1,^v4(?!c_(bd|la|acd)_(mean|sd|q90|max_m_mean)\$|c_(bd|la)_hp\$)" --hetero ic_acg_len50_gm --name feat4_v3cal_ridge_het_spat_v4
+```
+- Rebuild v4 (1 core, about 25 min in total):
+  1. `taskset -c 0 python -W ignore -m src.features --v4_blocks --n_jobs 1` -> `data/v4_blocks_real.parquet`
+     (73500 block rows, ~10 min)
+  2. `taskset -c 0 python -W ignore -m src.features --v4_cal_build --n_aug 8 --snr_min 0.9 --n_jobs 1` ->
+     `data/v4_blocks_cal.parquet` (seed0 500000, ~6 min)
+  3. `taskset -c 0 python -W ignore -m src.features --v4_apply` -> `data/features_v4.parquet` + `_report.csv` (~3 min)
+- `src/train_gbm.py` notes now record the `--drop` regexes, with `|` escaped for the markdown LEADERBOARD. I also
+  escaped the pipes by hand in my own feat4 LEADERBOARD line.
+
+### Next ideas
+1. Re-blend with feat4_v3cal_ridge_het_spat_v4 + feat3_v23cal_lgbs_het_spat (+ feat3 ridge for diversity).
+2. The v4 spread statistics are only weakly recoverable under noise (image-level r 0.3-0.5 for bd/la). Options:
+   - larger or Gaussian-weighted windows
+   - domain reweighting
+   - more sources (snr > 0.75)
+   Each needs one ~25 min rebuild plus a fixed pre-registered screen.
+3. CNN / embedding: per-block statistics of the calibrated maps could go in as side inputs to a head
+   (`features_v4.parquet`, `v4c_*`).
+
 
 ## Session 3 summary (calibration v2, 1/N variance weights)
 - Real low-quality images differ from v1's synthetic degradations. Their dark side is compressed toward the
@@ -41,9 +150,8 @@ Next for the noisy third:
    space), for the CNN agent.
 3. Accept the floor. EDA says T1 has about 4 RMSE of excess over its 11.1 floor; my features recover about 0.3.
 
-Owner files: `src/features.py`, `src/train_gbm.py`. I don't commit. Best feature model:
-**feat2_v23cal_lgbs_het, CV 12.991** (baseline feat_lgb 14.202). A 50/50 average with
-feat2_v3cal_ridge_het gives CV 12.87 (error correlation 0.946).
+Owner files: `src/features.py`, `src/train_gbm.py`. I don't commit. At the end of session 3 the best feature model
+was feat2_v23cal_lgbs_het, CV 12.991 (baseline feat_lgb 14.202). Session 4 supersedes it (see the top of this note).
 
 ## Feature files (data/ is git-ignored; back these up to the cache)
 | file | rows x cols | content | regenerate (1 core) | time |
@@ -53,6 +161,9 @@ feat2_v3cal_ridge_het gives CV 12.87 (error correlation 0.946).
 | `data/features_v3.parquet` | 1500x135 | v3 `ic_*`: image divided by local matrix level (70th-pct filter, ~80 px). Pores, dark fraction at many thresholds, 2-GMM, dark chords / autocorrelation lengths along and across the elongation axis, per-grain classification `ic_seg_fd*`, plus 6 quality columns `ic_noise`, `ic_spec_*` (added 2026-10-06 by `--patch_v3_quality`; the other 128 columns are unchanged) | `OMP_NUM_THREADS=1 python -W ignore -m src.features --v3 --n_jobs 1` (includes the quality columns) | ~13-15 min |
 | `data/cal_pairs.parquet` | 1392x141 | v3 features of 174 clean train images (ic_ridge_snr > 0.75) x 8 synthetic degradations (blur 0-2.5 on grains with crisp pores, shading, contrast, noise 0-18) | `OMP_NUM_THREADS=1 python -W ignore -m src.features --cal_build --n_aug 8 --snr_min 0.75 --n_jobs 1` | ~8 min |
 | `data/features_cal.parquet` | 1500x30 | `cal_*`: LightGBM maps (fitted on cal_pairs only; no labels, no test images) from degraded v3 features to clean-image measurements | `OMP_NUM_THREADS=1 python -W ignore -m src.features --cal_apply` (prints the held-out-source R2 = cal_eval report) | ~2 min |
+| `data/v4_blocks_real.parquet` / `v4_blocks_cal.parquet` | 73500x33 / 51352x40 | v4 per-block measurements (real train+test / degraded copies of 131 clean train images) | `--v4_blocks`, `--v4_cal_build` (see session 4) | ~10 / ~6 min |
+| `data/features_v4.parquet` | 1500x121 | v4 local grain-size map stats `v4r_/v4c_/v4i_` | `--v4_apply` | ~3 min |
+| `data/eda_feats_{lledge,ecs,lf}.parquet` | 1500x7 / 11 / 20 | eda-analyst's spatial heterogeneity features (their scripts, see `experiments/eda/NOTES.md`) | eda-analyst | |
 
 Calibration held-out-source R2: per-grain dark fraction `ic_seg_fd91` 0.94 (raw degraded features r=0.88),
 `ic_st_coh` 0.94, `ic_fdo_93` 0.92, `ic_acg_len50_par` 0.82, `seg_count_density` 0.80, `seg_ori_R` 0.81,

@@ -252,6 +252,8 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     if imp.any():
         print((imp / imp.sum()).sort_values(ascending=False).head(30).round(4).to_string())
     notes = f"{model} on {feat_file}; cols={cols or 'all'}({len(use)})"
+    if drop:
+        notes += "; drop=/" + drop.replace("|", "\\|") + "/"  # escaped: notes also go into the markdown LEADERBOARD
     if select_k:
         notes += f"; in-fold spearman top{select_k}"
     if seeds > 1:

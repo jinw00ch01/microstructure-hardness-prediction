@@ -999,6 +999,368 @@ def cal_apply_v2(pairs_file="cal2_pairs.parquet", bands=True, reweight=True, out
     print(out_df.shape, "->", out)
 
 
+# =====================================================================================================
+# v4: local grain-size map (EDA recommendation 3). Each image is cut into 64 px blocks (7x7 grid, stride 32).
+# Per block: boundary density and grain size from the denoised sato ridge filter / watershed (same pipeline
+# as v3), oriented line-averaged ridge energy, and block autocorrelation of the raw (lag-1 normalised, so
+# white noise drops out) and denoised image. A label-free LightGBM calibration maps degraded block
+# measurements (+ image quality context) to the clean-image block measurement, trained on _degrade_v2 copies
+# of clean TRAIN images only (cross-fitted over sources). Per-image features are statistics of the
+# calibrated maps (mean / sd / quantiles / max / max - mean / 4x4 sd and range). No hardness label and no test
+# image is used for fitting; test images only get the per-image transform + the fitted map.
+#   python -m src.features --v4_blocks     -> data/v4_blocks_real.parquet  (per-block measurements, train+test)
+#   python -m src.features --v4_cal_build  -> data/v4_blocks_cal.parquet   (degraded copies of clean train images)
+#   python -m src.features --v4_apply      -> data/features_v4.parquet (+ _report.csv)
+# =====================================================================================================
+V4_B, V4_S, V4_RMAX = 64, 32, 24
+V4_MEAS = ["bd_ws", "la", "n_reg", "rid_mean", "rid_p90", "rline_mean", "rline_f50", "rline_f25", "grad_mean",
+           "dk_frac", "sm_std", "acr_len50", "acr_r2", "acr_r4", "acr_r8", "acd_len50", "acd_r4", "acd_r8",
+           "valid_frac"]
+V4_CTX = ["ic_noise", "ic_spec_4_8", "ic_spec_8_16", "ic_spec_16_32", "ic_spec_32_48", "ic_spec_slope",
+          "v4_ridge_snr", "v4_M", "v4_rs_p99", "v4_nreg_img"]
+V4_TARGETS = {"bd": "bd_ws", "la": "la", "acd": "acd_len50"}
+
+
+def _line_kernels(L=9, n=8):
+    ks, c = [], L // 2
+    for k in range(n):
+        th = np.pi * k / n
+        img = np.zeros((L, L), np.uint8)
+        dx, dy = np.cos(th) * c, np.sin(th) * c
+        cv2.line(img, (int(round(c - dx)), int(round(c - dy))), (int(round(c + dx)), int(round(c + dy))), 255, 1,
+                 cv2.LINE_AA)
+        k_ = img.astype(np.float32)
+        ks.append(k_ / k_.sum())
+    return ks
+
+
+_LINE_K = _line_kernels()
+
+
+def _ac_rbins(B=V4_B):
+    d = np.fft.fftfreq(2 * B) * 2 * B
+    return np.round(np.sqrt(d[:, None] ** 2 + d[None, :] ** 2)).astype(int)
+
+
+_AC_R = _ac_rbins()
+
+
+def _stack(x, pos):
+    return np.stack([x[y:y + V4_B, x0:x0 + V4_B] for y in pos for x0 in pos])
+
+
+def _block_ac(xs, ws_):
+    """Masked, overlap-normalised radial autocorrelation profile of each block, lags 0..V4_RMAX."""
+    B = xs.shape[1]
+    w = ws_.astype(np.float64)
+    mu = (xs * w).sum((1, 2)) / np.maximum(w.sum((1, 2)), 1)
+    z = (xs - mu[:, None, None]) * w
+    F = np.fft.rfft2(z, s=(2 * B, 2 * B))
+    A = np.fft.irfft2(F * np.conj(F), s=(2 * B, 2 * B))
+    Fw = np.fft.rfft2(w, s=(2 * B, 2 * B))
+    N = np.fft.irfft2(Fw * np.conj(Fw), s=(2 * B, 2 * B))
+    ac = A / np.maximum(N, 1.0)
+    r = _AC_R.ravel()
+    sel = r <= V4_RMAX
+    cnt = np.bincount(r[sel], minlength=V4_RMAX + 1)
+    return np.stack([np.bincount(r[sel], weights=a.ravel()[sel], minlength=V4_RMAX + 1) for a in ac]) / cnt
+
+
+def _ac_len(p, lv=0.5):
+    out = np.full(len(p), float(V4_RMAX))
+    for b in range(len(p)):
+        idx = np.where(p[b, 2:] < lv)[0]
+        if len(idx):
+            r = idx[0] + 2
+            p0, p1 = p[b, r - 1], p[b, r]
+            out[b] = (r - 1) + (p0 - lv) / max(p0 - p1, 1e-9) if p0 >= lv else float(r)
+    return out
+
+
+def _v4_measure(raw8):
+    """Per-block measurements of one image (real or degraded) -> (context dict, DataFrame of 49 blocks)."""
+    raw = raw8.astype(np.float32)
+    H, W = raw.shape
+    q = _quality_v3(raw)
+    sig = q["ic_noise"]
+    den = cv2.fastNlMeansDenoising(raw8, None, h=float(np.clip(sig, 2.0, 30.0)), templateWindowSize=5,
+                                   searchWindowSize=21).astype(np.float32)
+    bg = _bg_matrix(den)
+    M = float(np.median(bg))
+    rn = den / np.maximum(bg, 1.0)
+    sm1 = cv2.GaussianBlur(rn, (0, 0), 1.0)
+    sm2 = cv2.GaussianBlur(rn, (0, 0), 2.0)
+    pl = measure.label(ndi.binary_opening(sm1 < 0.68, structure=DISK1))
+    keep = np.bincount(pl.ravel()) >= 6
+    keep[0] = False
+    valid = ~ndi.binary_dilation(keep[pl], structure=DISK2, iterations=2)
+    rid = filters.sato(den, sigmas=[1.0, 1.5], black_ridges=True).astype(np.float32)
+    rs = cv2.GaussianBlur(rid, (0, 0), 1.0)
+    p99 = float(np.percentile(rs, 99))
+    mk = measure.label(morphology.h_minima(rs, 0.15 * p99))
+    ws = segmentation.watershed(rs, mk, watershed_line=True)
+    line = ws == 0
+    ridge_snr = float(rid[line].mean() - np.median(rid[~line])) / max(sig, 1e-3) if line.any() else 0.0
+    area = np.bincount(ws.ravel()).astype(np.float64)
+    la = np.log(np.maximum(area[ws], 1.0))
+    nreg = int(ws.max())
+    if nreg > 0:
+        cyx = np.asarray(ndi.center_of_mass(np.ones_like(rn), ws, np.arange(1, nreg + 1)), float).reshape(-1, 2)
+    else:
+        cyx = np.zeros((0, 2))
+    rid_n = rid / max(M, 1.0)
+    rline = None
+    for k_ in _LINE_K:
+        r_ = cv2.filter2D(rid_n, -1, k_, borderType=cv2.BORDER_REFLECT)
+        rline = r_ if rline is None else np.maximum(rline, r_)
+    t50, t25 = 0.5 * float(np.percentile(rline, 99)), 0.25 * float(np.percentile(rline, 99))
+    gy, gx = np.gradient(cv2.GaussianBlur(rn, (0, 0), 1.5))
+    grad = np.hypot(gx, gy)
+    xr = np.where(valid, raw / np.maximum(bg, 1.0) - 1.0, 0.0)
+    xd = np.where(valid, rn - 1.0, 0.0)
+    pos = list(range(0, H - V4_B + 1, V4_S))
+    V = _stack(valid, pos)
+    L_ = _stack(line, pos)
+    nv = V.sum((1, 2)).astype(float)
+    ok = nv >= 0.25 * V4_B ** 2
+
+    def mmean(x, m):
+        s = m.sum((1, 2))
+        return np.where(s > 0, (x * m).sum((1, 2)) / np.maximum(s, 1), np.nan)
+
+    rows = {"by": np.repeat(np.arange(len(pos)), len(pos)), "bx": np.tile(np.arange(len(pos)), len(pos))}
+    rows["bd_ws"] = mmean(L_.astype(float), V)
+    rows["la"] = mmean(_stack(la, pos), V & ~L_)
+    RL = _stack(rline, pos)
+    RN = _stack(rid_n, pos)
+    rows["rid_mean"] = mmean(RN, V)
+    rows["rid_p90"] = np.array([np.percentile(RN[b][V[b]], 90) if V[b].any() else np.nan for b in range(len(V))])
+    rows["rline_mean"] = mmean(RL, V)
+    rows["rline_f50"] = mmean((RL > t50).astype(float), V)
+    rows["rline_f25"] = mmean((RL > t25).astype(float), V)
+    rows["grad_mean"] = mmean(_stack(grad, pos), V)
+    S2 = _stack(sm2, pos)
+    rows["dk_frac"] = mmean((S2 < 0.90).astype(float), V)
+    m2 = mmean(S2, V)
+    rows["sm_std"] = np.sqrt(np.maximum(mmean(S2 ** 2, V) - m2 ** 2, 0))
+    ys, xs_ = np.repeat(pos, len(pos)), np.tile(pos, len(pos))
+    rows["n_reg"] = np.array([((cyx[:, 0] >= y) & (cyx[:, 0] < y + V4_B) & (cyx[:, 1] >= x) &
+                               (cyx[:, 1] < x + V4_B)).sum() for y, x in zip(ys, xs_)]) / np.maximum(nv, 1) * 1e3
+    pr = _block_ac(_stack(xr, pos).astype(np.float64), V)
+    pr_n = pr / np.maximum(pr[:, 1:2], 1e-12)
+    rows["acr_len50"] = _ac_len(pr_n)
+    for r in (2, 4, 8):
+        rows[f"acr_r{r}"] = pr_n[:, r]
+    pd_ = _block_ac(_stack(xd, pos).astype(np.float64), V)
+    pd_n = pd_ / np.maximum(pd_[:, 1:2], 1e-12)
+    rows["acd_len50"] = _ac_len(pd_n)
+    for r in (4, 8):
+        rows[f"acd_r{r}"] = pd_n[:, r]
+    rows["valid_frac"] = nv / V4_B ** 2
+    blk = pd.DataFrame(rows)
+    blk.loc[~ok, [c for c in V4_MEAS if c != "valid_frac"]] = np.nan
+    ctx = {k: q[k] for k in V4_CTX if k in q}
+    ctx.update({"v4_ridge_snr": ridge_snr, "v4_M": M, "v4_rs_p99": p99 / max(M, 1.0),
+                "v4_nreg_img": nreg / (H * W) * 1e3})
+    return ctx, blk
+
+
+def _v4_rows(img8, meta):
+    ctx, blk = _v4_measure(img8)
+    blk.insert(0, "blk", np.arange(len(blk)))
+    for k, v in {**meta, **ctx}.items():
+        blk[k] = v
+    return blk
+
+
+def _v4_real_one(i):
+    return _v4_rows(_read8(i), {"ID": i})
+
+
+def _v4_cal_one(i, k, seed):
+    rng = np.random.default_rng(seed)
+    d, p = _degrade_v2(_read8(i), rng)
+    return _v4_rows(d, {"src": i, "k": k, **{f"aug_{kk}": v for kk, v in p.items()}})
+
+
+def v4_blocks(ids, n_jobs=1, out="v4_blocks_real.parquet"):
+    df = pd.concat(Parallel(n_jobs=n_jobs)(delayed(_v4_real_one)(i) for i in ids), ignore_index=True)
+    df.to_parquet(DATA_DIR / out, index=False)
+    print(df.shape, "->", out)
+
+
+def v4_cal_build(n_aug=8, snr_min=0.9, n_jobs=1, seed0=500000, out="v4_blocks_cal.parquet"):
+    v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet")
+    tr = pd.read_csv(DATA_DIR / "train.csv")
+    src = v3[v3.ID.isin(tr.ID) & (v3.ic_ridge_snr > snr_min)].ID.tolist()
+    jobs = [(i, k, seed0 + 1000 * n + k) for n, i in enumerate(src) for k in range(n_aug)]
+    df = pd.concat(Parallel(n_jobs=n_jobs)(delayed(_v4_cal_one)(*j) for j in jobs), ignore_index=True)
+    df.to_parquet(DATA_DIR / out, index=False)
+    print(df.shape, "sources", len(src), "->", out)
+
+
+def _v4_add_img_means(df, key):
+    g = df.groupby(key)[V4_MEAS].transform("mean")
+    for c in V4_MEAS:
+        df[f"img_{c}"] = g[c].values
+    return df
+
+
+def _v4_map_stats(vals, by, bx, prefix):
+    """Statistics of one 7x7 block map per image. vals: (n_img, 49)."""
+    f = {}
+    v = np.asarray(vals, float)
+    mu = np.nanmean(v, 1)
+    f[f"{prefix}_mean"] = mu
+    f[f"{prefix}_sd"] = np.nanstd(v, 1)
+    for qq in (0, 10, 25, 50, 75, 90, 100):
+        f[f"{prefix}_q{qq}"] = np.nanpercentile(v, qq, axis=1)
+    f[f"{prefix}_max_m_mean"] = f[f"{prefix}_q100"] - mu
+    f[f"{prefix}_mean_m_min"] = mu - f[f"{prefix}_q0"]
+    f[f"{prefix}_q90_m_q10"] = f[f"{prefix}_q90"] - f[f"{prefix}_q10"]
+    nz = (by % 2 == 0) & (bx % 2 == 0)  # non-overlapping 4x4 blocks
+    f[f"{prefix}_sd4"] = np.nanstd(v[:, nz], 1)
+    f[f"{prefix}_rng4"] = np.nanmax(v[:, nz], 1) - np.nanmin(v[:, nz], 1)
+    return f
+
+
+V4_IMG_STATS = ["mean", "sd", "q10", "q90", "q100", "max_m_mean", "mean_m_min", "q90_m_q10", "sd4", "rng4"]
+
+
+def _v4_stats_frame(maps, by, bx, prefix):
+    cols = {}
+    for tag, m in maps.items():
+        cols.update(_v4_map_stats(m, by, bx, f"{prefix}_{tag}"))
+        if tag == "bd":   # local Hall-Petch average: boundary density ~ 1/d, so d^-1/2 ~ sqrt(bd)
+            cols[f"{prefix}_bd_hp"] = np.nanmean(np.exp(0.5 * m), 1)
+        if tag == "la":   # area ~ d^2, so d^-1/2 ~ area^-1/4
+            cols[f"{prefix}_la_hp"] = np.nanmean(np.exp(-0.25 * m), 1)
+    return pd.DataFrame(cols)
+
+
+def _v4_pivot(df, key, col, log=False):
+    v = df.pivot_table(index=key, columns="blk", values=col, dropna=False).sort_index(axis=1)
+    a = v.values.astype(float)
+    return v.index, (np.log(np.maximum(a, 1e-3)) if log else a)
+
+
+def v4_apply(real_file="v4_blocks_real.parquet", cal_file="v4_blocks_cal.parquet", out="features_v4.parquet"):
+    """Label-free calibration of the local grain-size maps; train sources only, cross-fitted over sources.
+
+    Stage 1 (block level): LightGBM maps degraded block measurements + image context -> clean block measurement.
+    Stage 2 (image level): LightGBM maps raw-map stats + stage-1 map stats + context -> clean-image map stats
+    (regression calibration, i.e. E[clean statistic | degraded image]).
+    Source images are always predicted by the fold model that did not see them; every other image (train and
+    test) gets the mean of the 5 fold models. Output columns: v4r_* raw map stats, v4c_* stats of the stage-1
+    calibrated map, v4i_* stage-2 calibrated stats.
+    """
+    from sklearn.model_selection import GroupKFold
+    real = _v4_add_img_means(pd.read_parquet(DATA_DIR / real_file), "ID")
+    syn = _v4_add_img_means(pd.read_parquet(DATA_DIR / cal_file), ["src", "k"])
+    inputs = V4_MEAS + V4_CTX + [f"img_{c}" for c in V4_MEAS]
+    srcs = syn.src.unique()
+    ident = real[real.ID.isin(srcs)].copy()
+    ident["src"], ident["k"] = ident.ID, -1
+    S = pd.concat([syn[["src", "k", "blk"] + inputs], ident[["src", "k", "blk"] + inputs]], ignore_index=True)
+    S = S.sort_values(["src", "k", "blk"]).reset_index(drop=True)
+    real = real.sort_values(["ID", "blk"]).reset_index(drop=True)
+    clean = real.set_index(["ID", "blk"])
+    keys = list(zip(S.src, S.blk))
+    groups = S.src.values
+    gkf = GroupKFold(5)
+    folds = list(gkf.split(S, groups=groups))
+    src_fold = {}
+    for fi, (_, b) in enumerate(folds):
+        for s_ in np.unique(groups[b]):
+            src_fold[s_] = fi
+    deg = S.k.values >= 0
+    noise = S.ic_noise.values
+    real_fold = real.ID.map(src_fold).values
+    Xr = real[inputs]
+    by, bx = real.by.values[:49], real.bx.values[:49]
+    report = {}
+    maps = {"real_raw": {}, "real_cal": {}, "syn_raw": {}, "syn_cal": {}, "syn_clean": {}}
+    lgb_block = lambda: _lgb_cal().set_params(num_leaves=31, min_child_samples=50, n_estimators=400)
+
+    def cross_pred(make, Xtr, y, Xapp, app_fold, fold_list):
+        oof = np.full(len(y), np.nan)
+        pred = np.zeros(len(Xapp))
+        ok = np.isfinite(y)
+        for fi, (a, b) in enumerate(fold_list):
+            ia = a[ok[a]]
+            m = make().fit(Xtr.iloc[ia], y[ia])
+            oof[b] = m.predict(Xtr.iloc[b])
+            p = m.predict(Xapp)
+            pred += np.where(np.isnan(app_fold), p / len(fold_list), np.where(app_fold == fi, p, 0.0))
+        return oof, pred
+
+    for tag, t in V4_TARGETS.items():
+        lg = tag == "bd"
+        y = clean.loc[keys, t].values.astype(float)
+        if lg:
+            y = np.log(np.maximum(y, 1e-3))
+        oof, pred_real = cross_pred(lgb_block, S[inputs], y, Xr, real_fold, folds)
+        raw_meas = S[t].values.astype(float)
+        if lg:
+            raw_meas = np.log(np.maximum(raw_meas, 1e-3))
+        k = deg & np.isfinite(y) & np.isfinite(oof) & np.isfinite(raw_meas)
+        rep = {"R2_block_cal": 1 - np.mean((oof[k] - y[k]) ** 2) / np.var(y[k]),
+               "R2_block_raw": 1 - np.mean((raw_meas[k] - y[k]) ** 2) / np.var(y[k])}
+        for lo, hi in CAL2_BANDS:
+            kb = k & (noise >= lo) & (noise < hi)
+            rep[f"R2_block_cal_noise{lo:g}-{hi:g}"] = 1 - np.mean((oof[kb] - y[kb]) ** 2) / np.var(y[kb])
+        report[f"block_{tag}"] = rep
+        Sx = S[["src", "k", "blk"]].copy()
+        Sx["y"], Sx["p"], Sx["r"] = y, oof, raw_meas
+        idx, maps["syn_clean"][tag] = _v4_pivot(Sx, ["src", "k"], "y")
+        _, maps["syn_cal"][tag] = _v4_pivot(Sx, ["src", "k"], "p")
+        _, maps["syn_raw"][tag] = _v4_pivot(Sx, ["src", "k"], "r")
+        n_img = real.ID.nunique()
+        maps["real_cal"][tag] = pred_real.reshape(n_img, -1)
+        _, maps["real_raw"][tag] = _v4_pivot(real, "ID", t, log=lg)
+    ids = np.sort(real.ID.unique())
+    syn_src = np.array([s_ for s_, _ in idx])
+    syn_k = np.array([k_ for _, k_ in idx])
+    R_real = _v4_stats_frame(maps["real_raw"], by, bx, "v4r")
+    C_real = _v4_stats_frame(maps["real_cal"], by, bx, "v4c")
+    R_syn = _v4_stats_frame(maps["syn_raw"], by, bx, "v4r")
+    C_syn = _v4_stats_frame(maps["syn_cal"], by, bx, "v4c")
+    Y_syn = _v4_stats_frame(maps["syn_clean"], by, bx, "v4r")
+    ctx_real = real.groupby("ID")[V4_CTX].first().loc[ids].reset_index(drop=True)
+    ctx_syn = S.groupby(["src", "k"])[V4_CTX].first().loc[idx].reset_index(drop=True)
+    Xi_syn = pd.concat([R_syn, C_syn, ctx_syn], axis=1)
+    Xi_real = pd.concat([R_real, C_real, ctx_real], axis=1)
+    ifolds = [(np.where(np.isin(syn_src, np.unique(groups[a])))[0], np.where(np.isin(syn_src, np.unique(groups[b])))[0])
+              for a, b in folds]
+    real_ifold = pd.Series(ids).map(src_fold).values
+    degi = syn_k >= 0
+    lgb_img = lambda: lgb.LGBMRegressor(n_estimators=400, learning_rate=0.03, num_leaves=7, min_child_samples=15,
+                                        subsample=0.8, subsample_freq=1, colsample_bytree=0.5, reg_lambda=1.0,
+                                        verbose=-1, n_jobs=1)
+    out_df = pd.concat([pd.DataFrame({"ID": ids}), R_real, C_real], axis=1)
+    for tag in V4_TARGETS:
+        for st in V4_IMG_STATS + (["hp"] if tag in ("bd", "la") else []):
+            col = f"v4r_{tag}_{st}"
+            y = Y_syn[col].values
+            oof, pred = cross_pred(lgb_img, Xi_syn, y, Xi_real, real_ifold, ifolds)
+            out_df[f"v4i_{tag}_{st}"] = pred
+            k = degi & np.isfinite(y) & np.isfinite(oof)
+            ccol = f"v4c_{tag}_{st}"
+            report[f"img_{tag}_{st}"] = {
+                "R2_img_cal": 1 - np.mean((oof[k] - y[k]) ** 2) / np.var(y[k]),
+                "corr_img_cal": np.corrcoef(oof[k], y[k])[0, 1],
+                "corr_raw": np.corrcoef(R_syn[col].values[k], y[k])[0, 1],
+                "corr_blockcal": np.corrcoef(C_syn[ccol].values[k], y[k])[0, 1],
+                "corr_img_cal_noise13+": np.corrcoef(oof[k & (ctx_syn.ic_noise.values >= 13)],
+                                                     y[k & (ctx_syn.ic_noise.values >= 13)])[0, 1]}
+    rep = pd.DataFrame(report).T.round(3)
+    with pd.option_context("display.width", 250):
+        print(rep.to_string())
+    rep.to_csv(DATA_DIR / out.replace(".parquet", "_report.csv"))
+    out_df.to_parquet(DATA_DIR / out, index=False)
+    print(out_df.shape, "->", out)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--v2", action="store_true")
@@ -1018,7 +1380,17 @@ if __name__ == "__main__":
     ap.add_argument("--seed0", type=int, default=0)
     ap.add_argument("--n_jobs", type=int, default=int(os.environ.get("N_JOBS", "-1")))
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--v4_blocks", action="store_true")
+    ap.add_argument("--v4_cal_build", action="store_true")
+    ap.add_argument("--v4_apply", action="store_true")
     a = ap.parse_args()
+    if a.v4_cal_build:
+        v4_cal_build(n_aug=a.n_aug, snr_min=a.snr_min, n_jobs=a.n_jobs, seed0=a.seed0 or 500000,
+                     out=a.cal_out or "v4_blocks_cal.parquet")
+        raise SystemExit
+    if a.v4_apply:
+        v4_apply(out=a.cal_out or "features_v4.parquet")
+        raise SystemExit
     if a.patch_v3_quality:
         patch_v3_quality(n_jobs=a.n_jobs)
         raise SystemExit
@@ -1037,6 +1409,9 @@ if __name__ == "__main__":
     ids = list(tr.ID) + list(load_test().ID)
     if a.limit:
         ids = ids[: a.limit]
+    if a.v4_blocks:
+        v4_blocks(ids, n_jobs=a.n_jobs, out="v4_blocks_real.parquet" if not a.limit else "v4_blocks_sample.parquet")
+        raise SystemExit
     if a.v3:
         df = build(ids, extract_v3, n_jobs=a.n_jobs)
         out = DATA_DIR / ("features_v3.parquet" if not a.limit else "features_v3_sample.parquet")

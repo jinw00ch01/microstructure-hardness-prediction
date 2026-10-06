@@ -1,0 +1,29 @@
+{
+  "exps": [
+    "feat4_v3cal_ridge_het_spat_v4",
+    "feat3_v23cal_lgbs_het_spat",
+    "feat3_v3cal_ridge_het_spat",
+    "emb_effv2s_256_gridge3_aug",
+    "emb_effv2s_256_gridge3_noise",
+    "emb_effv2s_r18_256_gridge3_aug",
+    "emb_effv2s_r18_256_gridge3_noise",
+    "cnn_r18_c224_e30",
+    "cnn_r18_rawnlm_e30",
+    "cnn_r18_rawnlm_e30_s3",
+    "cnn_r34d_rawnlm_e30"
+  ],
+  "weights": [
+    0.5104031955035658,
+    0.39153186932211537,
+    0.0,
+    0.0,
+    0.0980649351743189,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "nested_cv_rmse": 12.687096191703445
+}

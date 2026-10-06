@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.78464406122057,
+  "fold_rmse": [
+    13.496074850252327,
+    12.49406425052563,
+    12.87701670240455,
+    12.665704326434787,
+    12.359300779654221
+  ],
+  "notes": "ridge on features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet; cols=all(173); hetero weights ~ log-var(log ic_acg_len50_gm) in-fold"
+}
