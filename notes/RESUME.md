@@ -1,16 +1,25 @@
-# Resume guide (updated 2026-10-07 ~04:40 KST)
+# Resume guide (updated 2026-10-07 ~04:45 KST)
 
 Goal: public LB RMSE <= 10.
 
 ## Morning of 2026-10-07 (read this first)
+- **blend_v11 scored public 11.7997** (user, ~04:30 KST), the new best. CNN share 0 / 0.07 / 0.131 gave public
+  11.8795 / 11.8267 / 11.7997 (v7 / v10 / v11), each time about CV - 0.55 to 0.61. The CNN helps public more than CV
+  says: the CV-optimal share is 0.131, a parabola through the three public points has its minimum near 0.19.
 - **blend_v12 scored public 11.9094** (user, 04:25 KST), worse than v10 (11.8267) and about v7 (11.8795), although its
-  nested CV was 0.26 better. Not a bug: own columns are applied to the 333 high-noise test images exactly as to train
-  (feat7 - feat6 differences have sd 5.2 on both). On OOF the v12 - v10 direction correlates -0.21 with v10's errors; on
-  public about -0.03. The OOF gain was carried by a few images: the 10 most improved images give 73% of it, the
-  10%-trimmed mean gain is under half, the median about zero. Lesson: before handing over a file, check that the gain
-  is not concentrated (top-10 share, trimmed mean, median), not only folds and bootstrap.
-- Next submission: blend_v11 (CNN share 0.131, no own-slope member), testing whether a larger CNN share helps public.
-- Next GPU candidate: a CNN with a restored-image input channel (cnn-trainer prepares the code and laptop steps).
+  nested CV was 0.26 better (public only CV - 0.25). Not a bug: own columns are applied to the 333 high-noise test
+  images exactly as to train (feat7 - feat6 differences have sd 5.2 on both). On OOF the v12 - v10 direction correlates
+  -0.21 with v10's errors; on public about -0.03. **Cause unknown.** The OOF gain sat in about 10 images (73% of it),
+  but that does not explain the miss: v4 -> v6 (top-10 share 0.79) and v6 -> v7 were as concentrated and carried over.
+  Candidates: overfitting that 5-fold CV cannot see (the member was picked among several own-slope variants on the
+  same folds), or luck on the ~300 public images. Keep own-slope members out of submissions until one of these is
+  settled. blend_v13 (also uses that member) stays shelved.
+- **Next file: blend_v14** (`submissions/blend_v14.json`, nested CV 12.425): v11's base plus a stronger CNN mix
+  (0.7 effnetv2-s 6 seeds + 0.3 ConvNeXt-tiny 3 seeds) at a FIXED share 0.2, chosen from the public trend, not CV.
+  Test predictions differ from v11 by sd 0.30. If it beats v11, push the CNN share/strength further; if not, the
+  share is near its optimum.
+- Next GPU candidate: a CNN with a restored-image input channel (cnn-trainer prepares the code and laptop steps,
+  `notes/handoff/laptop-gpu.md` section 8). A GPU run needs the user's say-so and mode in the thread first.
 
 ## Night of 2026-10-07
 - **blend_v12** (nested CV 12.162 vs v11 12.407, 5/5 folds, paired bootstrap 90% of the difference [-0.41, -0.09]) is the
