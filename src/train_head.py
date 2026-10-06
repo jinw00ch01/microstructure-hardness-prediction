@@ -346,11 +346,13 @@ def build(args, tr, te):
     tags = args.emb.split(",")
     extra = args.extra_rows.split(",") if args.extra_rows else [""] * len(tags)
     assert len(extra) == len(tags), "--extra-rows needs one tag per --emb tag"
-    for tag, xtag in zip(tags, extra):
-        ids, X, bl, meta, io, rw = load_emb(tag, args.stages, args.pools.split(","), args.views, args.cells,
+    stage_specs = args.stages.split(";") if ";" in args.stages else [args.stages] * len(tags)
+    assert len(stage_specs) == len(tags), "--stages: give one ';'-separated spec per --emb tag"
+    for tag, xtag, st in zip(tags, extra, stage_specs):
+        ids, X, bl, meta, io, rw = load_emb(tag, st, args.pools.split(","), args.views, args.cells,
                                             args.use_augs, args.aug_filter)
         if xtag:  # append the 'aug:' rows of a second extraction of the same backbone (same columns)
-            ids2, X2, bl2, _, _, rw2 = load_emb(xtag, args.stages, args.pools.split(","), 0, "global", True,
+            ids2, X2, bl2, _, _, rw2 = load_emb(xtag, st, args.pools.split(","), 0, "global", True,
                                                 args.aug_filter)
             assert [b[1] for b in bl2] == [b[1] for b in bl], f"{xtag}: column layout differs from {tag}"
             sel = [k for k, (v, c) in enumerate(rw2) if v.startswith("aug:") and (v, c) not in rw]
@@ -390,7 +392,8 @@ def build(args, tr, te):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--emb", required=True, help="comma-separated embedding tags in data/emb/")
-    ap.add_argument("--stages", default="all", help="'all' or comma list of stage indices (negatives ok)")
+    ap.add_argument("--stages", default="all", help="'all' or comma list of stage indices (negatives ok); "
+                    "use ';' to give one spec per --emb tag, e.g. '1,2,3;1,2'")
     ap.add_argument("--pools", default="mean,std")
     ap.add_argument("--views", type=int, default=0, help="use the first N stored views (0 = all)")
     ap.add_argument("--view-mode", default="mean", choices=["mean", "aug"])
@@ -442,5 +445,6 @@ if __name__ == "__main__":
                  f"transform={a.transform} "
                  f"block_norm={a.block_norm} "
                  f"pca={a.pca}{'w' if a.whiten else ''} feats={a.feats + ' x' + str(a.feat_weight) if a.with_feats else 'no'}; "
+                 f"{'grid=' + a.grid_json + '; ' if a.grid_json else ''}"
                  f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}")
         save_experiment(name, tr, oof, te, pte, notes=notes)

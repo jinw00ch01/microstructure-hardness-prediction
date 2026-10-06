@@ -5,7 +5,7 @@ Goal: public LB RMSE <= 10. Nothing has been submitted to the leaderboard yet.
 ## Where we are
 | model family | best saved experiment | CV RMSE |
 |---|---|---|
-| OOF blend (NNLS, nested CV) | `submissions/blend_v1.json` | **13.15** |
+| OOF blend (NNLS, nested CV) | `submissions/blend_v2.json` (2026-10-06) | **12.96** |
 | handcrafted features | `feat2_v3_ridge` | 13.22 |
 | frozen embeddings | `emb_effv2s_256_ridge_aug` (unsaved gridge variant: 13.55) | 13.68 |
 | CNN fine-tune | `cnn_r18_c224_e30` (raw+nlm run 3/10 done, folds 0-1 pooled 13.35) | 13.79 |
@@ -51,6 +51,16 @@ huggingface.co is blocked in the cloud sandbox.
 - Every model regresses to the mean (RMSE about 18 in the extreme target quintiles vs about 9 in the middle).
 - With 500 images, differences under about 0.1 RMSE are noise; single-fold screens are about ±0.4.
 - `src/train_gbm.py` `feat_lgb` / `feat_cat` used early stopping on the validation fold (optimistic). Newer runs use fixed trees.
+
+## Noise-floor finding (2026-10-06, eda-analyst; details experiments/eda/NOTES.md)
+- Residual variance follows label noise ~ b/N (N = calibrated grain count `cal_seg_count_density*6.5536`,
+  b about 28k, 90% CI 21.9k-32.4k) plus a measurement term ~ c/snr. Clean images already sit at that floor
+  in every grain-size tercile (orchestrator re-check: clean coarse 14.5 vs floor 14.5, mid 9.2 vs 9.7, fine 7.8 vs 7.8).
+- Floor for a perfect model: train CV about 11.2-11.6, full test about 10.7-11.1; public 300 subset median 10.7
+  [9.2, 12.2]. LB <= 10 is out of reach on expectation; blend_v2 is expected around public 12.6 [11.4, 13.8].
+- All reducible error is in degraded (noisy/blurred) images: focus on measurement under noise/blur
+  (calibration v2, NLM channel for CNNs, training on synthetic degradations). Stop adding coarse-image grain,
+  location or texture features (all null). Public-LB differences under about 0.3 are noise.
 
 ## Compute notes
 - Cloud sandbox: 4 CPU (Xeon with AMX), no GPU. bf16 + channels_last makes CNN training about 3x faster.
