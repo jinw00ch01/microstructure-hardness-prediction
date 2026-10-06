@@ -26,8 +26,14 @@ a. CUDA check.
 b. lr screen, folds 0 and 1, 1 seed, `--no-save`:
    - `--backbone tf_efficientnetv2_s.in21k_ft_in1k` (Apache-2.0) at `--lr 1e-3` and `--lr 3e-4`
    - `--backbone resnet18 --lr 1e-3` as the reference (CPU fold scores are in the cnn-trainer handoff)
-c. Best setting: `--seeds 3` on all 5 folds, saved with `--name cnn_<backbone>_rawnlm_degcons_gpu`.
-   One command for the run, or one per fold if `train_cnn` merges per-fold outputs.
+c. Best setting, 3 seeds on all 5 folds, `--name cnn_<backbone>_rawnlm_degcons_gpu`. Run it seed by seed so a cut
+   still leaves complete 5-fold seeds (`train_cnn` loops folds outside seeds, so one `--seeds 3` call cut short leaves
+   the last folds empty and nothing can be blended):
+   `--seeds 3 --no-save --train-seeds 0`, then `--train-seeds 1`, then `--train-seeds 2`.
+   Then assemble and save with `--seeds N` (same name and flags, N = seeds finished on all 5 folds; everything is
+   cached in `data/cnn_cache/<name>/`, so this call trains nothing).
+   Measured on the laptop (2026-10-06): resnet18 with the base flags takes about 75 s per fold-seed; effnetv2-s about
+   3x that. Deadline that evening: stop by 20:45 KST, create the done file, then assemble and send (the user moved at 21:00).
 
 ## 4. Return the results without pushing
 Send the cloud orchestrator session (the one you already message) the contents of that experiment's `oof.csv`,
