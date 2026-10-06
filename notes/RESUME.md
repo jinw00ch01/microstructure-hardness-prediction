@@ -1,37 +1,51 @@
-# Resume guide (paused 2026-10-05 ~12:45 UTC)
+# Resume guide (updated 2026-10-06 ~11:30 UTC = 20:30 KST, end of day)
 
 Goal: public LB RMSE <= 10.
-First LB result (2026-10-06): `blend_v2` (nested CV 12.963) scored **public 12.3454**, so this public split runs about
-0.6 below CV. LB #1 at that time was **9.2442**, which shows the morning "label-noise floor" verdict below was wrong.
 
-## Pause 2026-10-06 07:05 UTC (usage limit), resumed 07:38 UTC
-- The container slept at about 07:08 and restarted at 07:38: every detached job died (restore training at step
-  3500/6000, no weights). Checkpoint long jobs; a pause does not keep CPU jobs running.
-- Agents were stopped mid-task. In the same cloud session they resume with SendMessage to their id:
-  embedding-modeler `a17d1308e2e18c0a9` (adding sample weights, in-fold heteroscedastic weights and top-k hp averaging to
-  gridge3 in `src/train_head.py`), cnn-trainer `aab6d7892b973e0dc` (restoration net `src/restore.py`), feature-engineer
-  `a0d02955f85b35994` (restored-image rebuild and screening scripts, waits for the restorer weights), eda-analyst
-  `ae89e4e26800bfe41` (audit against the official PDF's five factors: `experiments/eda/a43-a45`; its `a34_grains2.py`
-  test run was killed and must be re-run).
-- CPU jobs left running (no Claude usage): `src.restore train` (2 cores, writes `data/restore_cache/restore_unet.pt`,
-  log `logs/restore_train.log`) and the embedding-modeler's screen loop (1 core, output `scratchpad/w4.out`).
-- Uncommitted agent work is backed up in `/mnt/project-files/work/hardness-cache/wip/2026-10-06-0705/`
-  (`tracked.patch`, `untracked.tgz`); the git bundle there is current to 1255f59. A fresh session restores both and
-  re-briefs the agents from `notes/handoff/*.md` instead.
-- Still blocked: the repo was still public at 07:00 UTC (the 2 h visibility poll ended; check on each wake), and the
-  laptop GPU wrapper approval. Next delivery: a re-blend (blend_v5 nested 12.4855) once the embedding results land.
+## End of day 2026-10-06 (read this first)
+- Public LB so far: blend_v2 12.3454, v4 12.0329, v6 11.9248, **v7 11.8795** (best). In all four, public came in
+  0.55-0.6 below the nested CV. LB #1 that day: 9.2442.
+- File handed over for the remaining slot (today's last or 00:00 KST 2026-10-07): **blend_v10** = v7 pool + the two
+  laptop-GPU CNNs. Nested CV 12.4242 vs v7 12.4254 (bootstrap 90% of the difference [-0.032, 0.031]), so it is a tie:
+  weights cs24 0.244, feat6_rest_ridge_all 0.393, feat3 lgbs 0.166, feat5 milspl 0.089, feat2 lgbs hetN 0.038,
+  effnetv2-s CNN 0.07. Test predictions differ from v7 by sd 0.30 (max 1.25), so expect public about 11.88.
+  CSV in `/mnt/project-files/work/hardness-cache/submissions/`. When the user reports the score, add it to
+  `experiments/LEADERBOARD.md` and memory.
+- Laptop GPU run (RTX 5060, exclusive use 19:16-20:11 KST, returned with the done file; plan in
+  `notes/handoff/laptop-gpu.md`), base flags `--input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30`, lr 1e-3:
+  | experiment | seeds | CV | time per fold-seed | blend weight |
+  |---|---|---|---|---|
+  | `cnn_r18_rawnlm_degcons_gpu` (resnet18) | 3 | 13.593 | ~31 s | 0 |
+  | `cnn_ev2s_rawnlm_degcons_gpu_s3` (tf_efficientnetv2_s.in21k_ft_in1k) | 3 | 13.246 | ~76 s | 0.07 |
+  CNN residuals correlate 0.93 with the blend; even the best in-sample mix of resnet18 into v7 is weight 0. More seeds or
+  bigger backbones of the same CNN are unlikely to move the blend. lr 3e-4 was not screened.
+- The laptop session returned results as messages (2-decimal values in ID order plus checksums); the cloud copies and
+  checking script are in the hardness-cache (`laptop-gpu-2026-10-06/`, `scripts/ingest.py`, `scripts/paired.py`).
+- No CPU candidate beat v7 either (restored-image embeddings, restored-feature GBM, add-alongside ridge, tercile
+  stacker, stretch recalibration, curated subsets).
+- Where the error is: the noisy SNR tercile (blend about 14.7 vs about 11 on the other two) and coarse-grain images,
+  whose extra variance tested as per-grain label noise the image does not show (every probe null; list in memory).
+- Untested ideas for the next session, best first:
+  1. A restorer trained only on low-SNR degradations, then restored features + ridge for the noisy tercile (restoration
+     so far helps the mid tercile, not the noisy one).
+  2. A CNN on raw + restored channels on the laptop GPU (needs `data_restored/` and `restore_unet.pt` on the laptop).
+  3. Only if 2 gets real blend weight: more GPU seeds/backbones.
 
-## Where we are
+## Cloud container lesson (pause 2026-10-06 07:05-07:38 UTC)
+- The container sleeps a few minutes after the session goes idle and kills every detached job (the restorer's training
+  died at step 3500 that day). Checkpoint long jobs (`src/restore.py --ckpt-every`, `train_cnn` per fold-seed caches).
+- In a fresh session, re-brief agents from `notes/handoff/*.md`; agent ids from an old session do not carry over.
+
+## Where we are (2026-10-06 evening)
 | model family | best saved experiment | CV RMSE |
 |---|---|---|
-| OOF blend (NNLS, nested CV) | `submissions/blend_v2.json` (2026-10-06) | **12.96** |
-| handcrafted features | `feat2_v3_ridge` | 13.22 |
-| frozen embeddings | `emb_effv2s_256_ridge_aug` (unsaved gridge variant: 13.55) | 13.68 |
-| CNN fine-tune | `cnn_r18_c224_e30` (raw+nlm run 3/10 done, folds 0-1 pooled 13.35) | 13.79 |
+| OOF blend (NNLS, nested CV) | `blend_v10` (ties `blend_v7`, public 11.8795) | **12.42** |
+| handcrafted features | `feat6_rest_ridge_add` / `feat6_rest_ridge_all` (restored-image features) | 12.52 / 12.53 |
+| frozen embeddings | `emb_effv2s_256_gridge3_noise_csbag_rawrest` | 12.84 |
+| CNN fine-tune | `cnn_ev2s_rawnlm_degcons_gpu_s3` (laptop GPU) | 13.25 |
 | baseline | `feat_lgb` | 14.20 |
 
-Target std is 17.7 (mean predictor). `submissions/blend_v1.csv` (CV 13.15) is a first LB-calibration
-candidate; it is git-ignored and backed up in the project folder (below).
+Target std is 17.7 (mean predictor). Submission CSVs are git-ignored; copies are in the hardness-cache `submissions/`.
 
 ## Restore a fresh cloud session (about 5 min)
 ```bash
@@ -40,20 +54,13 @@ git fetch origin claude/lb-under-10-7080jr && git checkout claude/lb-under-10-70
 python3 -m pip install -q -r requirements.txt             # torch comes from PyPI; PyWavelets needed by skimage
 mkdir -p data && (cd data && unzip -qo /mnt/project-files/open.zip)
 cp -r /mnt/project-files/work/hardness-cache/data/. data/  # folds, features v1-v3, embeddings, CNN caches
+tar -xf data/data_restored.tar && rm data/data_restored.tar  # restored images -> data_restored/ (repo root)
+tar -xf /mnt/project-files/work/hardness-cache/experiments-test.tar   # experiments/*/test.csv (git-ignored)
+tar -xf /mnt/project-files/work/hardness-cache/figures-local.tar      # optional: figures that show competition images
 mkdir -p submissions && cp /mnt/project-files/work/hardness-cache/submissions/* submissions/
 ```
 Pretrained weights download from GitHub releases on first use (`src.common.create_timm`).
 huggingface.co is blocked in the cloud sandbox.
-
-## Next steps (priority order as of 2026-10-06 afternoon; exact commands in notes/handoff/*.md)
-1. **feature-engineer**: save `feat3_v3cal_ridge_het_spat` and `feat3_v23cal_lgbs_het_spat` (members plus the
-   eda_feats_* files), then a noise-robust local grain-size map per 64 px block (v4).
-2. **embedding-modeler**: heads on global mean + cross-cell std/range of the cached g2a embeddings (stages 0-2);
-   then a 4x4 grid extraction if it pays.
-3. **cnn-trainer**: `--pool avgstd` (spatial mean + std) screen; degradation-bank augmentation results; then bigger
-   backbones and 3 seeds on the laptop GPU through the wrapper.
-4. Nested re-blend (`python -m src.ensemble --out blend_v4`), hand the CSV to the user to submit, record the public
-   score in `experiments/LEADERBOARD.md`.
 
 ## Cross-agent findings (read before planning)
 - All families capture the same signal: residual correlations 0.87-0.93; blends gain only about 0.3-0.6.
@@ -94,7 +101,10 @@ huggingface.co is blocked in the cloud sandbox.
   Budget threads per agent (e.g. CNN 2, features 1, embeddings 1) when running agents in parallel.
 - Laptop GPU (RTX 5060 8GB): this project's device folder is `C:\Daker\microstructure-hardness-prediction`
   (branch checked out, data copied to `data\`, `.venv` with torch 2.11+cu128). The GPU is shared with the user's
-  robot project: wrap every GPU command as
-  `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- <command>` (user's rule,
-  2026-10-06), one CNN fold per wrapped command; on CUDA OOM lower `--bs`. Never touch the robot project otherwise.
+  robot project. Ask the user which mode applies before running anything on it:
+  - shared: wrap every GPU command as
+    `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- <command>`; on CUDA OOM lower `--bs`;
+  - exclusive hand-over (as on 2026-10-06 19:16 KST): `--device cuda` directly, then return the GPU with PowerShell
+    `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done` when all GPU work is done.
+  Never touch the robot project otherwise.
 - "Jev" (TypeSafe AI) is a remote, text-only API model and is banned by competition rule 2, so it is not used.

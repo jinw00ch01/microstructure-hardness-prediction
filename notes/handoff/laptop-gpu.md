@@ -32,10 +32,17 @@ c. Best setting, 3 seeds on all 5 folds, `--name cnn_<backbone>_rawnlm_degcons_g
    `--seeds 3 --no-save --train-seeds 0`, then `--train-seeds 1`, then `--train-seeds 2`.
    Then assemble and save with `--seeds N` (same name and flags, N = seeds finished on all 5 folds; everything is
    cached in `data/cnn_cache/<name>/`, so this call trains nothing).
-   Measured on the laptop (2026-10-06): resnet18 with the base flags takes about 75 s per fold-seed; effnetv2-s about
-   3x that. Deadline that evening: stop by 20:45 KST, create the done file, then assemble and send (the user moved at 21:00).
+   Measured on the laptop (2026-10-06), base flags: resnet18 about 31 s per fold-seed, effnetv2-s about 76 s (the first
+   fold-seed of a run is much slower: 75 s and 301 s, warm-up included).
 
 ## 4. Return the results without pushing
 Send the cloud orchestrator session (the one you already message) the contents of that experiment's `oof.csv`,
 `test.csv` and `score.json`, one file per message, plus the step 3b screen results.
 The cloud session blends them for the next submission.
+
+## 5. Result of the 2026-10-06 run (GPU returned 20:11 KST)
+- lr screen (1 seed): resnet18 fold 0 13.582, fold 1 12.943; effnetv2-s fold 0 13.635. 3e-4 not screened.
+- `cnn_r18_rawnlm_degcons_gpu` (3 seeds) CV 13.593; `cnn_ev2s_rawnlm_degcons_gpu_s3` (3 seeds) CV 13.246.
+- In the blend only effnetv2-s gets weight (0.07), and `blend_v10` ties `blend_v7`. Details and next ideas:
+  `notes/RESUME.md`.
+- The laptop keeps the per-fold-seed caches in `data\cnn_cache\<name>\` and the experiments in `experiments\`.
