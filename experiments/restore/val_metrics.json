@@ -1,0 +1,50 @@
+{
+  "by_band": [
+    {
+      "band": "low noise (<9)",
+      "psnr_deg": 37.127,
+      "psnr_rest": 37.31,
+      "psnr_bd_deg": 36.689,
+      "psnr_bd_rest": 36.835,
+      "ridge_corr_deg": 0.974,
+      "ridge_corr_rest": 0.976,
+      "dark_contrast_deg": 0.983,
+      "dark_contrast_rest": 0.984,
+      "n": 20
+    },
+    {
+      "band": "mid (9-15)",
+      "psnr_deg": 26.641,
+      "psnr_rest": 30.618,
+      "psnr_bd_deg": 25.55,
+      "psnr_bd_rest": 28.51,
+      "ridge_corr_deg": 0.738,
+      "ridge_corr_rest": 0.846,
+      "dark_contrast_deg": 0.883,
+      "dark_contrast_rest": 0.936,
+      "n": 28
+    },
+    {
+      "band": "high (>15)",
+      "psnr_deg": 22.027,
+      "psnr_rest": 28.095,
+      "psnr_bd_deg": 20.813,
+      "psnr_bd_rest": 25.217,
+      "ridge_corr_deg": 0.371,
+      "ridge_corr_rest": 0.621,
+      "dark_contrast_deg": 0.773,
+      "dark_contrast_rest": 0.876,
+      "n": 18
+    }
+  ],
+  "all": {
+    "psnr_deg": 28.561,
+    "psnr_rest": 31.958,
+    "psnr_bd_deg": 27.634,
+    "psnr_bd_rest": 30.134,
+    "ridge_corr_deg": 0.709,
+    "ridge_corr_rest": 0.824,
+    "dark_contrast_deg": 0.883,
+    "dark_contrast_rest": 0.934
+  }
+}

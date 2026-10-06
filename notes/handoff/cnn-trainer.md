@@ -80,3 +80,33 @@ Fold-paired against raw+nlm with 2 seeds (same seeds; image-bootstrap 90% CI, wh
    then assemble with the same args and `--seeds 3` (no `--train-seeds`/`--no-save`).
 3. Tune the consistency setup with 2 seeds on 2 folds: `--cons 0.5` / `2.0`, `--deg-p 1.0` (more twins), deg sources snr > 0.75.
 4. Ensembler: blend degcons + deg + raw + raw+nlm CNNs (residual corr 0.94-0.97) and try SNR-gated weights.
+
+## Restoration network `src/restore.py` (2026-10-06, cnn-trainer)
+- What it does: a compact U-Net (0.90M params, residual output, inputs = image + estimate_sigma map) is trained on
+  `_degrade_v2(clean) -> clean` pairs. Sources are the 131 train images with ic_ridge_snr > 0.9: 120 train sources x 32
+  degradations, plus 11 held-out sources x 6 degradations. It is then applied as a fixed per-image transform (D4 x8 TTA).
+  No labels and no test images are used in training.
+- Photometric target: the clean image in the degraded image's photometry. The deterministic part of `_degrade_v2` is
+  reconstructed, then a cubic gain surface + offset is fitted to the degraded image (median fit rms 2.2 grey levels).
+  The network denoises, deblurs and restores dark contrast, but does not re-normalise grey levels.
+- Training: patch 96, bs16, 5000 steps, L1 + 0.5 gradient-L1, 15% identity pairs. About 25 min on 2 threads.
+  Checkpoint every 500 steps to `data/restore_cache/restore_ckpt.pt`; a rerun of `train` resumes bit-exactly (tested).
+  `apply` writes atomically and accepts `--resume`.
+- Held-out synthetic validation, PSNR in dB, degraded -> restored (`experiments/restore/val_metrics.json`):
+  | noise band | PSNR | boundary PSNR | ridge corr | dark contrast |
+  |---|---|---|---|---|
+  | low (<9) | 37.1 -> 37.3 | 36.7 -> 36.8 | 0.974 -> 0.976 | 0.98 -> 0.98 |
+  | mid (9-15) | 26.6 -> 30.6 | 25.6 -> 28.5 | 0.738 -> 0.846 | 0.88 -> 0.94 |
+  | high (>15) | 22.0 -> 28.1 | 20.8 -> 25.2 | 0.371 -> 0.621 | 0.77 -> 0.88 |
+  | all | 28.6 -> 32.0 | | | |
+  With noise >= 13 and blur, dark-phase zones are recovered but thin bright-bright boundaries mostly are not.
+- Real images (`experiments/restore/apply_change.csv`):
+  - Clean images (snr > 0.9) pass through: 67.5% are pixel-identical, p90 MAD 0.045, worst PSNR 33.9.
+  - Median MAD by band: mid 5.2, noisy 11.6.
+  - Montage of noisy images (snr < 0.3): grain networks are clearly visible after restoration from snr ~0.08 upward.
+    At snr 0.04 the output is a faint cellular texture that may be partly hallucinated.
+  - Method noise looks structureless.
+- Outputs: `data_restored/{train,test}/*.png` plus copied CSVs (58 MB). Use with `DATA_DIR=data_restored`.
+  `.gitignore` does not cover `data_restored/` yet; the orchestrator should add it.
+- Rebuild: `bank --part 0/1 --nparts 2` (about 3.5 min each, 1 core), then `train --threads 2 --patch 96 --bs 16 --steps 5000`,
+  then `apply --part 0/1 --nparts 2` (about 7 min each), then `check`.

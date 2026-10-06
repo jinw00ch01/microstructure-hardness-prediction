@@ -8,3 +8,4 @@ submissions/*.csv
 !submissions/.gitkeep
 logs/
 catboost_info/
+data_restored/
