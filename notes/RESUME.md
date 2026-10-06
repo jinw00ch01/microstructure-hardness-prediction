@@ -4,7 +4,9 @@ Goal: public LB RMSE <= 10.
 First LB result (2026-10-06): `blend_v2` (nested CV 12.963) scored **public 12.3454**, so this public split runs about
 0.6 below CV. LB #1 at that time was **9.2442**, which shows the morning "label-noise floor" verdict below was wrong.
 
-## Pause 2026-10-06 07:05 UTC (usage limit; user asked to resume at 16:40 KST = 07:40 UTC)
+## Pause 2026-10-06 07:05 UTC (usage limit), resumed 07:38 UTC
+- The container slept at about 07:08 and restarted at 07:38: every detached job died (restore training at step
+  3500/6000, no weights). Checkpoint long jobs; a pause does not keep CPU jobs running.
 - Agents were stopped mid-task. In the same cloud session they resume with SendMessage to their id:
   embedding-modeler `a17d1308e2e18c0a9` (adding sample weights, in-fold heteroscedastic weights and top-k hp averaging to
   gridge3 in `src/train_head.py`), cnn-trainer `aab6d7892b973e0dc` (restoration net `src/restore.py`), feature-engineer
