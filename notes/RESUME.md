@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-07 ~16:00 KST)
+# Resume guide (updated 2026-10-07 ~17:50 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -28,6 +28,23 @@ Goal: public LB RMSE <= 10.
   (v17 >= 11.80 means cell gains do not carry over to public, so a better in-cell CNN likely won't either).
 - Still waiting on the user: the GPU line (exclusive or shared mode) for `notes/handoff/laptop-gpu.md` section 8
   (run order g, i, h1, h2; 2-3.5 h). The laptop saw a robot-project process on the GPU after resume. No GPU run is approved.
+
+## Evening of 2026-10-07: gap to LB #1 (8.963) - read this first
+- Full reports and scripts: hardness-cache `scripts/gap-1007/` (REPORTS.md; workflow of 9 agents).
+- #1 cannot get 8.96 from noisy images alone: clean COARSE images (RMSE 13.7-14.8 even in our cleanest) must improve.
+  At least 30-50% of the clean "b/N label noise" is predictable model error (our b ~25k; #1 needs <= 18.7k).
+- Found: a within-image grain-size heterogeneity term. het4 = sd over the 16 blocks of a 4x4 grid (64 px) of
+  -2 log(mean a^-1/2) of grain areas; q2_fcv (CV of quadrant grain counts) is the simple version. With it, Hall-Petch
+  gets the normal sign (finer = harder): the anti-Hall-Petch fit came from omitting it. Gated to clean images (raw
+  ic_noise < 7.49): v18 + cross-fitted offset 11.920 (p=0.25), member route (feat6 + unpenalised gate*het4,
+  gate*N^0.25, p=0.5, pre-registered) nested 12.045 (-0.230, 5/5). Verification: the 64-px alignment is NOT special
+  (non-aligned grids do about as well), full nested grid selection gives -0.232 [-0.51, +0.02], the gain is carried by
+  ~10 coarse clean images (median gate error gets worse). Honest effect -0.2 to -0.25 CV. Next: a shift-invariant
+  version (averaged over grid offsets/sizes, interior grains) before using it in a bold slot.
+- Noisy images: noise/blur destroy little information; the noisy preset compresses dark-phase contrast by ~half
+  (offset -8.7 vs -17.5 grey), which is what loses the signal. Noise-robust measurement families (ACF length, histogram
+  deconvolution, dark-tail pores, structure tensor) gave no significant gain. A learned grid het estimator: null in
+  noisy, small real signal in mid (-0.05 to -0.10, not grid-specific).
 
 ## Afternoon of 2026-10-07: v17 scored, file for 2026-10-08 00:00 KST
 - **blend_v17 scored public 11.7285** (user ~15:04 KST), best so far. Exact decomposition: in-cell change (v16 cell)
