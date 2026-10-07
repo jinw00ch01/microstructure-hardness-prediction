@@ -16,6 +16,16 @@ Goal: public LB RMSE <= 10.
   v15 ~11.74 too. One public score moves +-0.07 on differences this size, so read it as a direction:
   v17 <= 11.75 -> the out-of-cell change hurt, keep the CNN outside the cell in later blends;
   v17 >= 11.80 -> the in-cell change did not carry over, v16 stays the reference; in between -> both small, v16 stays.
+- **Value of the section-8 GPU run, estimated 2026-10-07 ~14:30 KST** (3 analyses + an adversarial check; scripts and
+  reports in hardness-cache `scripts/gpuq-1007/`, REPORTS.md): the best blend with all section-8 outputs is expected to
+  beat v17 by only ~0.015 public (P > 0.02 ~30%, P > 0.05 ~10%; public SE of such a change ~0.02). Reasons: 3->6 seeds
+  and ConvNeXt left the v17-style blend unchanged (+0.004 / +0.03); inside the fine-noisy cell restored-image features
+  are worse than raw ones (ridge +0.33) and do not correct the CNN's errors, so g has ~15% chance of a 0.3 cell gain;
+  i (2x, 112 crops) is weakest: cell grains are already ~14 px, the residual is noise, small crops lose context;
+  h1/h2 full-data ~-0.005 to -0.01 (fold averaging already holds most of it) and cannot be validated by CV. Simulated
+  new members were ~0.024 nested too optimistic (they leak y), calibrate any such simulation on real CNN additions.
+  Told the user it is not worth 2-3.5 h of the shared GPU; if run, g only (~1 h), and decide after v17's score
+  (v17 >= 11.80 means cell gains do not carry over to public, so a better in-cell CNN likely won't either).
 - Still waiting on the user: the GPU line (exclusive or shared mode) for `notes/handoff/laptop-gpu.md` section 8
   (run order g, i, h1, h2; 2-3.5 h). The laptop saw a robot-project process on the GPU after resume. No GPU run is approved.
 
