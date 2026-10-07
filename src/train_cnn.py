@@ -31,6 +31,11 @@ stays in native pixels (S=2, crop 224: 448 px crops and 512 px views, about 4x c
 cost as now). Default 1.0 skips it entirely.
   python -m src.train_cnn <recipe> --full --seeds 6 --no-save --train-seeds 0 --name X_full6   # ... seeds 1..5
   python -m src.train_cnn <recipe> --full --seeds 6 --name X_full6                             # assemble + save
+--pool grid4 (needs --crop 256, i.e. the full image, so the grid stays aligned to the image origin): the final feature
+map is average-pooled onto a fixed 4x4 grid of 64-px cells (F.adaptive_avg_pool2d(f, 4); a stride-32 backbone's 8x8
+map splits exactly into 2x2 blocks) and the head sees concat(mean over the 16 cells, sd over the 16 cells) -- avgstd
+on the aligned cell map, so it can represent a grid-aligned spread such as het4 (sd of block log grain size over the
+same 4x4 grid, src/het_blocks.py). D4 flips/rot90 map the aligned grid onto itself, so D4 aug and TTA stay.
 CPU-friendly: bf16 autocast + channels_last (uses AMX on Sapphire/Emerald Rapids), threads capped
 at 2 on CPU, no DataLoader workers. --device auto|cpu|cuda: on a GPU, autocast uses bf16 when the card
 supports it, else fp16 with a GradScaler. Per-fold predictions are cached in data/cnn_cache/<name>/ so a run
@@ -304,7 +309,7 @@ class Net(nn.Module):
         nf = self.body.num_features
         self.mode = a.pool
         self.pool = GeM() if a.pool == "gem" else None
-        nh = 2 * nf if a.pool in ("avgstd", "avgstd2") else nf
+        nh = 2 * nf if a.pool in ("avgstd", "avgstd2", "grid4") else nf
         self._mid = None
         if a.pool == "avgstd2":  # + spatial std of the stride-8 stage map (block-averaged to the final grid)
             info = [d for d in self.body.feature_info if d["reduction"] == 8][-1]
@@ -326,6 +331,11 @@ class Net(nn.Module):
                 if self.mode == "avgstd2":
                     z.append(F.adaptive_avg_pool2d(self._mid.float(), f.shape[-2:]).std((-2, -1)))
                 f = torch.cat(z, 1)
+            elif self.mode == "grid4":
+                # mean + sd over the 16 cells of a fixed 4x4 grid of 64-px cells aligned to the image origin
+                assert f.shape[-2] % 4 == 0 and f.shape[-1] % 4 == 0, f"grid4: map {tuple(f.shape[-2:])} not divisible"
+                c = F.adaptive_avg_pool2d(f, 4).flatten(2)
+                f = torch.cat([c.mean(-1), c.std(-1)], 1)
             else:
                 f = self.pool(f) if self.pool is not None else f.mean((-2, -1))
             return self.fc(self.drop(f)).squeeze(-1)
@@ -613,6 +623,8 @@ def main(a):
         torch.backends.cudnn.benchmark = True
     else:
         a.threads = min(a.threads, 2)  # shared cloud machine: never more than 2 threads
+    if a.pool == "grid4" and a.crop != 256:
+        raise SystemExit("--pool grid4 needs --crop 256 (full images keep the 4x4 grid of 64-px cells aligned)")
     torch.set_num_threads(a.threads)
     try:
         torch.set_num_interop_threads(1)
@@ -742,8 +754,10 @@ def parse(argv=None):
     ap.add_argument("--clip", type=float, default=0.0)
     ap.add_argument("--loss", choices=["mse", "huber"], default="mse")
     ap.add_argument("--huber-beta", type=float, default=1.0)
-    ap.add_argument("--pool", choices=["avg", "gem", "avgstd", "avgstd2"], default="avg",
-                    help="avgstd: concat spatial mean+std of the final map; avgstd2: + std of the stride-8 stage map")
+    ap.add_argument("--pool", choices=["avg", "gem", "avgstd", "avgstd2", "grid4"], default="avg",
+                    help="avgstd: concat spatial mean+std of the final map; avgstd2: + std of the stride-8 stage map; "
+                         "grid4 (needs --crop 256): concat mean+sd over a fixed 4x4 grid of 64-px cells of the final "
+                         "map, aligned to the image origin")
     ap.add_argument("--drop", type=float, default=0.0)
     ap.add_argument("--drop-path", type=float, default=0.0)
     ap.add_argument("--ema", type=float, default=0.0, help="EMA decay (0 = off)")

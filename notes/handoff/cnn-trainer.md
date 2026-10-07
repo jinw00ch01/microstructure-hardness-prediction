@@ -254,3 +254,23 @@ Fold-paired against raw+nlm with 2 seeds (same seeds; image-bootstrap 90% CI, wh
   catches gross failures.
 - Laptop plan: `notes/handoff/laptop-gpu.md` section 8 (restorer rebuild on the GPU, rest bank, screen + 3 seeds,
   full-data effnetv2-s x6 and ConvNeXt x3, optional `--scale 2 --crop 112`).
+
+## `--pool grid4` screen (2026-10-07 KST, cnn-trainer; no experiment saved, nothing running)
+- Why: het4 (sd of block log grain size over a fixed, origin-aligned 4x4 grid of 64-px blocks, `src/het_blocks.py`)
+  is a missed label term. Random 224 crops + global pooling cannot represent a grid-aligned spread.
+- `src/train_cnn.py --pool grid4` (requires `--crop 256`, guarded): final map -> `F.adaptive_avg_pool2d(f, 4)`
+  (resnet18 8x8 map = exact 2x2 blocks = 64-px cells) -> concat(mean, sd over the 16 cells) -> dropout + linear.
+  D4 aug/TTA kept (D4 maps the grid onto itself, checked). Old paths are bit-identical to HEAD (1-epoch degcons run,
+  all npz arrays and log lines equal).
+- Screen: degcons recipe (raw+nlm, deg-p 0.5, cons 1.0, 30 ep, lr 1e-3, tta8), seed index 1, folds 0-1, crop 256,
+  A = avg vs B = grid4, about 9.5 min per fold on 2 threads. Caches `data/cnn_cache/s1_c256_{avg,grid4}_degcons/`.
+  | arm | fold 0 | fold 1 | pooled | ic_noise <9.5 / 9.5-11.92 / >=11.92 | coarse / mid / fine grain |
+  |---|---|---|---|---|---|
+  | ref crop224 avg (seed 1 cache) | 13.920 | 12.794 | 13.369 | 11.87 / 14.35 / 15.75 | 16.65 / 12.60 / 10.00 |
+  | A crop256 avg | 13.985 | 13.496 | 13.743 | 12.00 / 15.51 / 16.21 | 17.05 / 12.99 / 10.34 |
+  | B crop256 grid4 | 14.662 | 12.589 | 13.665 | 12.50 / 14.08 / 15.73 | 17.18 / 13.01 / 9.80 |
+  B - A pooled -0.08 (90% CI -0.68, +0.55); noisy -0.48 (-1.38, +0.33; -0.25 / -0.77 by fold); coarse +0.14
+  (+1.44 / -1.14 by fold); clean +0.49. On clean val images (n=120) corr(B - A, het4) = -0.14 (wrong sign) and the
+  residual-het4 correlation is unchanged (A +0.45, B +0.47). The head does not pick up het4. Not run on 5 folds.
+- Analysis script: scratchpad `grid4/analyze.py` (not in the repo); rerun the arms with
+  `--crop 256 --pool {avg,grid4} --seeds 2 --train-seeds 1 --folds 0 1 --no-test --no-save` + the degcons flags.
