@@ -1,6 +1,6 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-07 16:00 KST):** best public blend_v17 11.7285 (LB #1 8.963); blend_v18 handed over for 2026-10-08 00:00 KST. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-07 19:00 KST):** best public blend_v17 11.7285 (LB #1 8.963); for 2026-10-08: blend_v18 (safe, 00:00 KST) and blend_v19 (bold, grain-size heterogeneity offset) handed over. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
