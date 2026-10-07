@@ -103,6 +103,7 @@ def main():
         sub = pd.DataFrame({"ID": te.ID, "hardness": pred})
         assert len(sub) == 1000 and np.isfinite(sub.hardness).all()
         sub.to_csv(SUB_DIR / f"{a.out}.csv", index=False)
+        pd.DataFrame({"ID": tr.ID, "hardness": nested}).to_csv(SUB_DIR / f"{a.out}_oof.csv", index=False)  # git-ignored
         rule.update(train_n=int(in_tr.sum()), test_n=int(in_te.sum()))
         (SUB_DIR / f"{a.out}.json").write_text(json.dumps({
             "exps": pool + list(dict.fromkeys(e for e, _ in cnn + cnn_n)),

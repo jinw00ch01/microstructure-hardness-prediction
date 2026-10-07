@@ -1,0 +1,21 @@
+{
+  "base": "blend_v18",
+  "mode": "het_offset",
+  "gate": "raw ic_noise < 9.5 (src.het_blocks.NOISE_MAX)",
+  "coef_1_het4_hp": [
+    -74.19637629572568,
+    128.57014259832854,
+    12.577158859721699
+  ],
+  "train_n": 267,
+  "test_n": 519,
+  "nested_cv_rmse": 11.753831179892652,
+  "fold_rmse": [
+    11.885541786243511,
+    12.104463141731523,
+    11.735807981499308,
+    11.56225751104737,
+    11.470118473433986
+  ],
+  "notes": "bold slot: v18 + het4/N_eff^0.25 offset on images with raw ic_noise < 9.5"
+}

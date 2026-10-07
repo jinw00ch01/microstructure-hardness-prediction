@@ -48,6 +48,13 @@ Goal: public LB RMSE <= 10.
   No blend_v19 was made. Restored images do not measure het in mid images (fidelity corr 0.20; blur merges grains),
   but the clean pipeline (filter sigma 1.0) on RAW images measures het/N well up to ic_noise 9.5 ("lower mid", ~100
   train / ~207 test): those images were never used to choose het4, so they are the out-of-sample test (running).
+- **Out-of-sample check (19:00 KST)** on the 53 lower-mid train images (raw ic_noise 8.0-9.5) never used to choose het4,
+  coefficients fitted on clean images only: RMSE 11.385 -> 10.119 (-1.27, 90% CI [-2.97, +0.60], 4/5 folds, median
+  |e| 6.76 -> 5.24, 33/53 better), but the top 5 images carry the gain: fails the pre-registered bar (scripts in
+  hardness-cache `scripts/conf-1007/`). Still handed over as a BOLD slot: **blend_v19** = v18 + offset on images with
+  raw ic_noise < 9.5 (`python -m src.het_blocks; python -m src.het_offset --base blend_v18 --out blend_v19`), nested
+  11.754 (selection-inflated), test offset sd 5.0 on 519 images, public SE vs v18 ~0.21, so one score can only show
+  a big effect: v19 <= v18 - 0.2 -> het is real, extend it (noisy images, member route); >= v18 + 0.2 -> drop it.
 - Noisy images: noise/blur destroy little information; the noisy preset compresses dark-phase contrast by ~half
   (offset -8.7 vs -17.5 grey), which is what loses the signal. Noise-robust measurement families (ACF length, histogram
   deconvolution, dark-tail pores, structure tensor) gave no significant gain. A learned grid het estimator: null in
