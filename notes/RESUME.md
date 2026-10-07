@@ -42,7 +42,9 @@ Goal: public LB RMSE <= 10.
   Selected feature-side gains carry over to public at about 0 (-0.43 +- 0.35); CNN share earns a public premium.
 - **File for 2026-10-08 00:00 KST: blend_v18** (`--cnn-nnls cnn_ev2s_rawnlm_degcons_gpu_s6:1`, nested CV 12.2752, -0.016
   vs v17 in 4/5 folds; only the 284 cell images change). Expected about -0.01 vs v17 (a tie). Plan for the other 4 slots:
-  decided after its score; blend tweaks are all within +-0.02, so slots go to the gap investigation first. Fallbacks in
+  the user wants only 1-2 safe submissions per day (said 16:12 KST), so v18 is the safe one and the other 4 go to bold
+  attempts whose public score is not already pinned: gap-investigation features/models first, in-cell CNN share 0.8-1.0,
+  the restored-channel CNN if the user grants the GPU tonight. Fallbacks in
   scratchpad `v18/cands/` (`cmb_Iev2s_Oc` = cell as v18, outside 50/50 v14-outside and v16-base + CNN 0.2, nested
   12.230 but outside reweighting is the kind public punished; `in_Iev2s_sh80` = more CNN in the cell, CV flat).
 - GPU section 8: judged not needed now (restored-channel CNN g ~+0.013 expected, P(>0.03) ~0.2; h1 full-data ~+0.009,
