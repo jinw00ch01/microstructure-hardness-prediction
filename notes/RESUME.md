@@ -41,6 +41,13 @@ Goal: public LB RMSE <= 10.
   (non-aligned grids do about as well), full nested grid selection gives -0.232 [-0.51, +0.02], the gain is carried by
   ~10 coarse clean images (median gate error gets worse). Honest effect -0.2 to -0.25 CV. Next: a shift-invariant
   version (averaged over grid offsets/sizes, interior grains) before using it in a bold slot.
+- **Follow-up (18:30 KST): the het gain is mostly selection.** A pre-registered shift-invariant version (mean block-sd
+  over 249 grids, mirror-corrected border grains) gives only -0.017 nested (hardness-cache `scripts/het-1007/`, inv/).
+  With VISIBLE (uncorrected) border-grain areas it returns to -0.18 (post hoc: the label may be computed on the canvas,
+  border-cut grains counting as small). 80%+ of every variant's SSE gain sits in ~10 coarse clean images (like v12).
+  No blend_v19 was made. Restored images do not measure het in mid images (fidelity corr 0.20; blur merges grains),
+  but the clean pipeline (filter sigma 1.0) on RAW images measures het/N well up to ic_noise 9.5 ("lower mid", ~100
+  train / ~207 test): those images were never used to choose het4, so they are the out-of-sample test (running).
 - Noisy images: noise/blur destroy little information; the noisy preset compresses dark-phase contrast by ~half
   (offset -8.7 vs -17.5 grey), which is what loses the signal. Noise-robust measurement families (ACF length, histogram
   deconvolution, dark-tail pores, structure tensor) gave no significant gain. A learned grid het estimator: null in
