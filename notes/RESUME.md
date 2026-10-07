@@ -1,6 +1,27 @@
-# Resume guide (updated 2026-10-07 ~17:50 KST)
+# Resume guide (updated 2026-10-07 ~20:15 KST)
 
 Goal: public LB RMSE <= 10.
+
+## Paused 2026-10-07 20:10 KST for a PC restart - read this first
+- The user paused all activity ("이 세션의 모든 활동 임시중단. pc 재시작 후 재개할수 있게 모든 스레드에 준비할것").
+  At the pause: no cloud job running, git clean (branch = main = this commit's parent chain), every file below backed up.
+  Laptop: no GPU job running (RobotWorldModel held the GPU, 99% / 6 GB with gpu.lock); section 8 g (3 seeds) and h
+  (full data) are not started, all inputs cached on the laptop (restorer retrain PSNR 32.01, 1500 restored images,
+  restored deg bank, fold-0 screen 13.724 vs 13.635). They need the user's GPU go-ahead (~1-1.5 h) and are worth ~0.015.
+- **Submissions for 2026-10-08 (all 5 used on 10-07; count resets 00:00 KST), in this order, each scored before the next:**
+  1. `blend_v18.csv` (safe, md5 3e095ae7...): v17 with effnetv2-s alone as the cell CNN; expected ~11.72 (tie with v17).
+  2. `blend_v19.csv` (bold, md5 4ce52e76...): v18 + grain-size heterogeneity offset on the 519 low-noise test images.
+     Read vs v18: <= v18 - 0.2 -> het is real, extend it to noisier images; >= v18 + 0.2 -> drop it; between -> undecided.
+  3. `blend_v20.csv` (optional probe, md5 073ca7d8...): v18 with the cell CNN at a fixed share 0.8; expected ~-0.01,
+     public SE ~0.034; <= v18 - 0.07 -> the in-cell CNN premium is large, a dedicated cell CNN is worth GPU time.
+  Slots 4-5: no candidate; do not fill them with near-duplicates. Files: `/mnt/project-files/work/hardness-cache/submissions/`
+  (also attached in the thread). They are git-ignored; rebuild in the repo with the commands in the v18-v20 bullets below.
+- **How to resume:** the user powers on the laptop, opens Claude Code in C:\Daker\microstructure-hardness-prediction,
+  re-enables Remote Control, and writes "재개" in the main thread; the laptop runs `git pull` first (branch
+  claude/lb-under-10-7080jr). The cloud thread then: restore `data/` from hardness-cache if the container is new
+  (open.zip + hardness-cache/data/*.parquet, cnn_cache, experiments-test.tar), check the user's scores against the
+  reading rules above, and continue the gap work (het in noisy images is the open problem; null so far: restored-image
+  het, learned per-block estimator, grid4 CNN head, extra clean-formula terms).
 
 ## Resumed 2026-10-07 afternoon - read this first
 - The user resumed after the move; the laptop is back on the branch with Remote Control in this thread.
