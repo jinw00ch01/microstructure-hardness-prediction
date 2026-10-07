@@ -17,6 +17,8 @@ feat3_v23cal_lgbs_het_spat,feat2_v23cal_lgbs_hetN,emb_effv2s_256_gridge3_noise_c
   python -m src.blend_cells --cnn $C --mode nnls --other share --share-other 0.2 --members <the v16 members> --out blend_v17
   python -m src.blend_cells --cnn $C --cnn-nnls cnn_ev2s_rawnlm_degcons_gpu_s6:1 --mode nnls --other share --share-other 0.2 \
 --members <the v16 members> --out blend_v18      # v17 with effnetv2-s alone as the cell's CNN member
+  python -m src.blend_cells --cnn $C --cnn-nnls cnn_ev2s_rawnlm_degcons_gpu_s6:1 --mode nnls --other share --share-other 0.2 \
+--members <the v16 members> --cell-share 0.8 --out blend_v20   # cell: members-only NNLS + effnetv2-s at a fixed 0.8
 """
 import argparse
 import json
@@ -50,6 +52,8 @@ def main():
     ap.add_argument("--members", default="", help="--mode nnls: comma list of members (the CNN mix is added)")
     ap.add_argument("--other", default="nnls", choices=["nnls", "share"], help="--mode nnls: images outside the cell")
     ap.add_argument("--cnn-nnls", default=None, help="--mode nnls: CNN mix used as the NNLS member (default: --cnn)")
+    ap.add_argument("--cell-share", type=float, default=None,
+                    help="--mode nnls: in the cell, NNLS over --members only, then the --cnn-nnls mix at this fixed share")
     ap.add_argument("--out", default=None)
     ap.add_argument("--note", default="")
     a = ap.parse_args()
@@ -80,20 +84,30 @@ def main():
         pool_n = [e for e in a.members.split(",") if e]
         P = np.column_stack([ld(e, "oof") for e in pool_n] + [sum(w * ld(e, "oof") for e, w in cnn_n)])
         T = np.column_stack([ld(e, "test") for e in pool_n] + [sum(w * ld(e, "test") for e, w in cnn_n)])
+        cs = a.cell_share
         for f in range(5):
             m = folds == f
             for cell in cells:
                 fit_rows, app = (~m) & (in_tr == cell), m & (in_tr == cell)
-                nested[app] = P[app] @ fit_w(P[fit_rows], y[fit_rows])
-        w_cell = fit_w(P[in_tr], y[in_tr])
+                if cell and cs is not None:
+                    b = P[app, :-1] @ fit_w(P[fit_rows, :-1], y[fit_rows])
+                    nested[app] = b + cs * (P[app, -1] - b)
+                else:
+                    nested[app] = P[app] @ fit_w(P[fit_rows], y[fit_rows])
+        if cs is None:
+            w_cell = fit_w(P[in_tr], y[in_tr])
+            cell_te = T @ w_cell
+        else:
+            w_cell = np.append(fit_w(P[in_tr, :-1], y[in_tr]) * (1 - cs), cs)   # equivalent fixed weights
+            cell_te = T @ w_cell
         if a.other == "nnls":
             w_other = fit_w(P[~in_tr], y[~in_tr])
-            pred = np.where(in_te, T @ w_cell, T @ w_other)
+            pred = np.where(in_te, cell_te, T @ w_other)
             weights = {"weights_cell": dict(zip(pool_n + ["cnn_mix"], w_cell.tolist())),
                        "weights_other": dict(zip(pool_n + ["cnn_mix"], w_other.tolist()))}
             pool = pool_n
         else:
-            pred = np.where(in_te, T @ w_cell, pred)
+            pred = np.where(in_te, cell_te, pred)
             weights = {"weights_cell": dict(zip(pool_n + ["cnn_mix"], w_cell.tolist())),
                        "other_share_mode": weights}
             pool = pool_n + [e for e in pool if e not in pool_n]
@@ -108,7 +122,8 @@ def main():
         (SUB_DIR / f"{a.out}.json").write_text(json.dumps({
             "exps": pool + list(dict.fromkeys(e for e, _ in cnn + cnn_n)),
             "mode": a.mode + ("+other_share" if a.other == "share" else ""),
-            **weights, "cnn_mix": dict(cnn), **({"cnn_mix_nnls": dict(cnn_n)} if a.cnn_nnls else {}), "cell": a.cell,
+            **weights, "cnn_mix": dict(cnn), **({"cnn_mix_nnls": dict(cnn_n)} if a.cnn_nnls else {}),
+            **({"cell_share": cs} if a.mode == "nnls" and cs is not None else {}), "cell": a.cell,
             "cell_rule": rule, "nested_cv_rmse": rmse(nested, y), "fold_rmse": fr, "notes": a.note}, indent=2))
         print("written", SUB_DIR / f"{a.out}.csv")
 

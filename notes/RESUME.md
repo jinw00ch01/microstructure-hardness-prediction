@@ -55,6 +55,13 @@ Goal: public LB RMSE <= 10.
   raw ic_noise < 9.5 (`python -m src.het_blocks; python -m src.het_offset --base blend_v18 --out blend_v19`), nested
   11.754 (selection-inflated), test offset sd 5.0 on 519 images, public SE vs v18 ~0.21, so one score can only show
   a big effect: v19 <= v18 - 0.2 -> het is real, extend it (noisy images, member route); >= v18 + 0.2 -> drop it.
+- **Grid-aware CNN screen (19:10 KST), null:** `src.train_cnn --pool grid4` (crop 256, mean+sd over the fixed 4x4 grid of
+  64-px cells), resnet18 CPU folds 0-1: 13.665 vs 13.743 for avg at crop 256 (-0.08, CI [-0.68, +0.55]); residuals of
+  both still correlate +0.45 with het4 on low-noise images, so the head does not learn the grid term (details in
+  notes/handoff/cnn-trainer.md). A GPU effnetv2-s version is not expected to change that.
+- **blend_v20** (optional third slot for 2026-10-08): v18 with the cell's effnetv2-s at a fixed share 0.8
+  (`--cell-share 0.8`), nested 12.277, public SE vs v18 ~0.034, calibration expects ~-0.01. v20 <= v18 - 0.07 would mean
+  the in-cell CNN premium is large (then a dedicated cell CNN is worth GPU time).
 - Noisy images: noise/blur destroy little information; the noisy preset compresses dark-phase contrast by ~half
   (offset -8.7 vs -17.5 grey), which is what loses the signal. Noise-robust measurement families (ACF length, histogram
   deconvolution, dark-tail pores, structure tensor) gave no significant gain. A learned grid het estimator: null in
