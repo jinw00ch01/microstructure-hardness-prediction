@@ -22,6 +22,13 @@ Goal: public LB RMSE <= 10.
   (open.zip + hardness-cache/data/*.parquet, cnn_cache, experiments-test.tar), check the user's scores against the
   reading rules above, and continue the gap work (het in noisy images is the open problem; null so far: restored-image
   het, learned per-block estimator, grid4 CNN head, extra clean-formula terms).
+- **Resumed 21:04 KST; noisy-image het, three more nulls (workflow, pre-registered, train-only choices; hardness-cache
+  `scripts/gap2-1007/`):** on the 233 train images with raw ic_noise >= 9.5, on top of blend_v19 nested OOF:
+  block ACF length L50 +0.153 [+0.03, +0.29] (perm p 0.98, 2/5 folds), block power-spectrum mean frequency +0.125
+  [+0.07, +0.18] (perm p 0.90), smoothed region segmentation for coarse images stopped at fidelity (corr with clean het4
+  -0.08 on degraded copies). Lesson: raw fidelity with het4 comes from grain size (het4 vs log N_eff -0.83); judge any
+  future estimator by partial corr with het4 given log N (all three ~0), and block ACF length follows block dark-phase
+  fraction (0.50) more than block grain size (0.21). Test-image features (acf, spec) are in that folder, extraction only.
 
 ## Resumed 2026-10-07 afternoon - read this first
 - The user resumed after the move; the laptop is back on the branch with Remote Control in this thread.
