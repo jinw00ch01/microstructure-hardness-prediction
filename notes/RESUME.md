@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-07 ~14:05 KST)
+# Resume guide (updated 2026-10-07 ~16:00 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -28,6 +28,26 @@ Goal: public LB RMSE <= 10.
   (v17 >= 11.80 means cell gains do not carry over to public, so a better in-cell CNN likely won't either).
 - Still waiting on the user: the GPU line (exclusive or shared mode) for `notes/handoff/laptop-gpu.md` section 8
   (run order g, i, h1, h2; 2-3.5 h). The laptop saw a robot-project process on the GPU after resume. No GPU run is approved.
+
+## Afternoon of 2026-10-07: v17 scored, file for 2026-10-08 00:00 KST
+- **blend_v17 scored public 11.7285** (user ~15:04 KST), best so far. Exact decomposition: in-cell change (v16 cell)
+  -0.0675 public (CV -0.134), out-of-cell change of v16 (no CNN, restored ridge + embedding) +0.0545 (CV -0.148).
+  Leaderboard #1 at 15:05 KST: **8.9630**, so the old "perfect model ~10.5" estimate is wrong; a gap investigation is next.
+- Public calibration model (scratchpad `v18/calib/predict_public.py`, backed up in hardness-cache `scripts/v18-1007/`):
+  public MSE(p) = c + mean_test[(p - t)^2], t = B + kappa (C - B), B = OOF-NNLS cell/outside blend (= v16 on test),
+  C = CNN mix; kappa 0.32 [0.10, 0.54]; leave-one-submission-out error 0.053 vs 0.136 for "CV - 0.6". A "feature
+  selection optimism" model fits worse. Implied: the CNN mix alone would score ~12.08 public (OOF 13.16).
+  Candidates that are linear mixes of v7/v14/v16/v17 (all v14-outside share variants, v16-base + CNN outside) have
+  their public score already pinned by the existing scores (+-0.004-0.015): submitting them teaches little.
+  Selected feature-side gains carry over to public at about 0 (-0.43 +- 0.35); CNN share earns a public premium.
+- **File for 2026-10-08 00:00 KST: blend_v18** (`--cnn-nnls cnn_ev2s_rawnlm_degcons_gpu_s6:1`, nested CV 12.2752, -0.016
+  vs v17 in 4/5 folds; only the 284 cell images change). Expected about -0.01 vs v17 (a tie). Plan for the other 4 slots:
+  decided after its score; blend tweaks are all within +-0.02, so slots go to the gap investigation first. Fallbacks in
+  scratchpad `v18/cands/` (`cmb_Iev2s_Oc` = cell as v18, outside 50/50 v14-outside and v16-base + CNN 0.2, nested
+  12.230 but outside reweighting is the kind public punished; `in_Iev2s_sh80` = more CNN in the cell, CV flat).
+- GPU section 8: judged not needed now (restored-channel CNN g ~+0.013 expected, P(>0.03) ~0.2; h1 full-data ~+0.009,
+  not CV-checkable). The laptop finished the CPU prep (8b, banks match the cloud: 1953 pairs, rms 2.23); GPU steps wait
+  for the user's mode (exclusive = user stops the robot job; shared = user allows gpu_turn.py in the PC's /permissions).
 
 ## Morning of 2026-10-07 (read this first)
 - **blend_v11 scored public 11.7997** (user, ~04:30 KST), the new best. CNN share 0 / 0.07 / 0.131 gave public

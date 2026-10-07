@@ -15,6 +15,8 @@ Nested CV refits every fitted weight per outer fold on the other four folds.
   python -m src.blend_cells --cnn $C --mode nnls --members feat6_rest_ridge_all,feat5_v3cal_ridge_het_spat_v4_milspl,\
 feat3_v23cal_lgbs_het_spat,feat2_v23cal_lgbs_hetN,emb_effv2s_256_gridge3_noise_cs24 --out blend_v16
   python -m src.blend_cells --cnn $C --mode nnls --other share --share-other 0.2 --members <the v16 members> --out blend_v17
+  python -m src.blend_cells --cnn $C --cnn-nnls cnn_ev2s_rawnlm_degcons_gpu_s6:1 --mode nnls --other share --share-other 0.2 \
+--members <the v16 members> --out blend_v18      # v17 with effnetv2-s alone as the cell's CNN member
 """
 import argparse
 import json
@@ -47,6 +49,7 @@ def main():
     ap.add_argument("--mode", default="share", choices=["share", "nnls"])
     ap.add_argument("--members", default="", help="--mode nnls: comma list of members (the CNN mix is added)")
     ap.add_argument("--other", default="nnls", choices=["nnls", "share"], help="--mode nnls: images outside the cell")
+    ap.add_argument("--cnn-nnls", default=None, help="--mode nnls: CNN mix used as the NNLS member (default: --cnn)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--note", default="")
     a = ap.parse_args()
@@ -56,6 +59,7 @@ def main():
     ld = lambda e, k: (tr if k == "oof" else te)[["ID"]].merge(pd.read_csv(EXP_DIR / e / f"{k}.csv"), on="ID").hardness.values
     c = sum(w * ld(e, "oof") for e, w in cnn)
     ct = sum(w * ld(e, "test") for e, w in cnn)
+    cnn_n = [(s.split(":")[0], float(s.split(":")[1])) for s in a.cnn_nnls.split(",")] if a.cnn_nnls else cnn
     in_tr, in_te, rule = cell_masks(tr.ID, te.ID, a.cell)
     nested = np.zeros(len(y))
     if a.mode == "share" or a.other == "share":
@@ -74,8 +78,8 @@ def main():
     if a.mode == "nnls":
         cells = (True, False) if a.other == "nnls" else (True,)
         pool_n = [e for e in a.members.split(",") if e]
-        P = np.column_stack([ld(e, "oof") for e in pool_n] + [c])
-        T = np.column_stack([ld(e, "test") for e in pool_n] + [ct])
+        P = np.column_stack([ld(e, "oof") for e in pool_n] + [sum(w * ld(e, "oof") for e, w in cnn_n)])
+        T = np.column_stack([ld(e, "test") for e in pool_n] + [sum(w * ld(e, "test") for e, w in cnn_n)])
         for f in range(5):
             m = folds == f
             for cell in cells:
@@ -101,8 +105,9 @@ def main():
         sub.to_csv(SUB_DIR / f"{a.out}.csv", index=False)
         rule.update(train_n=int(in_tr.sum()), test_n=int(in_te.sum()))
         (SUB_DIR / f"{a.out}.json").write_text(json.dumps({
-            "exps": pool + [e for e, _ in cnn], "mode": a.mode + ("+other_share" if a.other == "share" else ""),
-            **weights, "cnn_mix": dict(cnn), "cell": a.cell,
+            "exps": pool + list(dict.fromkeys(e for e, _ in cnn + cnn_n)),
+            "mode": a.mode + ("+other_share" if a.other == "share" else ""),
+            **weights, "cnn_mix": dict(cnn), **({"cnn_mix_nnls": dict(cnn_n)} if a.cnn_nnls else {}), "cell": a.cell,
             "cell_rule": rule, "nested_cv_rmse": rmse(nested, y), "fold_rmse": fr, "notes": a.note}, indent=2))
         print("written", SUB_DIR / f"{a.out}.csv")
 
