@@ -1,25 +1,23 @@
-# Resume guide (updated 2026-10-07 ~08:05 KST)
+# Resume guide (updated 2026-10-07 ~14:05 KST)
 
 Goal: public LB RMSE <= 10.
 
-## Paused 2026-10-07 ~08:00 KST (user moving, laptop powered off) - read this first
-- Best public: blend_v14 11.7960. Handed over for 2026-10-07: blend_v16 (nested CV 12.143, ~05:03 KST) as the 4th
-  submission, blend_v15 (12.327) as the fallback. The user has not reported whether v16 was submitted or its score.
-  Submissions left on 2026-10-07: 2 at 04:39 KST (minus v16 if it went in); the count resets at 00:00 KST.
-- Decision rule for the 5th, once v16's public score is known (nested-OOF simulation of 300-image subsets:
-  v16 - v14 = -0.28, 90% [-0.47, -0.09]): v16 <= ~11.70 -> v16 is the reference, the 5th waits for new CNNs (or is
-  skipped); v16 >= ~11.80 -> the per-cell weights did not carry over (like v12): submit v15 to test the in-cell CNN
-  change alone; in between -> v15 still adds information, low risk.
-- Waiting on the user: (1) v16's public score; (2) the GPU line for `notes/handoff/laptop-gpu.md` section 8 (asked
-  ~05:55 KST in the thread with paste-ready lines for exclusive and shared mode; run order g, i, h1, h2). No GPU run
-  is approved and nothing runs anywhere.
-- Laptop at power-off: branch at 930b3d8, no local changes, nothing running, GPU hand-back file in place; its own
-  resume memo is `LAPTOP_RESUME.local.md` in C:\Daker\microstructure-hardness-prediction (not in git).
-- Resume: the user powers the laptop on, opens Claude Code in C:\Daker\microstructure-hardness-prediction with Remote
-  Control, and writes in this thread; the laptop session reads its memo and pulls first. Cloud: if the container was
-  reclaimed, restore with the steps below; the morning's scratch scripts and nested OOF arrays are in the hardness-cache
-  `scripts/morning-1007/` (README there), the v14-v16 member test predictions in `experiments-test.tar` and
-  `laptop-gpu-2026-10-07/`.
+## Resumed 2026-10-07 afternoon - read this first
+- The user resumed after the move; the laptop is back on the branch with Remote Control in this thread.
+- **blend_v16 scored public 11.7830** (user), best so far but only -0.013 vs v14 (11.7960). The nested-OOF simulation of
+  300-image subsets expected -0.28 (90% [-0.47, -0.09]); landing at -0.013 or worse has probability ~1%, so one of v16's
+  two changes probably does not carry over to public: (a) the cell NNLS (CNN 0.2 -> 0.61 + LightGBM in the fine-noisy
+  cell) or (b) the out-of-cell NNLS that drops the CNN (0.2 -> 0) and reweights the feature members. (b) runs against
+  the public CNN trend (public has favoured the CNN more than CV since v7).
+- **5th submission of 2026-10-07: blend_v17** (`--mode nnls --other share --share-other 0.2 --members <v16 members>`):
+  v16 on the 284 cell images, v14 on the other 716; nested CV 12.291 (v14 12.425, v16 12.143). It replaces the
+  pre-registered v15 because it splits v16 exactly: in-cell effect = v17 - 11.7960, out-of-cell effect = 11.7830 - v17
+  (exact in public MSE). Conditional on v16's score the simulation expects v17 ~11.74 (sd 0.05), P(v17 < v16) 0.78;
+  v15 ~11.74 too. One public score moves +-0.07 on differences this size, so read it as a direction:
+  v17 <= 11.75 -> the out-of-cell change hurt, keep the CNN outside the cell in later blends;
+  v17 >= 11.80 -> the in-cell change did not carry over, v16 stays the reference; in between -> both small, v16 stays.
+- Still waiting on the user: the GPU line (exclusive or shared mode) for `notes/handoff/laptop-gpu.md` section 8
+  (run order g, i, h1, h2; 2-3.5 h). The laptop saw a robot-project process on the GPU after resume. No GPU run is approved.
 
 ## Morning of 2026-10-07 (read this first)
 - **blend_v11 scored public 11.7997** (user, ~04:30 KST), the new best. CNN share 0 / 0.07 / 0.131 gave public

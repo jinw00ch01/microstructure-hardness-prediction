@@ -1,6 +1,6 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Paused 2026-10-07 ~08:00 KST (user moving).** Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-07 14:00 KST):** best public blend_v16 11.7830; blend_v17 handed over as the 5th submission that day. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
