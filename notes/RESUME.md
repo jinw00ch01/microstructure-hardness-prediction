@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-08 ~20:35 KST)
+# Resume guide (updated 2026-10-09 ~00:20 KST)
 
 Goal: public LB RMSE <= 10.
 
@@ -15,8 +15,12 @@ Goal: public LB RMSE <= 10.
   fpn`, `--mosaic/--mosaic-dlogn`, `--zoom`, `--lambda-within`, `--screen` (defaults bit-identical). Pre-registration:
   hardness-cache `scripts/d1009/G/PREREG.txt` (stage-1 design pick from a CPU screen, GPU stage-1 gate, stage-2 bar on
   G1 vs blend_v23: >= 0.10 better, 4/5 folds, perm p < 0.05, survives dropping the top row).
-- CPU screen (cloud, resnet18, fold 0, 16 epochs): runs data/het_cnn/scr_{base,fpn,mos,zoom,within,all}; logs and
-  results are copied to hardness-cache `scripts/d1009/G/screen/` when done (the container is ephemeral).
+- CPU screen (cloud, resnet18, fold 0, 16 epochs; hardness-cache `scripts/d1009/G/screen/`): the within-image
+  deviation loss lifts render partial corr 0.20 -> 0.47-0.49; the combined design was picked. Its 5-fold CPU version
+  (`cpu_loc_r18_e16`, render pc 0.35) FAILED stage 2 at 00:15 KST 10/09: G1 13.770 (v23) -> 13.848, 2/5 folds, perm p
+  0.021 (signal, but weaker than the old GPU estimator). Render gains did not carry to the real labels. The GPU
+  effnetv2-s run of the same design (section 11) is the last pre-registered test of this route (p bar 0.025).
+- Told the user at 00:20 KST 10/09: submit blend_v23 first on 10/09 (safe); GPU grant needed on return.
 
 ## 2026-10-08 17:33 KST: v21 11.0620, v22 10.9742 (best) - read this first
 - Public (user, 17:33 KST): blend_v21 11.0620 (-0.013 vs v19), **blend_v22 10.9742** (-0.088 vs v21). By the pre-set
