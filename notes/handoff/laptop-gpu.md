@@ -369,3 +369,119 @@ f. Return the GPU the way the user's mode requires (exclusive: the done file abo
 | a-b (CPU) | about 5 min |
 | c (GPU) | 30-40 min (15-20 min at the 2026-10-06 speed) |
 | d | a few minutes |
+
+## 10. Next GPU run: het CNN with extra targets, and a mid-noise renderer (prepared 2026-10-09 KST by cnn-trainer)
+Why:
+- blend_v22 (v21 plus the het-CNN offset on the images with raw ic_noise >= 12) scored 10.9742, against 11.0620 for
+  v21. So estimators trained on renders of clean train images do transfer to the real noisy images. That band still
+  holds about 51% of the squared error of the new base, blend_v22b.
+- 10a: the same CNN also learns three label-free scalars, measured on the clean originals from the prep arrays (the
+  hardness label is never read):
+  - `fd`: dark-grain area fraction;
+  - `pore`: area fraction of the het_blocks pore grains;
+  - `asp`: area-weighted log aspect ratio of the interior grains.
+  On clean images the label follows roughly HV ~ 132 f_dark - 317 phi_pore + 5.4 ln(aspect) + ...
+  The noisy preset compresses the dark phase, so the feature models measure fd poorly there. A CNN estimate of fd is
+  the next candidate offset term for the noisy band.
+  - Head: global mean of the last feature map, then one linear output per target. Loss term: 0.5 x the standardised
+    squared error of each target (`--lambda-x 0.5`), with standardisation from the training fold only.
+- 10b (optional, after 10a): `--render-preset mid`, for the 68 train images with raw ic_noise 9.5-12. Renders keep
+  strong boundary lines (p 0.9, strength 0.3-1.0), lose little dark contrast (c_d 0.8-1.0), get matrix spread x1.0-1.3,
+  blur 0.3-1.0 and noise 8-13.
+  - Cloud calibration (`hardness-cache/scripts/d1009/D/calib/`): the 9.5-12 band is a mix of two kinds of image.
+    - 21 are line-visible, clean-preset-like (ic_ridge_snr >= 0.5; dark offset -17.8, d' 3.35).
+    - 47 are noisy-preset-like (offset -8.7, d' 1.53; the existing noisy renderer already covers them).
+  - Mid renders: offset -14.3, d' 2.82, noise 10.8 (band median 10.3). Their lines are weaker than in the real
+    line-visible images: ic_ridge_snr median 0.32 against 0.62.
+  - So 10b is exploratory and worth less than 10a.
+- With none of the new flags, `src/het_cnn.py` reproduces the earlier runs bit for bit. Checked on CPU against the
+  previous code with 1-epoch resnet18 runs: every fold array, weight, parquet column and log number identical.
+  `--dump`/`--ingest` of the old 3-column format are unchanged too.
+
+Rules: as in section 9.
+- GPU mode only as the user says in the thread for this run. Exclusive: run the [GPU] steps with `--device cuda` as
+  written, and when all GPU work is finished (also when stopping early) return the GPU with
+  `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done`. Shared: prefix each [GPU] command with
+  `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- `. Never touch the robot project in
+  any other way.
+- No commits or pushes. Everything under `data\het_cnn\` stays local (git-ignored).
+- PowerShell at the repo root with the `.venv` active.
+
+a. [CPU] Pull, unit tests, CPU smoke of the new options (3-5 min)
+   ```powershell
+   Set-Location C:\Daker\microstructure-hardness-prediction
+   git status --short
+   git pull origin claude/lb-under-10-7080jr
+   Test-Path data\het_cnn\prep.npz, data\folds.csv, data\features_v3.parquet        # True x3
+   python -W ignore -m src.het_cnn --selftest        # 7 checks; must end with "selftest passed"
+   python -W ignore -m src.het_cnn_gridcheck         # must end with "gridcheck passed"
+   ```
+   - If the pull refuses, back up and re-sync as in 8a. If another tracked file shows as modified, stop and ask the
+     cloud session.
+   - `prep.npz` is the file built in 9b; do not rebuild it. If it is missing, build it as in 9b.
+   - Then the CPU smoke runs. They take about 1 min each, use no GPU, and test the Windows spawn workers:
+     ```powershell
+     python -W ignore -m src.het_cnn --device cpu --smoke --folds 0 --epochs 1 --renders 1 --batch 8 --threads 2 --workers 2 --extra-targets fd pore asp --out smoke_x
+     python -W ignore -m src.het_cnn --device cpu --smoke --folds 0 --epochs 1 --renders 1 --batch 8 --threads 2 --workers 2 --render-preset mid --out smoke_mid
+     ```
+   - Each run must end with `total wall ...`.
+   - The first run starts with this line (cloud values):
+     `extra targets (clean originals, from the prep arrays): fd mean 0.1727 sd 0.0881, pore mean 0.0027 sd 0.0051, asp mean 0.7023 sd 0.1969`
+     If a value differs by more than 0.001, send the line, but go on.
+
+b. [GPU] 10a: extra targets, seed 0 (about 25-30 min; seeds 0 and 1 of section 9 took about 50 min together)
+   ```powershell
+   python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --extra-targets fd pore asp --out ev2s_e32r4_x
+   ```
+   - These are the ev2s_e32r4 settings plus `--extra-targets`.
+   - The header line ends with `| extra targets ['fd', 'pore', 'asp'] lambda_x 0.5`.
+   - Each epoch line adds `fd .. pore .. asp ..` after `logN ..`.
+   - Each fold adds a line `fold f extra targets, held-out renders: fd corr .. R2 .., pore ..., asp ... | K-avg: ... |
+     real held-out clean: ...`.
+   - The trunk is shared with the extra heads, so this run's het_cnn / logN_cnn differ from ev2s_e32r4 seed 0. Keep
+     both runs.
+   - Cut-off rule, resume and out-of-memory handling as in 9c. A rerun skips the finished folds. It stops with a
+     message if `--out` holds folds trained with other `--extra-targets` or another `--render-preset`.
+
+c. [GPU] 10b: mid-noise renderer (about 25-30 min). Run it only after 10a has finished and only if the GPU is still
+   yours.
+   ```powershell
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --render-preset mid --out ev2s_mid_e32r4
+   ```
+   - The header line ends with `| render preset mid`.
+   - The stage-1 lines score mid-style renders of the held-out clean images. Expect higher numbers than in 9c, because
+     these renders keep the boundary lines.
+
+d. [CPU] Send the results back without pushing, one message each:
+   1. the contents of `data\het_cnn\ev2s_e32r4_x\score.json`;
+   2. `python -W ignore -m src.het_cnn --dump ev2s_e32r4_x --chunk 0` (the 500 train images);
+   3. `python -W ignore -m src.het_cnn --dump ev2s_e32r4_x --chunk 1` (test images 1-500);
+   4. `python -W ignore -m src.het_cnn --dump ev2s_e32r4_x --chunk 2` (test images 501-1000);
+   5. if 10b ran: the contents of `data\het_cnn\ev2s_mid_e32r4\score.json`;
+   6. `python -W ignore -m src.het_cnn --dump ev2s_mid_e32r4 --chunk 0`;
+   7. `python -W ignore -m src.het_cnn --dump ev2s_mid_e32r4 --chunk 1`;
+   8. `python -W ignore -m src.het_cnn --dump ev2s_mid_e32r4 --chunk 2`.
+
+   Format of the dumps:
+   - 10a dumps have the columns `ID,het_cnn,logN_cnn,bmean_cnn,fd_cnn,pore_cnn,asp_cnn` with 4 decimals. Their
+     `# sums chunk k:` line covers all six columns.
+   - 10b dumps keep the old 3-column format.
+   - To save a dump to a file instead of copying the console, use
+     `... | Out-File -Encoding utf8 c0.txt`, not `>`, which writes UTF-16 in Windows PowerShell.
+
+   The cloud rebuilds the parquets with
+   `python -m src.het_cnn --ingest ev2s_e32r4_x c0.txt c1.txt c2.txt` (and the same for ev2s_mid_e32r4). It checks the
+   IDs and every column's sum.
+
+e. Return the GPU the way the user's mode requires, also when stopping early. Exclusive mode:
+   ```powershell
+   New-Item C:\Dacon\WM_Runtime\hardness_gpu_done
+   ```
+
+| step | time |
+|---|---|
+| a (CPU) | 3-5 min |
+| b, 10a (GPU) | 25-30 min |
+| c, 10b (GPU, optional) | 25-30 min |
+| d | a few minutes |
