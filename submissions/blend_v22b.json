@@ -1,0 +1,34 @@
+{
+ "base": "blend_v21",
+ "gate": "raw ic_noise >= 12",
+ "n_train_gated": 165,
+ "n_test_gated": 326,
+ "seeds_train": [
+  "/mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-08/het_ev2s_e32r4/train.csv",
+  "/mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-08/het_ev2s_e32r4_s1/train.csv"
+ ],
+ "seeds_test": [
+  "/mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-08/het_ev2s_e32r4/test.csv",
+  "/mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-08/het_ev2s_e32r4_s1/test.csv"
+ ],
+ "g": [
+  -0.09728830570080035,
+  0.6772802780472933
+ ],
+ "beta": 107.68012579257385,
+ "fold_betas": [
+  99.47993860810789,
+  106.54349572373087,
+  94.35191900272301,
+  147.16783757872147,
+  93.72226588932999
+ ],
+ "nested_cv_all": 11.682335370167472,
+ "nested_cv_v21": 11.756021960792214,
+ "gated_nested": 14.478140465832512,
+ "gated_v21": 14.657768091142621,
+ "hr_mean_train_gated": -2.2086709565648949e-16,
+ "hr_sd_train_gated": 0.02571208612437336,
+ "offset_oof_rms": 2.905142665722827,
+ "notes": "secondary post-hoc design fixed before seed 1 (stage2b.py); het_cnn from src.het_cnn on clean train renders; test images prediction only"
+}
