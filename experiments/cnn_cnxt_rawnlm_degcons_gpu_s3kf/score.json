@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 13.285916398202309,
+  "fold_rmse": [
+    13.667099744236358,
+    13.144514246133669,
+    13.199766730854074,
+    13.602894560963326,
+    12.795992354199843
+  ],
+  "notes": "Same OOF as cnn_cnxt_rawnlm_degcons_gpu_s3; test = 0.5 * (its 5-fold mean + the laptop full-data run on all 500 train images, 3 seeds, same recipe, 2026-10-08 00:35 KST). Nested CV is unchanged by construction."
+}

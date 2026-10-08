@@ -1,0 +1,21 @@
+{
+  "base": "blend_v21base",
+  "mode": "het_offset",
+  "gate": "raw ic_noise < 9.5 (src.het_blocks.NOISE_MAX)",
+  "coef_1_het4_hp": [
+    -74.35644879344513,
+    128.61792146433777,
+    12.618836899027565
+  ],
+  "train_n": 267,
+  "test_n": 519,
+  "nested_cv_rmse": 11.756021960792214,
+  "fold_rmse": [
+    11.92954425886976,
+    12.032950705132498,
+    11.694499084396218,
+    11.59430293128935,
+    11.520640759923648
+  ],
+  "notes": "v21: blend_v20 base (cell CNN share 0.8) with CNN test = mean of 5-fold and full-data runs, + het offset as v19"
+}
