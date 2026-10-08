@@ -1,8 +1,14 @@
-# Resume guide (updated 2026-10-08 ~17:35 KST)
+# Resume guide (updated 2026-10-08 ~17:45 KST)
 
 Goal: public LB RMSE <= 10.
 
-## 2026-10-08 evening: files for the last 2 slots of the day - read this first
+## 2026-10-08 17:33 KST: v21 11.0620, v22 10.9742 (best) - read this first
+- Public (user, 17:33 KST): blend_v21 11.0620 (-0.013 vs v19), **blend_v22 10.9742** (-0.088 vs v21). By the pre-set
+  reading (<= -0.04) the GPU het-CNN estimate carries real signal on the noisiest images (raw ic_noise >= 12); v22's
+  public gain beat its CV gain (-0.068). CV-to-public offset for v22: 0.714. All 5 submissions of 10-08 used.
+- LB (user, 17:33 KST): #1 8.8662, #2 8.9630, #3 9.6509. Task now: improved files for 2026-10-09, "아주 신중한 판단으로".
+
+## 2026-10-08 evening: files for the last 2 slots of the day
 - **Submit in this order** (files in `/mnt/project-files/work/hardness-cache/submissions/`, also attached in the thread):
   4. `blend_v21.csv` (safe, nested CV 11.756, md5 a57dc832...): v19 + v20's in-cell CNN share, cell CNN test averaged
      half-and-half with the laptop full-data runs. Expected ~11.03-11.04.

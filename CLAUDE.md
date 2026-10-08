@@ -1,6 +1,6 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-08 17:35 KST):** best public blend_v19 11.0751 (LB #1 8.963); last 2 slots of 10-08: blend_v21 (safe, CV 11.756) then blend_v22 (exploratory probe: GPU het CNN on the noisiest images, CV 11.688, fails its bar). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-08 17:45 KST):** best public blend_v22 10.9742 (LB #1 8.8662); all 5 submissions of 10-08 used, building files for 10-09. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
