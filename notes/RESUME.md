@@ -1,6 +1,20 @@
-# Resume guide (updated 2026-10-07 ~20:15 KST)
+# Resume guide (updated 2026-10-08 ~15:20 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-08 afternoon: blend_v19 scored 11.0751 (best) - read this first
+- Public scores for 2026-10-08 (user, 14:45 KST): v18 11.7304 (tie with v17), **v19 11.0751** (-0.655 vs v18, so the
+  het term is real by the pre-set rule), v20 11.6924 (-0.038 vs v18, below the 0.07 bar for a dedicated cell CNN).
+  3 of 5 used; 2 left for the day.
+- `src.het_blocks` het4 breaks right above its gate. Partial corr with the v18 residual given log N_eff: 0.52 / 0.48 /
+  0.46 for raw ic_noise <6 / 6-8 / 8-9.5, but -0.13 (9.5-10.5), -0.20 (10.5-12), +0.15 (12-15), -0.02 (15-21). Applying
+  the clean coefficients or a band-specific cross-fitted OLS makes every band above 9.5 worse, so the gate stays at 9.5.
+- Laptop: full-data CNNs finished 00:35 KST (effnetv2-s 6 seeds, test sum 193318.54; ConvNeXt-tiny 3 seeds, test sum
+  194022.17); test files in hardness-cache `laptop-gpu-2026-10-08/full6`, `full3` (no OOF). The GPU is held by
+  RobotWorldModel again; the user will say in the thread when it is free (mode not chosen yet).
+- Plan for the last 2 slots (user: "남은 두 파일은 GPU가속과 그 외 가능한 최대 심사숙고를 통해서 v19 v20만들것"):
+  v21 = v19 + v20's in-cell CNN share; v22 = v21 + het for the noisy images from a CNN trained on clean train images
+  re-rendered in the noisy-preset style (targets measured on the clean originals, never y), under a pre-registered bar.
 
 ## Paused 2026-10-07 20:10 KST for a PC restart - read this first
 - The user paused all activity ("이 세션의 모든 활동 임시중단. pc 재시작 후 재개할수 있게 모든 스레드에 준비할것").
