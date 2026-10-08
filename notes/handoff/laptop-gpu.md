@@ -485,3 +485,76 @@ e. Return the GPU the way the user's mode requires, also when stopping early. Ex
 | b, 10a (GPU) | 25-30 min |
 | c, 10b (GPU, optional) | 25-30 min |
 | d | a few minutes |
+
+## 11. Next GPU run: het CNN that localizes grain size within the image (prepared 2026-10-08 evening by cnn-trainer)
+This replaces section 10 as the next GPU run (10a/10b are not needed now: on 2026-10-08 the cloud found that the noisy
+images' remaining error is grain-size non-uniformity, not the dark-phase fraction).
+
+Why:
+- The het CNN of section 9 predicts each image's average grain size well (corr 0.97) but barely tells the 16 blocks of
+  one image apart (within-image block corr 0.36; partial corr of het with the truth given grain count 0.25 / 0.14 for
+  seeds 0 / 1). The hardness signal we need is exactly that within-image spread.
+- New options in `src/het_cnn.py` (commit 92d6ebc; defaults reproduce the earlier runs bit for bit, selftest check 12):
+  - `--head fpn`: merges stride-8/16/32 features into a 16x16 map, with a block head and a 16x16 cell head (extra loss
+    on 16-px cells, `--lambda-cell` 1.0).
+  - `--mosaic 0.5 --mosaic-dlogn 0.5`: half of the cartoon renders join two training images of similar grain count
+    along a smooth random region boundary (real images also mix coarse and fine regions).
+  - `--zoom 1.0 1.4`: half of the cartoon renders zoom the label map in by 1.0-1.4 (more grain-size variety).
+  - `--lambda-within 1`: an extra loss on each block's deviation from its image's mean (fights shrinkage).
+- Label-free throughout: targets come from the clean originals' label maps; the hardness label is never read; test
+  images are only predicted.
+
+Rules: as in section 9 (GPU mode only as the user says in the thread for this run; exclusive mode returns the GPU with
+`New-Item C:\Dacon\WM_Runtime\hardness_gpu_done`, also when stopping early; shared mode wraps each [GPU] command with
+`python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- `; never touch the robot project in any
+other way; no commits or pushes; PowerShell at the repo root with the `.venv` active).
+
+a. [CPU] Pull, unit tests, CPU smoke (about 5 min)
+   ```powershell
+   Set-Location C:\Daker\microstructure-hardness-prediction
+   git status --short
+   git pull origin claude/lb-under-10-7080jr
+   python -W ignore -m src.het_cnn --selftest        # 12 checks; must end with "selftest passed"
+   python -W ignore -m src.het_cnn --device cpu --smoke --folds 0 --epochs 1 --renders 1 --batch 8 --threads 2 --workers 2 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --out smoke_loc
+   ```
+   - The smoke run must end with `total wall ...`; it tests the Windows spawn workers with the new renders.
+   - Check 12 compares the default flags against commit 5d99d75 via `git show`; it needs the full git history (a normal
+     clone has it). If only check 12 fails with a git error, send the message and go on.
+
+b. [GPU] 11a: combined design, seed 0 (about 30-40 min)
+   ```powershell
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --out ev2s_loc_e32r4
+   ```
+   - Same settings as ev2s_e32r4 plus the four options. Memory per batch equals the section 9 run (checked on CPU), so
+     batch 12 fits; on out-of-memory use `--batch 8` and say so.
+   - Each fold prints a `stage-1` line; the numbers to watch are `partial | logN` and `within-image` (old run: 0.25 and
+     about 0.36).
+   - Cut-off rule and resume as in 9c (a rerun skips finished folds).
+
+c. [GPU] 11c: second run. FIRST run `git pull origin claude/lb-under-10-7080jr` and use the command in this step as it
+   reads after the pull (the cloud may replace it after its CPU comparison). Default if unchanged: seed 1 of 11a.
+   ```powershell
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 1 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --out ev2s_loc_e32r4_s1
+   ```
+
+d. [CPU] Send the results back without pushing, one message each (use `| Out-File -Encoding utf8 c0.txt` to save a
+   dump to a file, not `>`):
+   1. the contents of `data\het_cnn\ev2s_loc_e32r4\score.json`;
+   2. `python -W ignore -m src.het_cnn --dump ev2s_loc_e32r4 --chunk 0`;
+   3. `python -W ignore -m src.het_cnn --dump ev2s_loc_e32r4 --chunk 1`;
+   4. `python -W ignore -m src.het_cnn --dump ev2s_loc_e32r4 --chunk 2`;
+   5. the contents of `data\het_cnn\ev2s_e32r4\score.json` (the old seed-0 run, for the stage-1 comparison);
+   6-9. the same as 1-4 for the 11c run's `--out` directory, if it ran.
+   Send 1-5 as soon as 11a is done, before 11c finishes.
+
+e. Return the GPU the way the user's mode requires, also when stopping early. Exclusive mode:
+   ```powershell
+   New-Item C:\Dacon\WM_Runtime\hardness_gpu_done
+   ```
+
+| step | time |
+|---|---|
+| a (CPU) | about 5 min |
+| b, 11a (GPU) | 30-40 min |
+| c, 11c (GPU) | 30-40 min |
+| d | a few minutes |
