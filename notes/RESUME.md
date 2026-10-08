@@ -1,6 +1,22 @@
-# Resume guide (updated 2026-10-08 ~17:45 KST)
+# Resume guide (updated 2026-10-08 ~20:35 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-08 20:30 KST: paused for the user's move (laptop off) - read this first
+- **On "재개":** the laptop runs `git pull origin claude/lb-under-10-7080jr`. If the user has written a GPU grant in the
+  thread ("GPU 사용 허가", exclusive or shared), the laptop runs `notes/handoff/laptop-gpu.md` section 11 (a -> b -> c ->
+  d -> e). Section 10 is superseded (dark-phase fraction is not the noisy-image problem). No laptop job was running
+  at the pause; nothing on the laptop needed backing up (only CPU smoke outputs).
+- **10/09 files so far:** `blend_v23.csv` is the safe file (md5 15fbe5e8...; in hardness-cache/submissions). Verified
+  2026-10-08 evening (hardness-cache scripts/d1009/V1, V2, P23): exact reproduction, no leakage, but its gain over
+  v22b comes from one train image (TRAIN_000239); expected public about -0.02 vs v22, a tie. d1009 X1 (whole-image
+  noise-robust size-spread statistics) failed its pre-registered test.
+- **Main lever in progress:** localized het CNN for line-free noisy images. `src/het_cnn.py` (92d6ebc) gained `--head
+  fpn`, `--mosaic/--mosaic-dlogn`, `--zoom`, `--lambda-within`, `--screen` (defaults bit-identical). Pre-registration:
+  hardness-cache `scripts/d1009/G/PREREG.txt` (stage-1 design pick from a CPU screen, GPU stage-1 gate, stage-2 bar on
+  G1 vs blend_v23: >= 0.10 better, 4/5 folds, perm p < 0.05, survives dropping the top row).
+- CPU screen (cloud, resnet18, fold 0, 16 epochs): runs data/het_cnn/scr_{base,fpn,mos,zoom,within,all}; logs and
+  results are copied to hardness-cache `scripts/d1009/G/screen/` when done (the container is ephemeral).
 
 ## 2026-10-08 17:33 KST: v21 11.0620, v22 10.9742 (best) - read this first
 - Public (user, 17:33 KST): blend_v21 11.0620 (-0.013 vs v19), **blend_v22 10.9742** (-0.088 vs v21). By the pre-set
