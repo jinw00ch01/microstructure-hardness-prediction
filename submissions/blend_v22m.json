@@ -1,0 +1,21 @@
+{
+  "base": "blend_v22mbase",
+  "mode": "het_offset",
+  "gate": "raw ic_noise < 9.5 (src.het_blocks.NOISE_MAX)",
+  "coef_1_het4_hp": [
+    -55.188539266412434,
+    87.52458416402972,
+    9.728913978500241
+  ],
+  "train_n": 267,
+  "test_n": 519,
+  "nested_cv_rmse": 11.794106744698531,
+  "fold_rmse": [
+    12.006511690182966,
+    11.862395464989417,
+    11.756381040799193,
+    11.675670448393905,
+    11.666115240149727
+  ],
+  "notes": "v22m: member route (gated het columns inside the members) + v19-style het offset refit on blend_v22mbase"
+}

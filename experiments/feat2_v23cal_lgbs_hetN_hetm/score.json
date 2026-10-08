@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.649990510797814,
+  "fold_rmse": [
+    12.79179918797837,
+    12.742473990037352,
+    12.99002642278831,
+    12.497560689957792,
+    12.213955956204948
+  ],
+  "notes": "lgbs on features_v3.parquet,features_v2.parquet,features_cal.parquet; cols=all(335); drop=/cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv/; 3 seeds; hetero weights var = b0 + sum b/(cal_seg_count_density,ic_ridge_snr) in-fold; + gated het member columns (het4, N_eff^0.25 with NaN for ungated rows; src/het_blocks.py, raw ic_noise < 9.5, 267 train / 519 test gated); hetero weights from the design without them; cmd (| escaped as \\|): python -W ignore -m src.train_gbm --feat features_v3.parquet,features_v2.parquet,features_cal.parquet --model lgbs --seeds 3 --drop cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv --hetero_add cal_seg_count_density,ic_ridge_snr --het_member --name feat2_v23cal_lgbs_hetN_hetm"
+}

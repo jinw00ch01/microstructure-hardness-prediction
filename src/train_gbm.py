@@ -17,6 +17,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import RidgeCV
 from sklearn.pipeline import make_pipeline
@@ -176,6 +177,49 @@ def tercile_rmse(tr, oof):
     return {str(k): round(rmse(oof[t == k], y[t == k]), 3) for k in ["T1_noisy", "T2", "T3_clean"]}
 
 
+# ---- gated grain-size heterogeneity columns ("member route", --het_member; default off)
+# het4 / N_eff come from src/het_blocks.py (per-image extraction only, images with raw ic_noise < 9.5; train and test
+# files are built the same way, nothing is fitted across images). Ridge: gate, gate*het4, gate*N_eff^0.25 (0 for
+# ungated rows), standardized in-fold by the pipeline's StandardScaler and then multiplied by HET_FACTOR so RidgeCV's
+# common alpha penalises them 25x less (fixed, pre-registered; not tuned). Trees: het4 and N_eff^0.25 with NaN for
+# ungated rows. The hetero sample weights are computed on the member's design WITHOUT these columns, so they are
+# identical to the original recipe.
+HET_FACTOR = 5.0
+HET_TREE_KINDS = ("lgb", "lgbs", "lgb_es", "cat")
+
+
+def het_member_cols(ids, split, kind):
+    F = pd.read_parquet(DATA_DIR / f"het_blocks_{split}.parquet").set_index("ID")
+    ids = pd.Index(ids)
+    g = ids.isin(F.index)
+    h = F.het4.reindex(ids).values.astype(float)
+    n = F.N_eff.reindex(ids).values.astype(float) ** 0.25
+    if kind == "ridge":
+        return pd.DataFrame({"hetm_gate": g.astype(float), "hetm_gate_het4": np.where(g, h, 0.0),
+                             "hetm_gate_n025": np.where(g, n, 0.0)})
+    if kind in HET_TREE_KINDS:
+        return pd.DataFrame({"hetm_het4": np.where(g, h, np.nan), "hetm_n025": np.where(g, n, np.nan)})
+    raise ValueError(f"--het_member not implemented for model {kind}")
+
+
+class ColScale(BaseEstimator, TransformerMixin):
+    """Multiplies the columns idx (negative = from the end) by factor; placed after StandardScaler."""
+
+    def __init__(self, idx=(), factor=1.0):
+        self.idx, self.factor = idx, factor
+
+    def fit(self, X, y=None):
+        return self
+
+    def __sklearn_is_fitted__(self):   # stateless
+        return True
+
+    def transform(self, X):
+        X = np.array(X, dtype=float, copy=True)
+        X[:, list(self.idx)] *= self.factor
+        return X
+
+
 def mono_vector(cols, spec):
     """'+' constraints for columns matching regexes in spec; prefix a regex with '-' for a decreasing one."""
     v = np.zeros(len(cols), int)
@@ -189,9 +233,10 @@ def mono_vector(cols, spec):
 
 
 def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=0, es=False, drop=None, fwd=0,
-        hetero=None, mono=None, save=True, hetero_add=None, fold_extra=None, extra_note=""):
+        hetero=None, mono=None, save=True, hetero_add=None, fold_extra=None, extra_note="", het_member=False):
     """fold_extra: optional {fold: (extra_train, extra_val, extra_test)} DataFrames of fold-specific columns
-    (e.g. cross-fitted stacked features), row-aligned with the training rows / validation rows / test rows."""
+    (e.g. cross-fitted stacked features), row-aligned with the training rows / validation rows / test rows.
+    het_member: append the gated het columns (het_member_cols) after the hetero weights are computed."""
     tr, te = load_train(), load_test()
     feats = load_features(feat_file)
     use = select_columns([c for c in feats.columns if c != "ID"], cols)
@@ -206,8 +251,13 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
     feats_tr_z = tr[["ID"]].merge(feats, on="ID")[hz.split(",")].values if hz else None
     oof, pred = np.zeros(len(tr)), np.zeros(len(te))
     extra_cols = list(fold_extra[0][0].columns) if fold_extra else []
-    imp = pd.Series(0.0, index=use + extra_cols)
     kind = "lgb_es" if (model == "lgb" and es) else model
+    het_cols = []
+    if het_member:
+        H, Ht = het_member_cols(tr.ID.values, "train", kind), het_member_cols(te.ID.values, "test", kind)
+        het_cols = list(H.columns)
+        het_n = [int((D[het_cols[-1]].notna() & (D[het_cols[-1]] != 0)).sum()) for D in (H, Ht)]
+    imp = pd.Series(0.0, index=use + extra_cols + het_cols)
     sel_log = []
     for f in range(5):
         trn, val = (tr.fold != f).values, (tr.fold == f).values
@@ -230,7 +280,14 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
         elif hetero:
             w, coef = hetero_weights(A_tr, y[trn], feats_tr_z[trn])
             print(f"fold {f}: hetero log-var slopes {np.round(coef, 3).tolist()}; weight range {w.min():.2f}-{w.max():.2f}", flush=True)
+        if het_member:   # after the weights, so they stay those of the original recipe
+            A_tr = pd.concat([A_tr, H[trn].set_axis(A_tr.index)], axis=1)
+            A_va = pd.concat([A_va, H[val].set_axis(A_va.index)], axis=1)
+            A_te = pd.concat([A_te, Ht.set_axis(A_te.index)], axis=1)
+            cols_f = list(A_tr.columns)
         if kind in ("ridge_fs", "fwd"):
+            if het_member:
+                raise ValueError("--het_member not implemented for ridge_fs / fwd")
             from sklearn.linear_model import RidgeCV
             A, Av, At = _std_matrix(A_tr, A_va, A_te)
             m = RidgeCV(alphas=np.logspace(-2, 3, 30)).fit(A, y[trn], sample_weight=w)
@@ -240,6 +297,8 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
             continue
         for s in range(seeds):
             m = make_model(kind, SEED + s)
+            if het_member and kind == "ridge":   # het columns are the last len(het_cols) after imputer + scaler
+                m.steps.insert(2, ("hetscale", ColScale(tuple(range(-len(het_cols), 0)), HET_FACTOR)))
             if mono and kind in ("lgb", "lgbs"):
                 m.set_params(monotone_constraints=list(mono_vector(cols_f, mono)),
                              monotone_constraints_method="intermediate")
@@ -279,6 +338,15 @@ def run(model, name, feat_file="features.parquet", cols=None, seeds=1, select_k=
         notes += f"; monotone({mono})"
     if extra_note:
         notes += f"; {extra_note}"
+    if het_member:
+        import shlex
+        import sys
+        form = (f"gate, gate*het4, gate*N_eff^0.25 standardized in-fold x{HET_FACTOR:g}" if kind == "ridge" else
+                "het4, N_eff^0.25 with NaN for ungated rows")
+        notes += (f"; + gated het member columns ({form}; src/het_blocks.py, raw ic_noise < 9.5, "
+                  f"{het_n[0]} train / {het_n[1]} test gated); "
+                  "hetero weights from the design without them; cmd (| escaped as \\|): python -W ignore -m "
+                  "src.train_gbm " + shlex.join(sys.argv[1:]).replace("|", "\\|"))
     terc = tercile_rmse(tr, oof)
     if not save:
         from .common import rmse
@@ -514,13 +582,20 @@ if __name__ == "__main__":
     ap.add_argument("--mil_seeds", type=int, default=1)
     ap.add_argument("--mil_design", action="store_true", help="add the spline-mean MIL design itself to --model/--feat")
     ap.add_argument("--mil_blocks_file", default=None, help="block table for the MIL design (default mil_blocks.parquet)")
+    ap.add_argument("--het_member", action="store_true",
+                    help="add gated het columns from data/het_blocks_{train,test}.parquet (ridge: gate, gate*het4, "
+                         "gate*N_eff^0.25, standardized x5; trees: het4, N_eff^0.25 with NaN for ungated rows)")
     a = ap.parse_args()
     fwd = a.fwd or (20 if a.model == "fwd" else 0)
     if a.mil:
         kw = dict(model=a.model, feat_file=a.feat, cols=a.cols, seeds=a.seeds, drop=a.drop, hetero=a.hetero,
                   hetero_add=a.hetero_add) if (a.mil_stack or a.mil_design) else {}
+        if a.het_member:
+            if not kw:
+                raise SystemExit("--het_member needs --mil_stack or --mil_design (a member model)")
+            kw["het_member"] = True
         mil_run(a.mil, a.name or f"mil_{a.mil}", save=not a.no_save, mil_seeds=a.mil_seeds, stack=a.mil_stack,
                 design=a.mil_design, blocks_file=a.mil_blocks_file, **kw)
         raise SystemExit
     run(a.model, a.name or f"feat_{a.model}", a.feat, a.cols, a.seeds, a.select_k, a.es, a.drop, fwd,
-        a.hetero, a.mono, not a.no_save, a.hetero_add)
+        a.hetero, a.mono, not a.no_save, a.hetero_add, het_member=a.het_member)

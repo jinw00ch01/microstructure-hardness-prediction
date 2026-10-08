@@ -1,0 +1,11 @@
+{
+  "cv_rmse": 12.228217921375872,
+  "fold_rmse": [
+    12.731912705844987,
+    11.759449629468635,
+    12.382478300675386,
+    12.328423674270683,
+    11.914046825785455
+  ],
+  "notes": "ridge on features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,features_v4.parquet; cols=all(187); drop=/cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv,^v4(?!c_(bd\\|la\\|acd)_(mean\\|sd\\|q90\\|max_m_mean)$\\|c_(bd\\|la)_hp$)/; hetero weights ~ log-var(log ic_acg_len50_gm) in-fold; + MIL spl design (valid-weighted block means of B-splines of block c_la, c_sfd93, c_pore60, c_acd, acr_len50 + c_sfd93 x spline(c_la), c_sfd93 x spline(c_acd); knots in-fold; blocks mil_blocks.parquet); + gated het member columns (gate, gate*het4, gate*N_eff^0.25 standardized in-fold x5; src/het_blocks.py, raw ic_noise < 9.5, 267 train / 519 test gated); hetero weights from the design without them; cmd (| escaped as \\|): python -W ignore -m src.train_gbm --mil spl --mil_design --feat features_v3.parquet,features_cal.parquet,eda_feats_lledge.parquet,eda_feats_ecs.parquet,features_v4.parquet --model ridge --drop 'cal_ic_seg_L_,cal_ic_seg_mx_area_mean,cal_seg_area_cv,cal_segdk_area_cv,^v4(?!c_(bd\\|la\\|acd)_(mean\\|sd\\|q90\\|max_m_mean)$\\|c_(bd\\|la)_hp$)' --hetero ic_acg_len50_gm --het_member --name feat5_v3cal_ridge_het_spat_v4_milspl_hetm"
+}

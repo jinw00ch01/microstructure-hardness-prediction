@@ -14,6 +14,10 @@ response to within-image deviations (other views = orientation, `--cells all` gr
 
 python -m src.train_head --emb resnet18.a1_in1k_256 --stages 1,2,3,4 --pools mean,std --head ridge
 python -m src.train_head --emb resnet18.a1_in1k_256 --head krr --with-feats --name emb_r18_krr_feats
+
+`--het-gate` appends the gated grain-size heterogeneity columns of src.het_blocks ([gate, gate*het4,
+gate*N_eff^0.25], 0 for images above the ic_noise gate) to the head design, standardised in-fold and weighted by
+`--het-weight` (default 5, i.e. ridge penalty alpha/25 on them); default off, old runs are unchanged.
 """
 import os
 import sys
@@ -363,14 +367,21 @@ def gridge3_fit_eval(X3tr, ytr, X3evs, cfg, grid, sw=None):
     G, gvec = Zc.T @ (sw[:, None] * Zc), Zc.T @ (sw * (yc - ybar))
     sizes = [len(X) for X in X3evs]
     P_ev = prep.transform(np.concatenate([X[:, gidx].mean(1) for X in X3evs])) - zc
+    # --het-gate columns with grid['het_w']: their column weight (absolute, replaces --het-weight) chosen by inner CV
+    het = cfg.get("het_cols")
+    het_k = het[prep.keep] if het is not None and "het_w" in grid and not cfg["pca"] else None
+    het_ws = grid["het_w"] if het_k is not None else [None]
     out, hps = [], []
-    for ow in own_ws:
-        if ow is None:  # no own columns: unchanged path
+    for ow, hw in [(o, h) for o in own_ws for h in het_ws]:
+        if ow is None and hw is None:  # no own columns / fixed het weight: unchanged path
             G_, gv_, S_, Pev_, ext = G, gvec, S, P_ev, {}
         else:  # column scaling commutes with the (weighted) centring, so rescale the unit-weight Gram matrices
-            dv = np.where(own_k > 0, float(ow), 1.0)
+            dv = np.where(own_k > 0, float(ow), 1.0) if ow is not None else np.ones(len(G))
+            if hw is not None:
+                dv = np.where(het_k, float(hw) / cfg["het_weight"], dv)
             DD = np.outer(dv, dv)
-            G_, gv_, S_, Pev_, ext = G * DD, gvec * dv, {k: M * DD for k, M in S.items()}, P_ev * dv, {"own_w": ow}
+            ext = {**({"own_w": ow} if ow is not None else {}), **({"het_w": hw} if hw is not None else {})}
+            G_, gv_, S_, Pev_ = G * DD, gvec * dv, {k: M * DD for k, M in S.items()}, P_ev * dv
         for lv in (grid["lam_view"] if "view" in S_ else [0.0]):
             for lc in (grid["lam_cell"] if "cell" in S_ else [0.0]):
                 for la in (grid["lam_aug"] if "aug" in S_ else [0.0]):
@@ -527,11 +538,37 @@ def build(args, tr, te):
         col_w = np.concatenate([col_w, np.full(F.shape[1], w)])
         blocks.append((args.feats, F.shape[1]))
         own_grp = np.concatenate([own_grp, np.zeros(F.shape[1], int)])
+    n_pass = blocks[-1][1] if args.with_feats else 0
+    if args.het_gate:  # gated grain-size heterogeneity columns (per-image constants: no view/cell/aug deviation)
+        Hg, args.het_info = het_gate_cols(args, base_ids, tr, te)
+        X = np.concatenate([X, np.repeat(Hg[:, None], X.shape[1], 1)], 2)
+        col_w = np.concatenate([col_w, np.full(Hg.shape[1], args.het_weight)])
+        blocks.append(("het_gate", Hg.shape[1]))
+        own_grp = np.concatenate([own_grp, np.zeros(Hg.shape[1], int)])
+        n_pass += Hg.shape[1]  # side columns: bypass PCA like --with-feats
     if args.view_mode == "mean":
         X, is_orig, rows = X[:, is_orig].mean(1, keepdims=True), np.array([True]), [("mean", 0)]
     pos = pd.Series(np.arange(len(base_ids)), index=base_ids)
-    n_pass = blocks[-1][1] if args.with_feats else 0
     return X[pos[tr.ID].values], X[pos[te.ID].values], col_w, blocks, lic, n_pass, is_orig, rows, own_grp
+
+
+def het_gate_cols(args, ids, tr, te):
+    """--het-gate: [gate, gate*het4, gate*N_eff^0.25] per image from data/<het-file>_{train,test}.parquet
+    (src.het_blocks; gate = the image has a row there, i.e. raw ic_noise < 9.5); 0 for the noisy (ungated) images.
+    Pure per-image feature extraction; standardisation happens in-fold in Prep on training images only, and
+    --het-weight multiplies the standardised columns (ridge penalty on them = alpha / het_weight^2)."""
+    H = pd.concat([pd.read_parquet(DATA_DIR / f"{args.het_file}_{s}.parquet") for s in ("train", "test")])
+    H = H.set_index("ID")
+    assert H.index.is_unique and H[["het4", "N_eff"]].notna().all().all() and (H.N_eff > 0).all()
+    g = pd.Index(ids).isin(H.index)
+    out = np.zeros((len(ids), 3))
+    Hs = H.loc[np.asarray(ids)[g]]
+    out[g] = np.column_stack([np.ones(g.sum()), Hs.het4.values, Hs.N_eff.values ** 0.25])
+    gs = pd.Series(g, index=ids)
+    info = (f"het_gate=[gate,gate*het4,gate*N_eff^0.25]@{args.het_file} x{args.het_weight:g} gated train "
+            f"{int(gs.loc[tr.ID].sum())}/{len(tr)} test {int(gs.loc[te.ID].sum())}/{len(te)}")
+    print(info, flush=True)
+    return out, info
 
 
 def own_groups(args, ids, tr, te):
@@ -597,6 +634,11 @@ if __name__ == "__main__":
     ap.add_argument("--own-q", default="2/3", help="train-image quantile cut(s) of --own-col, e.g. '2/3' (top "
                     "tercile gets own slopes) or '1/3,2/3' (mid and top terciles each get own slopes)")
     ap.add_argument("--own-random", type=int, default=-1, help="control: permute the groups at random (seed)")
+    ap.add_argument("--het-gate", action="store_true", help="append the gated heterogeneity columns [gate, "
+                    "gate*het4, gate*N_eff^0.25] from --het-file (0 for ungated = noisy images), standardised in-fold")
+    ap.add_argument("--het-file", default="het_blocks", help="data/<this>_{train,test}.parquet (src.het_blocks)")
+    ap.add_argument("--het-weight", type=float, default=5.0, help="column weight of the --het-gate columns "
+                    "relative to the other standardised columns (ridge penalty alpha / weight^2)")
     ap.add_argument("--with-feats", action="store_true")
     ap.add_argument("--feat-weight", type=float, default=1.0)
     ap.add_argument("--feats", default="features.parquet", help="comma list of data/*.parquet feature files")
@@ -633,6 +675,9 @@ if __name__ == "__main__":
                "is_orig": is_orig, "rows": rows, "hetero_z": hz, "hp_avg": a.hp_avg}
         if (own_grp > 0).any():
             cfg["own_grp"] = own_grp
+        if a.het_gate:  # the --het-gate block is always the last 3 columns
+            cfg["het_cols"], cfg["het_weight"] = np.arange(Xtr.shape[2]) >= Xtr.shape[2] - 3, a.het_weight
+        assert "het_w" not in grid or (a.het_gate and a.head == "gridge3"), "grid key het_w needs --het-gate, gridge3"
         print(f"X {Xtr.shape} test {Xte.shape} blocks {len(blocks)} head {a.head}"
               f"{' cs_grid=' + spec if a.cellstats else ''}", flush=True)
         oof_k, pte_k, chosen_k, inner, orc, orc_hp = run_cv(Xtr, y, folds, Xte, cfg, grid, verbose=len(specs) == 1)
@@ -666,7 +711,8 @@ if __name__ == "__main__":
                  f"pca={a.pca}{'w' if a.whiten else ''} feats={a.feats + ' x' + str(a.feat_weight) if a.with_feats else 'no'}"
                  f"{' hetero=' + a.hetero + '@' + a.hetero_file + ' (in-fold inverse-variance weights)' if a.hetero else ''}"
                  f"{' hp_avg=' + str(a.hp_avg) if a.hp_avg > 1 else ''}"
-                 f"{' ' + a.own_info + ' (own slopes per group; NaN outside -> in-fold group mean -> 0)' if a.own_info else ''}; "
+                 f"{' ' + a.own_info + ' (own slopes per group; NaN outside -> in-fold group mean -> 0)' if a.own_info else ''}"
+                 f"{' ' + a.het_info + ' (standardised in-fold, x weight)' if a.het_gate else ''}; "
                  f"{'grid=' + a.grid_json + '; ' if a.grid_json else ''}"
                  f"licenses: {', '.join(sorted(set(s.split('(')[1].split(',')[0] for s in lic)))}"
                  f"{'; ' + a.note if a.note else ''}")
