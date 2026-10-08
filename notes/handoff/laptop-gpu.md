@@ -263,3 +263,109 @@ Order and time (exclusive mode, estimates):
 About 2-3.5 h in all (1.5-2.5 h without i). Run order g, i, h1, h2 (orchestrator, 2026-10-07): g and i are fold runs
 whose OOF the cloud can check in the fine_noisy cell; h1 and h2 only change test predictions. If time runs short,
 stop after any finished experiment.
+
+## 9. Next GPU run: grid-aligned het CNN for the noisy images (prepared 2026-10-08 KST by cnn-trainer)
+Why:
+- blend_v19 (the het4 offset on the 519 low-noise test images) scored 11.0751 against 11.7304 for v18, so het4 is a real
+  label term. The noisy images (raw ic_noise >= 9.5: 233 train / 481 test) hold 63.5% of the squared error. The
+  segmentation behind het4 (`src/het_blocks.py`) fails on them because they show no grain-boundary lines.
+- `src/het_cnn.py` learns, from one image, the 16 block values b_k behind het4 (fixed 4x4 grid of 64-px blocks; het4 =
+  their sd) and log N_eff. It sees the full 256 px image, with no crop or resize, so the grid stays aligned.
+- It trains only on the 267 clean train images. Each one is re-rendered on the fly in the noisy-preset style: no
+  boundary lines, compressed dark phase, blur, noise. The renderer is calibrated against the real noisy train images.
+  - Targets come from the clean originals by the het_blocks method. The hardness label is never read.
+  - Test images are only passed through the trained models.
+- **This supersedes the laptop's own scratch het CNN** (image-level het4 regression on the team's degradation bank).
+  That one may still be run as a second variant, but only if the user agrees in the thread and before the GPU is
+  returned (step f); send its numbers separately and label them.
+
+Rules: as in section 8.
+- GPU mode only as the user says in the thread for this run. Exclusive: run the [GPU] step with `--device cuda` as
+  written, and when all GPU work is finished (also when stopping early) return the GPU with
+  `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done`. Shared: prefix the [GPU] command with
+  `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- `. Never touch the robot project in
+  any other way.
+- No commits or pushes. Everything under `data\het_cnn\` stays local (git-ignored).
+- PowerShell at the repo root with the `.venv` active.
+
+a. [CPU] Pull (1-2 min)
+   ```powershell
+   git status --short
+   git pull origin claude/lb-under-10-7080jr
+   Test-Path src\het_cnn.py      # True
+   ```
+   If the pull refuses, back up and re-sync as in 8a. If another tracked file shows as modified, stop and ask the cloud
+   session.
+
+b. [CPU] Inputs, prep, unit tests (about 3-5 min)
+   ```powershell
+   Test-Path data\features_v3.parquet, data\folds.csv, data\het_blocks_train.parquet   # True x3
+   ```
+   - If `het_blocks_train.parquet` is missing, build it: `python -W ignore -m src.het_blocks` (1-3 min, writes the train
+     and test files).
+   - Prep (cloud: 31 s on 3 cores; writes `data\het_cnn\prep.npz`, about 160 MB):
+     ```powershell
+     python -W ignore -m src.het_cnn --prep --threads 4
+     ```
+     It must print `prep reproduces het_blocks_train.parquet on 267 images (max |dhet4| 0.0e+00, |dN_eff| 0.0e+00)`
+     and `... NaN blocks 0; het4 sum 48.727850, N_eff sum 76272.5 ...` (the cloud values). If either sum differs,
+     stop and send both lines.
+   - Unit tests (about 10 s): `python -W ignore -m src.het_cnn --selftest`. It must end with `selftest passed`.
+   - Independent grid/TTA check (about 15 s): `python -W ignore -m src.het_cnn_gridcheck`. It must end with
+     `gridcheck passed`.
+
+c. [GPU] CUDA check, then 5 fold models (estimate 30-40 min; 15-20 min if the GPU runs at the 2026-10-06 speed)
+   ```powershell
+   python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+   ```
+   Exclusive mode:
+   ```powershell
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --out ev2s_e32r4
+   ```
+   Shared mode (the same command behind the wrapper):
+   ```powershell
+   python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --out ev2s_e32r4
+   ```
+   - What it does per fold:
+     - trains on the clean images outside the fold: about 213 images x 4 fresh renders x 32 epochs, 71 steps of 12
+       per epoch;
+     - scores the held-out clean images, each rendered with 4 fixed seeds;
+     - predicts all 1500 real images with 8-view TTA.
+   - Per epoch it logs `loss (block .. het .. logN ..)` and the seconds per epoch.
+   - Per fold it logs a `fold f stage-1 (held-out renders ...)` line: corr(sd b-hat, het4), partial corr given log N,
+     block corr, logN corr. A second line gives the same metrics on the real held-out clean images.
+   - Each finished fold is kept in `data\het_cnn\ev2s_e32r4\fold<f>.{pt,npz,json}`. Rerunning the same command skips
+     finished folds; a fold cut mid-way starts again.
+   - At the end it writes `het_cnn_train.parquet`, `het_cnn_test.parquet` and `score.json`.
+   - Time check: one fold takes about 32 x (seconds per epoch) plus 1-3 min of prediction.
+     - If the first fold is projected above 12 min, stop after the fold that is running when 40 min are used up.
+     - Then aggregate the finished folds without training: rerun the command with `--folds 0 1` (the finished
+       ones).
+   - VRAM: batch 12 at 256 px should need about 2.5-3 GB (cloud estimate, not measured on a GPU). On CUDA out of
+     memory, rerun with `--batch 8`.
+   - Render workers: 4 DataLoader workers each load the 160 MB prep once. A render costs about 10 ms of CPU, so 4
+     workers keep up with the GPU.
+
+d. [CPU] Send the results back without pushing, one message each:
+   1. the contents of `data\het_cnn\ev2s_e32r4\score.json` (stage-1 metrics per fold and the exact command);
+   2. `python -W ignore -m src.het_cnn --dump ev2s_e32r4 --chunk 0`: the 500 train images;
+   3. `... --chunk 1`: test images 1-500;
+   4. `... --chunk 2`: test images 501-1000.
+
+   Each dump is ID-ordered `ID,het_cnn,logN_cnn,bmean_cnn` with 4 decimals and ends with a
+   `# sums chunk k: het_cnn .. logN_cnn .. bmean_cnn .. nan 0` line (after a partial run, chunk 0 has NaN for the clean
+   train images of the unfinished folds; that is expected). The cloud rebuilds the files with
+   `python -m src.het_cnn --ingest ev2s_e32r4 c0.txt c1.txt c2.txt`, which checks the IDs and sums.
+   - Clean train rows come from the one fold model that did not train on them.
+   - Noisy train rows and all test rows are the mean over the 5 fold models.
+
+e. Optional, only if the user agrees in the thread, in the same GPU mode and before f: the scratch het CNN as a second
+   variant (see the first bullet).
+
+f. Return the GPU the way the user's mode requires (exclusive: the done file above), also when stopping early.
+
+| step | time |
+|---|---|
+| a-b (CPU) | about 5 min |
+| c (GPU) | 30-40 min (15-20 min at the 2026-10-06 speed) |
+| d | a few minutes |
