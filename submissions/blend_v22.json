@@ -1,0 +1,32 @@
+{
+ "base": "blend_v21",
+ "gate": "raw ic_noise >= 12",
+ "n_train_gated": 165,
+ "n_test_gated": 326,
+ "seeds_train": [
+  "/mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-08/het_ev2s_e32r4/train.csv"
+ ],
+ "seeds_test": [
+  "/mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-08/het_ev2s_e32r4/test.csv"
+ ],
+ "g": [
+  -0.09588799286821345,
+  0.6801512125784838
+ ],
+ "beta": 103.52039196682973,
+ "fold_betas": [
+  90.67183549149608,
+  106.41675489501065,
+  90.59910375561687,
+  140.4283797406748,
+  90.52757034509317
+ ],
+ "nested_cv_all": 11.688197276699483,
+ "nested_cv_v21": 11.756021960792214,
+ "gated_nested": 14.492470126674629,
+ "gated_v21": 14.657768091142621,
+ "hr_mean_train_gated": 8.91542731895959e-17,
+ "hr_sd_train_gated": 0.02568391004866499,
+ "offset_oof_rms": 2.7466833784773077,
+ "notes": "secondary post-hoc design fixed before seed 1 (stage2b.py); het_cnn from src.het_cnn on clean train renders; test images prediction only"
+}

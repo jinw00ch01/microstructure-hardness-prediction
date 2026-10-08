@@ -1,8 +1,34 @@
-# Resume guide (updated 2026-10-08 ~15:20 KST)
+# Resume guide (updated 2026-10-08 ~17:35 KST)
 
 Goal: public LB RMSE <= 10.
 
-## 2026-10-08 afternoon: blend_v19 scored 11.0751 (best) - read this first
+## 2026-10-08 evening: files for the last 2 slots of the day - read this first
+- **Submit in this order** (files in `/mnt/project-files/work/hardness-cache/submissions/`, also attached in the thread):
+  4. `blend_v21.csv` (safe, nested CV 11.756, md5 a57dc832...): v19 + v20's in-cell CNN share, cell CNN test averaged
+     half-and-half with the laptop full-data runs. Expected ~11.03-11.04.
+  5. `blend_v22.csv` (exploratory probe, nested CV 11.688, md5 0ab58a1a...): v21 + beta * (het_cnn - g(logN_cnn)) on
+     the 326 test images with raw ic_noise >= 12 (165 train), g linear and beta = 103.5 fitted on those train rows
+     against the v21 nested OOF residual. FAILS its bar: gated 14.658 -> 14.492 (-0.165), perm p 0.02, but 3/5 folds
+     (fold deltas -0.41 / +0.002 / -0.45 / +0.54 / -0.55; need 4/5), and the design (gate >= 12, residualised form)
+     was chosen after seeing the primary test. Read v22 - v21 on public: <= -0.04 -> the CNN het estimate carries
+     signal on noisy images, worth more GPU seeds / a better renderer; >= +0.04 -> drop the route; between -> undecided.
+- GPU het CNN (`src/het_cnn.py`, laptop RTX 5060, exclusive hand-over 16:30-17:22 KST, returned with hardness_gpu_done):
+  effnetv2-s, 32 epochs, 4 renders per clean train image in the noisy-preset style, targets = the 16 block b values and
+  log N_eff measured on the clean originals (y never read). Seed 0: render corr 0.80, partial corr | logN 0.25; seed 1
+  0.74 / 0.14; test het_cnn of the two seeds correlate 0.988. Dumps: hardness-cache
+  `laptop-gpu-2026-10-08/het_ev2s_e32r4/{train,test}.csv` (seed 1 stays on the laptop in data\het_cnn\ev2s_e32r4_s1).
+- Pre-registered primary stage 2 (`src/het_cnn_offset.py`, gate 9.5, OLS on [1, het_cnn, exp(0.25 logN_cnn)] on
+  blend_v19): noisy 13.721 -> 13.799, 2/5 folds, FAIL (9.5-12 band 11.25 -> 11.77, 12-15 16.08 -> 15.95, 15-21 13.98 ->
+  13.94). Secondary stage 2b and the v22 builder: hardness-cache `scripts/het-1008/stage2b/{stage2b.py,build_v22.py}`
+  (`python build_v22.py --train <seed csv...> --test <seed csv...>`). Averaging seed 1 would flip the fold count to 4/5
+  in ~40% of simulated draws (fold 1 is a tie), but moves the file itself by far less than its public noise.
+- Also null today under pre-registered bars: clean-het refinement (`src/het_refine.py`, 9.717 -> 9.694, 3/5 folds) and
+  the member route (het columns inside the five members, blend_v22m 11.794 vs v21 11.756).
+- Next (after the user's v21 / v22 scores): noisy images still hold ~63% of the squared error. If v22 helps, train more
+  het-CNN seeds and widen the renderer's noise range; if not, the noisy-image het estimate needs a different input
+  (e.g. denoised or restored views) rather than more seeds.
+
+## 2026-10-08 afternoon: blend_v19 scored 11.0751 (best)
 - Public scores for 2026-10-08 (user, 14:45 KST): v18 11.7304 (tie with v17), **v19 11.0751** (-0.655 vs v18, so the
   het term is real by the pre-set rule), v20 11.6924 (-0.038 vs v18, below the 0.07 bar for a dedicated cell CNN).
   3 of 5 used; 2 left for the day.
