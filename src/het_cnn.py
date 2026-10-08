@@ -33,6 +33,67 @@ Options added 2026-10-09 (defaults reproduce the earlier runs bit-identically; c
   like renders at higher noise (strong boundary lines, little dark-contrast loss), meant for raw ic_noise 9.5-12.
   --calib with --render-preset mid compares against the real train images with 9.5 <= raw ic_noise < 12.
 
+Options added 2026-10-09 (evening), for within-image localisation (defaults reproduce the earlier runs bit-identically:
+render RNG streams, model init, losses, outputs; checked against the pre-options file (git: parent of the commit that
+added them) by --selftest check 12 and a 1-epoch CPU run). New randomness comes from a separate generator
+default_rng([seed, fold, epoch, i, 9001]) (AUG_TAG) and only when an option is on; the render parameters, the path draw
+(cartoon / degrade_m) and the D4 op stay on the item's own generator. Zoom and mosaic act on cartoon-path renders only
+(the degrade_m path, p_m = 25%, is never augmented), so their probabilities are per cartoon render.
+--zoom LO HI [--p-zoom P (0.5; 0-1, only with --zoom)]: label-map rescaling (zoom_source). s ~ logUniform(LO, HI);
+  output pixel (y, x) samples the source at (oy + (y + .5)/s - .5, ox + (x + .5)/s - .5) with symmetric reflection
+  beyond the image edge (s < 1 sees reflected copies around the whole original; s > 1 a random window inside it).
+  Nearest neighbour for the label map and the render-pore mask, bilinear for resid and the source grey (used only for
+  the mean-grey fix); the shading surface is the source's, evaluated on the output canvas. Then split_merge(): relabel()
+  makes connected components (4-connectivity) of equal labels separate grains, each carrying sn_tab / dark / pore of its
+  source label; NON-PORE components below MIN_GRAIN = 16 px (seam slivers, necks broken by nearest-neighbour
+  down-scaling; het_blocks.segment never yields grains below 17 px, so the prep maps have none) are absorbed by
+  neighbouring non-pore grains (grown in from the rim); pore pieces are never merged, so every pixel keeps its pore flag
+  and the target pores stay inside the render-pore mask (a sliver with no non-pore neighbour stays its own grain).
+  Targets are recomputed on the final map with the original definitions (targets_of: block_targets_fast ==
+  block_targets, het4 = sd of the valid b, n_eff_fast == n_eff_of, extras -- asp falls back to all non-pore grains when
+  no interior one is left -- and cells). Caveats: boundary-line depth (resid) and pore blobs scale with s; small grains
+  of the source vanish at s < 1 while their old boundary lines stay in resid (s_line > 0). Zoom-out (s < 1) reflects the
+  source at its edges, and a grain cut by the original border merges with its mirror copy (2x, 4x at corners; no
+  boundary line there, so image and targets agree): the canvas corner / edge blocks then hold bigger grains than in real
+  images, where border truncation makes them smaller. Mean within-image block deviation corner / edge / centre (60 draws
+  each): prep -0.034 / -0.013 / +0.060; s=0.85 +0.134 / -0.037 / -0.060 (het4 0.224 vs 0.178 for the same sources);
+  s=0.70 +0.047 / -0.017 / -0.014; zoom-in s=1.2 -0.109 / -0.011 / +0.132 (the border truncation of larger grains, as in
+  real images). Splitting the mirror copies into separate grains overshoots the other way (corners -0.11 at s=0.85: thin
+  truncated slivers), so it is not done; use LO >= 1 (zoom-in only) when that corner pattern matters.
+--mosaic P: with probability P a cartoon render is a composite of image j and a second training image j2 of the fold
+  (mosaic_mask: 75% a Gaussian-smoothed white-noise field, sigma 32-72 px (periodic FFT filter), thresholded at a
+  quantile 0.3-0.7; 25% a straight line at a random angle through a random point of the central half). Composite label
+  map = j inside the mask, j2 (labels offset) outside, relabelled as for zoom; j2's resid and grey are rescaled by S_j /
+  S_j2 per pixel and the composite uses j's shading surface, so both regions sit on the same illumination (no brightness
+  step at the seam); ONE draw of the render parameters for the whole composite; mean-grey fix to the composite source
+  grey. Zoom composes: each source is zoomed independently (own s, own p-zoom draw) before compositing. Caveat:
+  any-partner composites of a large- and a small-grain image lie far outside the real het4 range (200 forced mosaics:
+  het4 mean 0.33 sd 0.17 vs prep 0.18 / 0.07, 23% above the prep max; sd of het4 given logN 0.167 vs 0.039).
+  --mosaic-dlogn D: draw j2 only among the training images with |log N_eff(j2) - log N_eff(j)| <= D (the nearest one if
+  none; same draws, narrower candidate list). 200 forced mosaics: D 0.5 -> het4 0.212 sd 0.065, 1% above the prep max,
+  sd given logN 0.049; D 0.3 -> 0.197 / 0.040; D 0.15 -> 0.186 / 0.037 (log N_eff sd 0.62). fold{f}.json 'train_het4'
+  reports the het4 of the training renders actually drawn.
+--head {grid4,fpn}: grid4 = HetNet (unchanged). fpn = FPNNet: timm features_only backbone, stride-8/16/32 maps -> 1x1
+  laterals (--fpn-ch, 128) merged at stride 16 (nearest up-sampling of s32, 2x2 average pooling of s8) -> 3x3 conv + BN
+  + ReLU -> block head (adaptive_avg_pool2d(4) + 1x1 conv, GRID order) and cell head (1x1 conv -> 16x16 map of 16-px
+  cells); logN / extras from the global mean of the stride-32 map. --lambda-cell (1.0 with fpn): + mean over valid cells
+  of ((b-hat_cell - b_cell)/s_b)^2, b_cell = cell_targets (valid when >= 32 of its 256 pixels are non-pore),
+  D4-transformed with the image. predict() un-transforms the cell map with the inverse D4 op (d4_inv_t); het stays sd of
+  the 16 block b-hat; stage-1 also reports pcorr_het_cell (cells -> blocks by -2 log mean exp(-b_cell/2)),
+  corr_cell(_within).
+--lambda-within W: + W * mean over images of the mean over valid blocks of (((b-hat_k - mean b-hat) - (b_k - mean b)) /
+  s_w)^2, s_w = sd of the within-image block deviations of the training fold's prep targets.
+--screen: design screening -- the real-image pass predicts only each fold's held-out real clean images
+  (heldout_real_clean); fold{f}.json / score.json as usual (plus stage-1 on held-out renders split at the fold's median
+  het4: stage1_renders_het4_hi / _lo, and per-epoch wall / data-wait seconds); no het_cnn_{train,test}.parquet (those of
+  an earlier full run in the same --out are renamed *.parquet.stale).
+All runs: stage-1 dicts gain slope_het4_on_hat_given_logN (OLS slope of het4 on het-hat, both residualised on logN =
+partial corr x sd ratio: > 1 only when het-hat is shrunk AND ranks het4 well, a poor ranking pulls it toward 0) and
+sdratio_het4_over_hat_given_logN (sd(het4 | logN) / sd(het-hat | logN), scale only: > 1 = shrinkage); read them with
+pcorr_het_given_logN. Fold json: train_het4 (het4 of the training renders actually drawn vs the prep's) and per-epoch
+het4 mean / max in ep_log. Fold caches record the non-default options ('opts') and are not reused across different
+options; aggregate() refuses to pool folds whose (render preset, extra targets, options) differ from the call's.
+
 Training, per fold f of data/folds.csv restricted to the clean images: train on the clean images not in fold f; every
 epoch renders each of them --renders times with fresh random parameters (DataLoader workers), then one random D4 op
 (flips/rot90 map the 64-px grid onto itself: the image is transformed and the 16 targets are permuted, GRID_PERM).
@@ -110,6 +171,8 @@ MID_NOTE = ("mid: c_d, e, p_line, line, noise as specified for the 9.5-12 band; 
 PRESETS = {"noisy": (RENDER, M_RANGES), "mid": (RENDER_MID, M_RANGES_MID)}
 CALIB_BAND = {"noisy": (12.0, np.inf), "mid": (NOISE_MAX, 12.0)}  # real train images the --calib table compares to
 EXTRA_TARGETS = ("fd", "pore", "asp")  # --extra-targets choices; output columns <name>_cnn
+AUG_TAG = 9001  # last seed word of the augmentation generator (zoom / mosaic), separate from the render stream
+HEADS = ("grid4", "fpn")
 
 
 # ------------------------------------------------------------------------------------------------------ D4 geometry
@@ -122,6 +185,13 @@ def d4_np(x, k):
 def d4_t(x, k):  # torch version (src.train_cnn.d4)
     x = torch.rot90(x, k % 4, dims=(-2, -1))
     return x.flip(-1) if k >= 4 else x
+
+
+def d4_inv_t(x, k):
+    """Inverse of d4_t: d4_inv_t(d4_t(x, k), k) == x."""
+    if k >= 4:
+        x = x.flip(-1)
+    return torch.rot90(x, -(k % 4), dims=(-2, -1))
 
 
 # Block j of the transformed image is block GRID_PERM[k][j] of the original: b_transformed = b[GRID_PERM[k]].
@@ -163,6 +233,58 @@ def n_eff_of(ws, is_pore):
         minr, minc, maxr, maxc = p.bbox
         n += 0.5 if (minr == 0 or minc == 0 or maxr == ws.shape[0] or maxc == ws.shape[1]) else 1.0
     return n
+
+
+def block_targets_fast(ws, is_pore):
+    """block_targets bit for bit (the same pixel values in the same row-major order reach the same np.mean), ~6x
+    faster: each block is a 64x64 slice instead of a full-image mask."""
+    a = np.maximum(np.bincount(ws.ravel()).astype(float)[ws], 1)
+    m = ~is_pore[ws]
+    b = np.full(16, np.nan)
+    for k in range(16):
+        r, c = divmod(k, 4)
+        mb = m[64 * r:64 * r + 64, 64 * c:64 * c + 64]
+        if mb.sum() >= 50:
+            b[k] = -2 * np.log((a[64 * r:64 * r + 64, 64 * c:64 * c + 64][mb] ** -0.5).mean())
+    return b
+
+
+def n_eff_fast(ws, is_pore):
+    """n_eff_of without regionprops: present non-pore labels, 0.5 for those with a pixel on the image border (= bbox
+    touching the border), 1 otherwise. Sums of halves and ones are exact, so the value equals n_eff_of."""
+    L = max(len(is_pore), int(ws.max()) + 1)
+    sel = np.bincount(ws.ravel(), minlength=L) > 0
+    sel[:len(is_pore)] &= ~is_pore
+    sel[0] = False  # regionprops ignores label 0
+    border = np.zeros(L, bool)
+    border[np.concatenate([ws[0], ws[-1], ws[:, 0], ws[:, -1]])] = True
+    return float(sel.sum() - 0.5 * (sel & border).sum())
+
+
+_CELL = (np.arange(256)[:, None] // 16 * 16 + np.arange(256)[None, :] // 16).ravel()  # 16-px cell id, row-major
+
+
+def cell_targets(ws, is_pore, min_px=32):
+    """(16, 16) b of the 16-px cells (-2 log mean over the cell's non-pore pixels of a^-1/2, a = grain area), NaN where
+    a cell has < min_px non-pore pixels. Row-major cells; block k = (cy // 4) * 4 + cx // 4."""
+    a = np.maximum(np.bincount(ws.ravel()).astype(float)[ws.ravel()], 1)
+    m = ~is_pore[ws.ravel()]
+    cnt = np.bincount(_CELL[m], minlength=256)
+    s = np.bincount(_CELL[m], a[m] ** -0.5, minlength=256)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        b = np.where(cnt >= min_px, -2 * np.log(s / np.maximum(cnt, 1)), np.nan)
+    return b.reshape(16, 16)
+
+
+def cells_to_blocks(c):
+    """(..., 16, 16) cell b -> (..., 16) block b by -2 log(mean over the block's 16 cells of exp(-b_cell / 2)) (the
+    block value if every cell had the same number of non-pore pixels); NaN cells are skipped."""
+    c = np.asarray(c, float)
+    sh = c.shape[:-2]
+    t = c.reshape(sh + (4, 4, 4, 4))  # (..., by, cy, bx, cx)
+    t = np.moveaxis(t, -3, -2).reshape(sh + (16, 16))  # (..., block, cell-in-block)
+    with np.errstate(invalid="ignore"):
+        return -2 * np.log(np.nanmean(np.exp(-t / 2), -1))
 
 
 def grain_log_aspect(ws, is_pore):
@@ -400,9 +522,16 @@ def render_noisy(P, j, rng, R=None, force=None, M=None):
     S = shading_surface(P["beta"][j])
     sn, dark = P["sn_tab"][j], P["dark"][j]
     resid = P["resid"][j].astype(np.float32)
+    # render-only pore pixels: P["rpore"][j] (prep_one)
+    return _cartoon(ws, S, sn, dark, resid, P["rpore"][j], float(P["im8"][j].mean()), rng, R)
+
+
+def _cartoon(ws, S, sn, dark, resid, pp, mean_grey, rng, R):
+    """Cartoon branch of render_noisy on explicit arrays (label map, shading surface, per-grain sn / dark tables,
+    resid, render-pore mask, target mean grey): the same operations and draws in the same order as before."""
+    import cv2
     c_d, e = rng.uniform(*R["c_d"]), rng.uniform(*R["e"])
     new = np.where(dark, 1 + c_d * (sn - 1), 1 + e * (sn - 1)).astype(np.float32)  # pore entries unused below
-    pp = P["rpore"][j]  # render-only pore pixels (prep_one)
     img = S * new[ws]  # cartoon: every pixel takes its grain's (shading-normalised) grey -> no boundary lines
     img = np.where(pp, S + rng.uniform(*R["pore"]) * resid, img)
     s_line = rng.uniform(*R["line"]) if rng.random() < R["p_line"] else 0.0
@@ -410,7 +539,7 @@ def render_noisy(P, j, rng, R=None, force=None, M=None):
         img = img + np.where(pp, 0, s_line * resid)
     # keep the source's mean grey: dropping the dark boundary lines alone made cartoons ~8.5 grey brighter than their
     # source, while real noisy images have the clean images' mean grey (median 145.2 vs 145.0; review 2026-10-08)
-    img = img + (float(P["im8"][j].mean()) - float(img.mean()))
+    img = img + (mean_grey - float(img.mean()))
     s_b = rng.uniform(*R["blur"])
     img = cv2.GaussianBlur(img.astype(np.float32), (0, 0), s_b)
     a = rng.uniform(*R["illum"])
@@ -423,6 +552,188 @@ def render_noisy(P, j, rng, R=None, force=None, M=None):
     img = img + rng.normal(0, sd, img.shape)
     return np.clip(np.round(img), 0, 255).astype(np.uint8), dict(path=0, c_d=c_d, e=e, blur=s_b, noise=sd,
                                                                  line=s_line)
+
+
+# ------------------------------------------------------------------------------- zoom / mosaic label-map augmentation
+GRAIN_TABS = ("sn", "dark", "pore")  # per-grain tables carried through relabel()
+
+
+def source_of(P, j):
+    """The cartoon renderer's inputs for prep image j (+ the source grey 'im', used only for the mean-grey fix)."""
+    return dict(ws=P["ws"][j].astype(np.int64), S=shading_surface(P["beta"][j]), sn=P["sn_tab"][j],
+                dark=P["dark"][j], pore=P["pore"][j], resid=P["resid"][j].astype(np.float32), rpore=P["rpore"][j],
+                im=P["im8"][j].astype(np.float32))
+
+
+def render_source(src, rng, R):
+    """Cartoon render of a (possibly augmented) source; render_source(source_of(P, j), rng, R) == render_noisy(P, j,
+    rng, R, 'cartoon')."""
+    return _cartoon(src["ws"], src["S"], src["sn"], src["dark"], src["resid"], src["rpore"],
+                    float(src["im"].mean(dtype=np.float64)), rng, R)
+
+
+def relabel(ws, tabs):
+    """Connected components (4-connectivity) of equal labels -> new labels 1..n; tabs (per-grain tables indexed by the
+    old labels) re-indexed to the new labels (each new grain inherits its source label's entries)."""
+    from skimage import measure
+    new = measure.label(ws, background=-1, connectivity=1)
+    src = np.zeros(int(new.max()) + 1, np.int64)
+    src[new.ravel()] = ws.ravel()
+    return new.astype(np.int64), {k: v[src] for k, v in tabs.items()}
+
+
+MIN_GRAIN = 16  # het_blocks.segment never yields grains below 17 px (markers >= 6 px + their share of the ridges)
+
+
+def split_merge(ws, tabs, min_px=MIN_GRAIN):
+    """relabel(), then merge every NON-PORE component below min_px pixels (seam slivers of a mosaic, necks broken by
+    nearest-neighbour down-scaling: pieces the het_blocks segmentation could never produce) into a neighbouring
+    non-pore grain: their pixels repeatedly take the label of a 4-neighbour that is non-pore and outside such
+    components (priority up, down, left, right), growing inward from the component's rim. Pore components are never
+    merged (small pore pieces stay pore grains, so the pore flag of every pixel is unchanged and the target pore set
+    stays the one the render-pore mask shows), and a sliver with no non-pore neighbour stays its own grain. Every
+    filled pixel touches a pixel of the label it takes, so all grains stay connected (no second relabel; the removed
+    labels just stop occurring). The prep label maps have no grain below 17 px, so an unaugmented map passes through
+    unchanged."""
+    ws, tabs = relabel(ws, tabs)
+    pore = tabs["pore"]
+    bad = ((np.bincount(ws.ravel()) < min_px) & ~pore)[ws]
+    if not bad.any():
+        return ws, tabs
+    ws = ws.copy()
+    for _ in range(64):
+        cand = np.zeros_like(ws)
+        for dst, src_ in (((slice(1, None), slice(None)), (slice(None, -1), slice(None))),  # from the pixel above
+                          ((slice(None, -1), slice(None)), (slice(1, None), slice(None))),  # below
+                          ((slice(None), slice(1, None)), (slice(None), slice(None, -1))),  # left
+                          ((slice(None), slice(None, -1)), (slice(None), slice(1, None)))):  # right
+            c, w = cand[dst], ws[src_]
+            take = (c == 0) & ~bad[src_] & ~pore[w]
+            c[take] = w[take]
+        fill = bad & (cand > 0)
+        if not fill.any():  # what is left has no non-pore neighbour: keep those slivers as grains
+            break
+        ws[fill] = cand[fill]
+        bad &= ~fill
+        if not bad.any():
+            break
+    return ws, tabs
+
+
+def _reflect(i, n=256):
+    i = np.mod(i, 2 * n)
+    return np.where(i >= n, 2 * n - 1 - i, i)
+
+
+def _bilinear(a, cy, cx):
+    """Separable bilinear sampling of a (256, 256) at rows cy, columns cx, symmetric reflection outside."""
+    y0, x0 = np.floor(cy), np.floor(cx)
+    wy, wx = (cy - y0).astype(np.float32)[:, None], (cx - x0).astype(np.float32)[None, :]
+    y0, x0 = y0.astype(np.int64), x0.astype(np.int64)
+    r = a[_reflect(y0)] * (1 - wy) + a[_reflect(y0 + 1)] * wy
+    return (r[:, _reflect(x0)] * (1 - wx) + r[:, _reflect(x0 + 1)] * wx).astype(np.float32)
+
+
+def zoom_source(src, s, oy, ox):
+    """Rescale a source by s (> 1 magnifies): output pixel (y, x) samples source coordinate (oy + (y + .5)/s - .5,
+    ox + (x + .5)/s - .5), symmetric reflection beyond the edges. Nearest neighbour for the label map and the
+    render-pore mask, bilinear for resid and im; the shading surface S stays the canvas one. Relabelled, slivers
+    merged (split_merge)."""
+    u = (np.arange(256) + 0.5) / s - 0.5
+    cy, cx = oy + u, ox + u
+    iy, ix = _reflect(np.floor(cy + 0.5).astype(np.int64)), _reflect(np.floor(cx + 0.5).astype(np.int64))
+    ws, tabs = split_merge(src["ws"][iy[:, None], ix[None, :]], {k: src[k] for k in GRAIN_TABS})
+    return dict(ws=ws, S=src["S"], resid=_bilinear(src["resid"], cy, cx), rpore=src["rpore"][iy[:, None], ix[None, :]],
+                im=_bilinear(src["im"], cy, cx), **tabs)
+
+
+def mosaic_source(s1, s2, mask):
+    """Composite: s1 where mask, s2 elsewhere. s2's labels are offset, the map relabelled; s2's resid and grey are
+    rescaled by S1/S2 per pixel and the composite keeps S1, so both regions sit on s1's illumination. Relabelled,
+    slivers merged (split_merge)."""
+    off = int(s1["ws"].max()) + 1
+    r = s1["S"] / s2["S"]
+    tabs = {k: np.concatenate([s1[k][:off], s2[k]]) for k in GRAIN_TABS}
+    ws, tabs = split_merge(np.where(mask, s1["ws"], s2["ws"] + off), tabs)
+    return dict(ws=ws, S=s1["S"], resid=np.where(mask, s1["resid"], s2["resid"] * r).astype(np.float32),
+                rpore=np.where(mask, s1["rpore"], s2["rpore"]), im=np.where(mask, s1["im"], s2["im"] * r), **tabs)
+
+
+def mosaic_mask(ra):
+    """Random region mask (True = first image): 25% a straight line at a random angle through a random point of the
+    central half; 75% a white-noise field smoothed by a periodic Gaussian (sigma 32-72 px, FFT) thresholded at a random
+    quantile 0.3-0.7."""
+    if ra.random() < 0.25:
+        th = ra.uniform(0, 2 * np.pi)
+        py, px = ra.uniform(64, 192, 2)
+        return (_XX - px) * np.cos(th) + (_YY - py) * np.sin(th) > 0
+    sig, q = ra.uniform(32, 72), ra.uniform(0.3, 0.7)
+    fy, fx = np.fft.fftfreq(256), np.fft.rfftfreq(256)
+    H = np.exp(-2 * (np.pi * sig) ** 2 * (fy[:, None] ** 2 + fx[None, :] ** 2))
+    g = np.fft.irfft2(np.fft.rfft2(ra.standard_normal((256, 256))) * H, s=(256, 256))
+    kq = int(q * (g.size - 1))
+    return g > np.partition(g.ravel(), kq)[kq]
+
+
+def _zoom_draw(ra, lo, hi):
+    s = float(np.exp(ra.uniform(np.log(lo), np.log(hi))))
+    w = 256 / s
+    a, b = min(0.0, 256 - w), max(0.0, 256 - w)
+    return s, float(ra.uniform(a, b)), float(ra.uniform(a, b))
+
+
+def augment_source(P, j, rows, ra, aug):
+    """Zoom / mosaic source for training image j (rows: the fold's training prep rows, j2 drawn among them), or None
+    when this render draws no augmentation. aug: dict(zoom=(lo, hi) | None, p_zoom, mosaic[, mosaic_dlogn]). All
+    draws from ra (the separate augmentation generator), in a fixed order; mosaic_dlogn (None = any partner) only
+    narrows the candidate list, the draws are the same."""
+    z = aug.get("zoom")
+    do_mos = aug.get("mosaic", 0) > 0 and ra.random() < aug["mosaic"]
+    z1 = z is not None and ra.random() < aug["p_zoom"]
+    if not (do_mos or z1):
+        return None
+    src = source_of(P, j)
+    if z1:
+        src = zoom_source(src, *_zoom_draw(ra, *z))
+    if do_mos:
+        cand = rows[rows != j]
+        dl = aug.get("mosaic_dlogn")
+        if dl is not None:  # partner of similar grain count: |log N_eff(j2) - log N_eff(j)| <= dl (else the nearest)
+            d = np.abs(np.log(P["n_eff"][cand]) - np.log(P["n_eff"][j]))
+            cand = cand[d <= dl] if (d <= dl).any() else cand[[int(np.argmin(d))]]
+        j2 = int(cand[ra.integers(len(cand))])
+        s2 = source_of(P, j2)
+        if z is not None and ra.random() < aug["p_zoom"]:
+            s2 = zoom_source(s2, *_zoom_draw(ra, *z))
+        src = mosaic_source(src, s2, mosaic_mask(ra))
+    return src
+
+
+def targets_of(src, xnames=(), cells=False):
+    """Targets of a (possibly augmented) source with the definitions of the prep: b (block_targets), het4 = sd of the
+    valid b, n_eff (n_eff_of), extras (extra_target_values), cells (cell_targets)."""
+    ws, pore = src["ws"], src["pore"]
+    b = block_targets_fast(ws, pore)
+    t = dict(b=b, het4=float(np.std(b[~np.isnan(b)])), n_eff=n_eff_fast(ws, pore))
+    if xnames:
+        x = []
+        for nm in xnames:
+            if nm == "fd":
+                x.append(src["dark"][ws].mean())
+            elif nm == "pore":
+                x.append(pore[ws].mean())
+            elif nm == "asp":
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    v = grain_log_aspect(ws, pore)
+                if not np.isfinite(v):  # no interior non-pore grain (strong zoom-in): use every non-pore grain
+                    v = grain_log_aspect(np.pad(ws, 1), pore)
+                x.append(v)
+            else:
+                raise ValueError(nm)
+        t["x"] = np.array(x, np.float32)
+    if cells:
+        t["cells"] = cell_targets(ws, pore)
+    return t
 
 
 # ------------------------------------------------------------------------------------------- calibration statistics
@@ -560,13 +871,22 @@ class RenderSet(torch.utils.data.Dataset):
     prep row rows[i % len(rows)] with rng seeded by (seed, fold, epoch, i), so results do not depend on the number of
     workers. The prep arrays are loaded lazily per process (nothing big is pickled to Windows spawn workers).
     preset: render preset (PRESETS); xt: optional (n_prep, n_extra) extra targets (extra_target_values), appended to
-    each item as a 6th tensor (D4-invariant, so not permuted)."""
+    each item as a 6th tensor (D4-invariant, so not permuted).
+    aug: None (as before) or dict(zoom=(lo, hi) | None, p_zoom, mosaic) -- cartoon-path renders may be zoomed /
+    composited (augment_source, draws from default_rng([seed, fold, epoch, i, AUG_TAG])) and then carry targets
+    recomputed on the transformed label map (targets_of); xnames: the extra-target names (needed to recompute xt).
+    cells: append the (16, 16) cell targets (cell_targets, D4-transformed with the image, NaN -> 0) and their validity
+    mask as two more tensors."""
 
-    def __init__(self, prep_fp, rows, renders, seed, fold, preset="noisy", xt=None):
+    def __init__(self, prep_fp, rows, renders, seed, fold, preset="noisy", xt=None, aug=None, cells=False,
+                 xnames=None):
         self.fp, self.rows, self.R, self.seed, self.fold = str(prep_fp), np.asarray(rows), renders, seed, fold
         self.n_items = len(self.rows) * renders
         self.preset = preset
         self.xt = None if xt is None else np.asarray(xt, np.float32)
+        self.aug, self.cells, self.xnames = aug, cells, list(xnames or [])
+        if aug is not None and self.xt is not None:
+            assert len(self.xnames) == self.xt.shape[1], "aug with extra targets needs xnames"
         self._P = None
 
     def __getstate__(self):
@@ -585,16 +905,43 @@ class RenderSet(torch.utils.data.Dataset):
         j = int(self.rows[i % len(self.rows)])
         rng = np.random.default_rng([self.seed, self.fold, ep, i])
         R, M = PRESETS[self.preset]
-        img, _ = render_noisy(P, j, rng, R, M=M)
+        tg = None
+        if self.aug is None:
+            img, _ = render_noisy(P, j, rng, R, M=M)
+        else:  # same path draw as render_noisy; augmentation draws from a separate generator
+            path = "m" if rng.random() < R["p_m"] else "cartoon"
+            src = None
+            if path == "cartoon":
+                src = augment_source(P, j, self.rows, np.random.default_rng([self.seed, self.fold, ep, i, AUG_TAG]),
+                                     self.aug)
+            if src is None:  # identical to render_noisy(P, j, rng, R, M=M) with the same generator
+                img, _ = render_noisy(P, j, rng, R, force=path, M=M)
+            else:
+                img, _ = render_source(src, rng, R)
+                tg = targets_of(src, self.xnames if self.xt is not None else (), self.cells)
         k = int(rng.integers(8))
         img = np.ascontiguousarray(d4_np(img, k))
-        b = P["b"][j][GRID_PERM[k]]
-        valid = ~np.isnan(b)
-        item = (torch.from_numpy(img)[None], torch.from_numpy(np.nan_to_num(b).astype(np.float32)),
-                torch.from_numpy(valid.astype(np.float32)), torch.tensor(float(P["het4"][j])),
-                torch.tensor(float(np.log(P["n_eff"][j]))))
-        if self.xt is not None:
-            item = item + (torch.from_numpy(self.xt[j].copy()),)
+        if tg is None:
+            b = P["b"][j][GRID_PERM[k]]
+            valid = ~np.isnan(b)
+            item = (torch.from_numpy(img)[None], torch.from_numpy(np.nan_to_num(b).astype(np.float32)),
+                    torch.from_numpy(valid.astype(np.float32)), torch.tensor(float(P["het4"][j])),
+                    torch.tensor(float(np.log(P["n_eff"][j]))))
+            if self.xt is not None:
+                item = item + (torch.from_numpy(self.xt[j].copy()),)
+        else:
+            b = tg["b"][GRID_PERM[k]]
+            valid = ~np.isnan(b)
+            item = (torch.from_numpy(img)[None], torch.from_numpy(np.nan_to_num(b).astype(np.float32)),
+                    torch.from_numpy(valid.astype(np.float32)), torch.tensor(tg["het4"]),
+                    torch.tensor(float(np.log(tg["n_eff"]))))
+            if self.xt is not None:
+                item = item + (torch.from_numpy(tg["x"]),)
+        if self.cells:
+            c = tg["cells"] if tg is not None else cell_targets(P["ws"][j].astype(np.int64), P["pore"][j])
+            c = np.ascontiguousarray(d4_np(c, k))
+            item = item + (torch.from_numpy(np.nan_to_num(c).astype(np.float32)),
+                           torch.from_numpy((~np.isnan(c)).astype(np.float32)))
         return item
 
 
@@ -648,6 +995,58 @@ class HetNet(nn.Module):
         return b, n
 
 
+class FPNNet(nn.Module):
+    """--head fpn. timm features_only backbone; the stride-8/16/32 maps -> 1x1 laterals (ch) merged at stride 16
+    (nearest up-sampling of s32, 2x2 average pooling of s8; all D4-equivariant) -> 3x3 conv + BN + ReLU = the merged
+    map (16x16 at 256 input). forward -> (b (B, 16) block head on adaptive_avg_pool2d(merged, 4), logN (B,) from the
+    global mean of the stride-32 map, [x (B, n_extra)], cells (B, 16, 16) cell head on the merged map); has_cells tells
+    predict() and the training loop that the last output is the cell map."""
+    has_cells = True
+
+    def __init__(self, arch, pretrained=True, n_extra=0, ch=128):
+        super().__init__()
+        self.body = create_timm(arch, pretrained=pretrained, features_only=True, in_chans=1)
+        red, chs = self.body.feature_info.reduction(), self.body.feature_info.channels()
+        self.idx = [red.index(r) for r in (8, 16, 32)]
+        self.lat = nn.ModuleList(nn.Conv2d(chs[i], ch, 1) for i in self.idx)
+        self.smooth = nn.Sequential(nn.Conv2d(ch, ch, 3, padding=1, bias=False), nn.BatchNorm2d(ch), nn.ReLU(inplace=True))
+        nf = chs[self.idx[2]]
+        self.block = nn.Conv2d(ch, 1, 1)
+        self.cellh = nn.Conv2d(ch, 1, 1)
+        self.glob = nn.Linear(nf, 1)
+        heads = [self.block, self.cellh, self.glob]
+        self.n_extra = n_extra
+        if n_extra:
+            self.extra = nn.Linear(nf, n_extra)
+            heads.append(self.extra)
+        for m in heads:
+            nn.init.normal_(m.weight, std=0.01)
+            nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        fs = self.body(x)
+        f8, f16, f32 = (fs[i] for i in self.idx)
+        m = (self.lat[1](f16) + F.interpolate(self.lat[2](f32), size=f16.shape[-2:], mode="nearest")
+             + F.avg_pool2d(self.lat[0](f8), 2))
+        m = self.smooth(m)
+        with torch.autocast(x.device.type, enabled=False):  # pooling + heads in fp32
+            m = m.float()
+            assert m.shape[-1] % 4 == 0 and m.shape[-2] % 4 == 0, f"merged map {tuple(m.shape[-2:])} not divisible by 4"
+            b = self.block(F.adaptive_avg_pool2d(m, 4)).flatten(1)
+            c = self.cellh(m)[:, 0]
+            g = f32.float().mean((-2, -1))
+            n = self.glob(g).squeeze(-1)
+            if self.n_extra:
+                return b, n, self.extra(g), c
+        return b, n, c
+
+
+def make_model(a, nx):
+    if a.head == "fpn":
+        return FPNNet(a.arch, pretrained=not a.scratch, n_extra=nx, ch=a.fpn_ch)
+    return HetNet(a.arch, pretrained=not a.scratch, n_extra=nx)
+
+
 def masked_sd(v, m):
     n = m.sum(1).clamp(min=1)
     mu = (v * m).sum(1) / n
@@ -659,17 +1058,23 @@ def masked_sd(v, m):
 def predict(model, X8, mu, sd, dev, amp_dtype, tta=8, bs=32):
     """uint8 (N, 256, 256) -> (b_z (N, 16), n_z (N,)): mean over the first `tta` D4 views, each view's 4x4 output
     un-permuted to the original grid (GRID_INV) before averaging. Values in the training fold's z-units.
-    A model with extra outputs (HetNet n_extra > 0) -> (b_z, n_z, x_z (N, n_extra)), x averaged over the views."""
+    A model with extra outputs (HetNet n_extra > 0) -> (b_z, n_z, x_z (N, n_extra)), x averaged over the views.
+    A model with has_cells (FPNNet) -> one more element at the end: cells_z (N, 16, 16), each view's cell map
+    un-transformed by the inverse D4 op (d4_inv_t) before averaging."""
     model.eval()
-    outb, outn, outx = [], [], []
+    has_cells = getattr(model, "has_cells", False)
+    outb, outn, outx, outc = [], [], [], []
     inv = [torch.as_tensor(GRID_INV[k], device=dev) for k in range(8)]
     for i in range(0, len(X8), bs):
         x = torch.from_numpy(np.ascontiguousarray(X8[i:i + bs])).to(dev).float().div_(255.0)[:, None]
         x = (x - mu) / sd
-        sb, sn, sx = 0, 0, 0
+        sb, sn, sx, sc = 0, 0, 0, 0
         for k in range(tta):
             with torch.autocast(dev.type, dtype=amp_dtype or torch.float32, enabled=amp_dtype is not None):
                 o = model(d4_t(x, k).contiguous(memory_format=torch.channels_last))
+            if has_cells:
+                sc = sc + d4_inv_t(o[-1].float(), k)
+                o = o[:-1]
             sb = sb + o[0].float()[:, inv[k]]
             sn = sn + o[1].float()
             if len(o) > 2:
@@ -678,9 +1083,13 @@ def predict(model, X8, mu, sd, dev, amp_dtype, tta=8, bs=32):
         outn.append((sn / tta).cpu())
         if len(o) > 2:
             outx.append((sx / tta).cpu())
+        if has_cells:
+            outc.append((sc / tta).cpu())
     res = (torch.cat(outb).numpy().astype(np.float64), torch.cat(outn).numpy().astype(np.float64))
     if outx:
         res = res + (torch.cat(outx).numpy().astype(np.float64),)
+    if has_cells:
+        res = res + (torch.cat(outc).numpy().astype(np.float64),)
     return res
 
 
@@ -692,19 +1101,62 @@ def _pcorr(x, y, z):
     return float(np.corrcoef(rx, ry)[0, 1])
 
 
-def stage1_metrics(bh, nh, b, het4, logn):
-    """bh (M, 16) raw b-hat, nh (M,) logN-hat; b (M, 16) targets with NaN; het4, logn (M,)."""
+def _resid(v, z):
+    Z = np.column_stack([np.ones(len(z)), z])
+    return v - Z @ np.linalg.lstsq(Z, v, rcond=None)[0]
+
+
+def _psdratio(x, y, z):
+    """sd(y | z) / sd(x | z) (residuals on [1, z]): scale only; > 1 = x has less spread than y (shrinkage)."""
+    return float(np.std(_resid(y, z)) / max(np.std(_resid(x, z)), 1e-30))
+
+
+def _pslope(x, y, z):
+    """OLS slope of y on x after residualising both on [1, z] = partial corr x sd(y | z) / sd(x | z). It exceeds 1 only
+    when x is shrunk AND ranks y well; a poor ranking pulls it toward 0 (attenuation), so read it with _psdratio."""
+    Z = np.column_stack([np.ones(len(z)), z])
+    rx = x - Z @ np.linalg.lstsq(Z, x, rcond=None)[0]
+    ry = y - Z @ np.linalg.lstsq(Z, y, rcond=None)[0]
+    return float((rx @ ry) / max(rx @ rx, 1e-30))
+
+
+def _within(v, ok):
+    return np.where(ok, v - np.array([v[r][ok[r]].mean() for r in range(len(v))])[:, None], np.nan)
+
+
+def stage1_metrics(bh, nh, b, het4, logn, ch=None, ct=None):
+    """bh (M, 16) raw b-hat, nh (M,) logN-hat; b (M, 16) targets with NaN; het4, logn (M,).
+    ch (M, 16, 16): optional raw cell b-hat (FPNNet) -> pcorr_het_cell etc. (het-hat = sd of the cells aggregated to
+    blocks, cells_to_blocks); ct (M, 16, 16): cell targets (NaN = invalid) -> corr_cell(_within)."""
     v = ~np.isnan(b)
     sdh = np.array([np.std(bh[r][v[r]]) for r in range(len(bh))])
     within_h = bh - np.array([bh[r][v[r]].mean() for r in range(len(bh))])[:, None]
     within_t = b - np.array([b[r][v[r]].mean() for r in range(len(b))])[:, None]
-    return dict(n=int(len(bh)), corr_het=float(np.corrcoef(sdh, het4)[0, 1]),
-                pcorr_het_given_logN=_pcorr(sdh, het4, logn),
-                corr_block=float(np.corrcoef(bh[v], b[v])[0, 1]),
-                corr_block_within=float(np.corrcoef(within_h[v], within_t[v])[0, 1]),
-                corr_logN=float(np.corrcoef(nh, logn)[0, 1]),
-                rmse_logN=float(np.sqrt(np.mean((nh - logn) ** 2))),
-                het_hat_mean=float(sdh.mean()), het4_mean=float(het4.mean()))
+    out = dict(n=int(len(bh)), corr_het=float(np.corrcoef(sdh, het4)[0, 1]),
+               pcorr_het_given_logN=_pcorr(sdh, het4, logn),
+               corr_block=float(np.corrcoef(bh[v], b[v])[0, 1]),
+               corr_block_within=float(np.corrcoef(within_h[v], within_t[v])[0, 1]),
+               corr_logN=float(np.corrcoef(nh, logn)[0, 1]),
+               rmse_logN=float(np.sqrt(np.mean((nh - logn) ** 2))),
+               het_hat_mean=float(sdh.mean()), het4_mean=float(het4.mean()))
+    out["slope_het4_on_hat_given_logN"] = _pslope(sdh, het4, logn)  # additive keys (2026-10-09 evening)
+    out["sdratio_het4_over_hat_given_logN"] = _psdratio(sdh, het4, logn)
+    if ch is not None:
+        bc = cells_to_blocks(ch)
+        sdc = np.array([np.std(bc[r][v[r]]) for r in range(len(bc))])
+        wc = bc - np.array([bc[r][v[r]].mean() for r in range(len(bc))])[:, None]
+        out.update(pcorr_het_cell=_pcorr(sdc, het4, logn), corr_het_cell=float(np.corrcoef(sdc, het4)[0, 1]),
+                   slope_het4_on_cellhat_given_logN=_pslope(sdc, het4, logn),
+                   sdratio_het4_over_cellhat_given_logN=_psdratio(sdc, het4, logn),
+                   corr_block_within_cell=float(np.corrcoef(wc[v], within_t[v])[0, 1]),
+                   het_hat_cell_mean=float(sdc.mean()))
+        if ct is not None:
+            ok = ~np.isnan(ct.reshape(len(ct), -1))
+            hc, tc = ch.reshape(len(ch), -1), ct.reshape(len(ct), -1)
+            out.update(corr_cell=float(np.corrcoef(hc[ok], tc[ok])[0, 1]),
+                       corr_cell_within=float(np.corrcoef(_within(hc, ok)[ok], _within(tc, ok)[ok])[0, 1]),
+                       cell_sd_hat=float(np.nanstd(_within(hc, ok))), cell_sd_true=float(np.nanstd(_within(tc, ok))))
+    return out
 
 
 def stage1_extra(xh, x, names):
@@ -760,17 +1212,29 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
             consts[f"mu_{nm}"], consts[f"s_{nm}"] = float(mu_x[c]), float(s_x[c])
         mu_xt = torch.tensor(mu_x, dtype=torch.float32, device=dev)
         s_xt = torch.tensor(s_x, dtype=torch.float32, device=dev)
+    use_cells = a.head == "fpn"
+    if a.lambda_within > 0:  # sd of the within-image block deviations of the training fold's prep targets
+        consts["s_w"] = float(np.nanstd(bt - np.nanmean(bt, 1, keepdims=True)))
+        s_w = consts["s_w"]
     print(f"fold {f}: train {len(tr_rows)} / held-out {len(va_rows)} clean images; consts "
           + " ".join(f"{k} {v:.4f}" for k, v in consts.items()), flush=True)
 
-    model = HetNet(a.arch, pretrained=not a.scratch, n_extra=nx).to(dev).to(memory_format=torch.channels_last)
+    model = make_model(a, nx).to(dev).to(memory_format=torch.channels_last)
     decay, no_decay = [], []
     for nme, p in model.named_parameters():
         (decay if p.ndim > 1 else no_decay).append(p)
     opt = torch.optim.AdamW([{"params": decay, "weight_decay": a.wd}, {"params": no_decay, "weight_decay": 0.0}],
                             lr=a.lr)
     from . import het_cnn as M  # pickle as src.het_cnn.* (not __main__.*) for spawn workers (Windows)
-    ds = M.RenderSet(a.prep, tr_rows, a.renders, a.seed, f, preset=a.render_preset, xt=xt)
+    aug = None
+    if a.zoom is not None or a.mosaic > 0:
+        aug = dict(zoom=tuple(a.zoom) if a.zoom is not None else None, p_zoom=a.p_zoom, mosaic=a.mosaic,
+                   mosaic_dlogn=getattr(a, "mosaic_dlogn", None))
+    ds = M.RenderSet(a.prep, tr_rows, a.renders, a.seed, f, preset=a.render_preset, xt=xt, aug=aug, cells=use_cells,
+                     xnames=xnames)
+    ci = 5 + (nx > 0)  # batch index of the cell targets (FPNNet)
+    new_l = (["within"] if a.lambda_within > 0 else []) + (["cell"] if use_cells and a.lambda_cell > 0 else [])
+    ep_log, h_all = [], []
     sampler = M.EpochSampler(len(ds), seed)
     dl = torch.utils.data.DataLoader(ds, batch_size=a.batch, sampler=sampler, num_workers=a.workers,
                                      drop_last=True, persistent_workers=a.workers > 0, worker_init_fn=M._worker_init,
@@ -786,15 +1250,22 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     for ep in range(a.epochs):
         model.train()
         sampler.epoch = ep
-        tl = np.zeros(4 + nx)
+        tl = np.zeros(4 + nx + len(new_l))
         te = time.time()
+        t_wait, tw = 0.0, time.time()
+        h_ep = []  # het4 of this epoch's training renders (targets of augmented renders differ from the prep's)
         for batch in dl:
+            t_wait += time.time() - tw
             x, bb, vv, hh, nn_ = batch[:5]
+            h_ep.append(hh.numpy().astype(np.float64))
             x = x.to(dev, non_blocking=True).float().div_(255.0)
             x = ((x - mu_t) / sd_t).contiguous(memory_format=torch.channels_last)
             bb, vv, hh, nn_ = (t.to(dev, non_blocking=True) for t in (bb, vv, hh, nn_))
             with torch.autocast(dev.type, dtype=amp_dtype or torch.float32, enabled=amp_dtype is not None):
                 o = model(x)
+            if use_cells:
+                oc = o[-1].float()
+                o = o[:-1]
             bz, nz = o[0].float(), o[1].float()
             l_b = (((bz - (bb - mu_b) / s_b) ** 2) * vv).sum() / vv.sum()
             l_h = ((s_b * masked_sd(bz, vv) - hh) ** 2).mean() / s_het ** 2
@@ -804,6 +1275,20 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
                 xx_ = batch[5].to(dev, non_blocking=True)
                 l_x = ((o[2].float() - (xx_ - mu_xt) / s_xt) ** 2).mean(0)
                 loss = loss + a.lambda_x * l_x.sum()
+            ln = []
+            if a.lambda_within > 0:  # within-image deviations, valid blocks only
+                nv = vv.sum(1, keepdim=True).clamp(min=1)
+                d_h = s_b * (bz - (bz * vv).sum(1, keepdim=True) / nv)
+                d_t = bb - (bb * vv).sum(1, keepdim=True) / nv
+                l_w = ((((d_h - d_t) / s_w) ** 2 * vv).sum(1) / nv[:, 0]).mean()
+                loss = loss + a.lambda_within * l_w
+                ln.append(l_w)
+            if use_cells and a.lambda_cell > 0:
+                cb, cv = batch[ci].to(dev, non_blocking=True), batch[ci + 1].to(dev, non_blocking=True)
+                assert oc.shape == cb.shape, f"cell map {tuple(oc.shape)} vs targets {tuple(cb.shape)}"
+                l_c = (((oc - (cb - mu_b) / s_b) ** 2) * cv).sum() / cv.sum().clamp(min=1)
+                loss = loss + a.lambda_cell * l_c
+                ln.append(l_c)
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             if a.clip > 0:
@@ -812,16 +1297,42 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
             scaler.step(opt)
             scaler.update()
             sch.step()
-            tl += [loss.item(), l_b.item(), l_h.item(), l_n.item()] + ([float(v) for v in l_x.tolist()] if nx else [])
+            tl += ([loss.item(), l_b.item(), l_h.item(), l_n.item()] + ([float(v) for v in l_x.tolist()] if nx else [])
+                   + [v.item() for v in ln])
+            tw = time.time()
         tl /= spe
         xl = "".join(f" {nm} {tl[4 + c]:.4f}" for c, nm in enumerate(xnames))
+        xl += "".join(f" {nm} {tl[4 + nx + c]:.4f}" for c, nm in enumerate(new_l))
+        t_ep = time.time() - te
+        h_ep = np.concatenate(h_ep) if h_ep else np.zeros(0)
+        h_all.append(h_ep)
+        ep_log.append(dict(ep=ep + 1, wall_s=round(t_ep, 2), data_wait_s=round(t_wait, 2),
+                           het4_mean=round(float(h_ep.mean()), 4) if len(h_ep) else None,
+                           het4_max=round(float(h_ep.max()), 4) if len(h_ep) else None))
         print(f"fold {f} ep {ep + 1:3d}/{a.epochs} loss {tl[0]:.4f} (block {tl[1]:.4f} het {tl[2]:.4f} "
               f"logN {tl[3]:.4f}{xl}) lr {sch.get_last_lr()[0]:.2e} | {len(ds)} renders {time.time() - te:.0f}s "
-              f"| {time.time() - t0:.0f}s", flush=True)
+              f"| {time.time() - t0:.0f}s"
+              + (f" | epoch wall {t_ep:.1f}s, data wait {t_wait:.1f}s, {len(ds) / t_ep:.1f} renders/s" if a.screen
+                 else ""), flush=True)
     t_train = time.time() - t0
+    h_all = np.concatenate(h_all) if h_all else np.zeros(0)
+    h_tr = P["het4"][tr_rows]
+    train_het4 = dict(n=int(len(h_all)), mean=float(h_all.mean()), sd=float(h_all.std()),
+                      p95=float(np.percentile(h_all, 95)), max=float(h_all.max()),
+                      frac_above_prep_max=float((h_all > h_tr.max() + 1e-6).mean()),  # f32 items
+                      prep_mean=float(h_tr.mean()), prep_sd=float(h_tr.std()), prep_max=float(h_tr.max())) \
+        if len(h_all) else None
+    if train_het4 is not None:
+        print(f"fold {f} training-render het4: mean {train_het4['mean']:.3f} sd {train_het4['sd']:.3f} max "
+              f"{train_het4['max']:.3f} ({100 * train_het4['frac_above_prep_max']:.1f}% above the prep max) vs prep "
+              f"mean {train_het4['prep_mean']:.3f} sd {train_het4['prep_sd']:.3f} max {train_het4['prep_max']:.3f}",
+              flush=True)
     ckpt = {"state_dict": model.state_dict(), "consts": consts, "arch": a.arch}
     if nx or a.render_preset != "noisy":
         ckpt.update(extra_targets=xnames, render_preset=a.render_preset)
+    opts = new_opts(a)
+    if opts:
+        ckpt.update(opts=opts)
     torch.save(ckpt, out / f"fold{f}.pt")
 
     # (a) stage 1: held-out clean images rendered with K fixed seeds (independent of the fold and of --seed)
@@ -839,13 +1350,29 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     bz, nz = pv[0], pv[1]
     bh, nh = mu_b + s_b * bz, mu_n + s_n * nz
     rows = meta[:, 0]
-    m_all = stage1_metrics(bh, nh, b[rows], P["het4"][rows], logn[rows])
+    ch = ct = None
+    if use_cells:  # raw cell b-hat and the cell targets of the held-out originals
+        ch = mu_b + s_b * pv[-1]
+        ct_of = {int(j): cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in va_rows}
+        ct = np.stack([ct_of[int(j)] for j in rows])
+    sel = lambda v, m: None if v is None else v[m]  # noqa: E731
+    m_all = stage1_metrics(bh, nh, b[rows], P["het4"][rows], logn[rows], ch, ct)
     cart = meta[:, 2] == 0
-    m_cart = stage1_metrics(bh[cart], nh[cart], b[rows[cart]], P["het4"][rows[cart]], logn[rows[cart]])
+    m_cart = stage1_metrics(bh[cart], nh[cart], b[rows[cart]], P["het4"][rows[cart]], logn[rows[cart]],
+                            sel(ch, cart), sel(ct, cart))
     # K-averaged b-hat per image (the renders' mean prediction)
     bk = np.stack([bh[rows == j].mean(0) for j in va_rows])
     nk = np.array([nh[rows == j].mean() for j in va_rows])
-    m_kavg = stage1_metrics(bk, nk, b[va_rows], P["het4"][va_rows], logn[va_rows])
+    chk = None if ch is None else np.stack([ch[rows == j].mean(0) for j in va_rows])
+    m_kavg = stage1_metrics(bk, nk, b[va_rows], P["het4"][va_rows], logn[va_rows], chk,
+                            None if ch is None else np.stack([ct_of[int(j)] for j in va_rows]))
+    m_split = None
+    if a.screen:  # where does localisation fail: held-out renders of images above / below the fold's median het4
+        med = float(np.median(P["het4"][va_rows]))
+        m_split = {"het4_median": med}
+        for nm_, msk in (("hi", P["het4"][rows] > med), ("lo", P["het4"][rows] <= med)):
+            m_split[nm_] = (stage1_metrics(bh[msk], nh[msk], b[rows[msk]], P["het4"][rows[msk]], logn[rows[msk]],
+                                           sel(ch, msk), sel(ct, msk)) if msk.sum() >= 4 else None)
     if nx:
         xh = mu_x + s_x * pv[2]
         mx_all = stage1_extra(xh, xt[rows], xnames)
@@ -853,13 +1380,16 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
         mx_kavg = stage1_extra(np.stack([xh[rows == j].mean(0) for j in va_rows]), xt[va_rows], xnames)
     t_val = time.time() - t1
 
-    # (b) real images, raw, prediction only
+    # (b) real images, raw, prediction only (--screen: only this fold's held-out real clean images)
     t2 = time.time()
+    if a.screen:
+        pred_ids = [ids[j] for j in va_rows]
     Xr = np.stack([read_u8(i) for i in pred_ids])
     pr_ = predict(model, Xr, mu_t, sd_t, dev, amp_dtype, tta=a.tta, bs=a.pred_batch)
     bz, nz = pr_[0], pr_[1]
     bR, nR = mu_b + s_b * bz, mu_n + s_n * nz
     xR = mu_x + s_x * pr_[2] if nx else None
+    cR = mu_b + s_b * pr_[-1] if use_cells else None
     t_pred = time.time() - t2
     # diagnostics on the REAL held-out clean images (their own clean rendering, no re-render)
     pos = {i: n for n, i in enumerate(pred_ids)}
@@ -867,13 +1397,16 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     m_real = mx_real = None
     if len(have) >= 5:
         pr = np.array([pos[ids[j]] for j in have])
-        m_real = stage1_metrics(bR[pr], nR[pr], b[have], P["het4"][have], logn[have])
+        m_real = stage1_metrics(bR[pr], nR[pr], b[have], P["het4"][have], logn[have], sel(cR, pr),
+                                None if cR is None else np.stack([cell_targets(P["ws"][j].astype(np.int64),
+                                                                               P["pore"][j]) for j in have]))
         if nx:
             mx_real = stage1_extra(xR[pr], xt[have], xnames)
     res = dict(fold=f, n_train=int(len(tr_rows)), n_heldout=int(len(va_rows)), K=K, consts=consts,
                stage1_renders=m_all, stage1_renders_cartoon=m_cart, stage1_renders_Kavg=m_kavg,
                heldout_real_clean=m_real, t_train_s=round(t_train, 1), t_val_s=round(t_val, 1),
-               t_pred_s=round(t_pred, 1), epochs=a.epochs, renders=a.renders, steps=total)
+               t_pred_s=round(t_pred, 1), epochs=a.epochs, renders=a.renders, steps=total,
+               train_het4=train_het4)
     extra_npz = {}
     if nx or a.render_preset != "noisy":
         res.update(render_preset=a.render_preset, extra_targets=xnames)
@@ -881,6 +1414,13 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
         res.update(lambda_x=a.lambda_x, stage1_extra_renders=mx_all, stage1_extra_renders_cartoon=mx_cart,
                    stage1_extra_renders_Kavg=mx_kavg, heldout_real_clean_extra=mx_real)
         extra_npz = dict(x=xR, val_x=xh, x_names=np.array(xnames))
+    if opts:
+        res.update(opts=opts, ep_log=ep_log)
+    if use_cells:
+        extra_npz.update(cells=cR.astype(np.float32), val_cells=ch.astype(np.float32))
+    if m_split is not None:
+        res.update(stage1_renders_het4_hi=m_split["hi"], stage1_renders_het4_lo=m_split["lo"],
+                   het4_median=m_split["het4_median"])
     np.savez(out / f"fold{f}.npz", pred_ids=np.array(pred_ids), b=bR, logn=nR, train_ids=ids[tr_rows],
              val_rows=meta, val_b=bh, val_logn=nh, **extra_npz)
     (out / f"fold{f}.json").write_text(json.dumps(res, indent=1))
@@ -890,6 +1430,19 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
           f" corr logN {s['corr_logN']:.3f} | cartoon only: het {m_cart['corr_het']:.3f} partial "
           f"{m_cart['pcorr_het_given_logN']:.3f} | K-avg: het {m_kavg['corr_het']:.3f} partial "
           f"{m_kavg['pcorr_het_given_logN']:.3f}", flush=True)
+    print(f"fold {f} stage-1 shrinkage (held-out renders): slope het4 on het-hat | logN "
+          f"{s['slope_het4_on_hat_given_logN']:.3f} (= partial corr x sd ratio; sd ratio het4/het-hat | logN "
+          f"{s['sdratio_het4_over_hat_given_logN']:.3f}, > 1 = shrunk), het-hat mean {s['het_hat_mean']:.3f} vs het4 "
+          f"{s['het4_mean']:.3f}"
+          + (f" | cells: pcorr_het_cell {s['pcorr_het_cell']:.3f}, slope {s['slope_het4_on_cellhat_given_logN']:.3f},"
+             f" corr_cell {s['corr_cell']:.3f} (within {s['corr_cell_within']:.3f}), block-within from cells "
+             f"{s['corr_block_within_cell']:.3f}" if use_cells else "")
+          + (f" | K-avg pcorr_het_cell {m_kavg['pcorr_het_cell']:.3f}" if use_cells else ""), flush=True)
+    if m_split is not None:
+        print(f"fold {f} stage-1 by het4 (median {m_split['het4_median']:.3f}): " + " | ".join(
+            f"{nm_}: n {v['n']} pcorr {v['pcorr_het_given_logN']:.3f} within {v['corr_block_within']:.3f} "
+            f"het-hat {v['het_hat_mean']:.3f} vs {v['het4_mean']:.3f}" for nm_, v in
+            (("hi", m_split["hi"]), ("lo", m_split["lo"])) if v is not None), flush=True)
     if m_real is not None:
         print(f"fold {f} real held-out clean images (no re-render, n={m_real['n']}): corr het {m_real['corr_het']:.3f},"
               f" partial {m_real['pcorr_het_given_logN']:.3f}, block {m_real['corr_block']:.3f}, logN "
@@ -902,22 +1455,48 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     return res
 
 
+def _cfg_got(out, f):
+    """(render preset, extra targets, options) a cached fold was trained with (from fold{f}.json)."""
+    prev = json.loads((out / f"fold{f}.json").read_text()) if (out / f"fold{f}.json").exists() else {}
+    return prev.get("render_preset", "noisy"), prev.get("extra_targets", []), prev.get("opts", {})
+
+
+def _cfg_want(a):
+    return a.render_preset, list(a.extra_targets or []), json.loads(json.dumps(new_opts(a)))
+
+
 def aggregate(a, out, P, folds_of, pred_ids):
-    """fold{f}.npz -> het_cnn_{train,test}.parquet + score.json."""
+    """fold{f}.npz -> het_cnn_{train,test}.parquet + score.json. Every done fold must have been trained with this
+    call's (render preset, extra targets, options); --screen removes stale parquets of an earlier full run."""
     done = [f for f in range(5) if (out / f"fold{f}.npz").exists()]
     if not done:
         print("nothing to aggregate")
         return
+    want = _cfg_want(a)
+    bad = {f: _cfg_got(out, f) for f in done if _cfg_got(out, f) != want}
+    if bad:
+        raise SystemExit(f"{out}: folds {sorted(bad)} were trained with (render preset, extra targets, options) "
+                         f"{bad}, but this call has {want}; not pooling them: use another --out or --overwrite those "
+                         f"folds")
     Z = {}
     for f in done:
         with np.load(out / f"fold{f}.npz") as z:
             Z[f] = {k: z[k] for k in z.files}
     ids = list(Z[done[0]]["pred_ids"])
+    screen = bool(getattr(a, "screen", False))
     for f in done:
-        assert list(Z[f]["pred_ids"]) == ids, f"fold {f} predicted another image list"
+        assert screen or list(Z[f]["pred_ids"]) == ids, f"fold {f} predicted another image list"
     xn = {f: list(Z[f]["x_names"]) if "x_names" in Z[f] else [] for f in done}
     xnames = xn[done[0]]
     assert all(v == xnames for v in xn.values()), f"folds were trained with different --extra-targets: {xn}"
+    if screen:  # --screen: no parquets, stage-1 only
+        for split in ("train", "test"):
+            fp = out / f"het_cnn_{split}.parquet"
+            if fp.exists():  # from an earlier full run in this --out: they no longer match these folds
+                fp.replace(fp.with_name(fp.name + ".stale"))
+                print(f"--screen: renamed the stale {fp.name} of an earlier run to {fp.name}.stale")
+        _write_score(a, out, P, Z, done, xnames)
+        return
     fold_of_clean = dict(zip(P["ids"].tolist(), folds_of.tolist()))
     B = np.stack([Z[f]["b"] for f in done])  # (nf, N, 16)
     Nn = np.stack([Z[f]["logn"] for f in done])
@@ -955,12 +1534,21 @@ def aggregate(a, out, P, folds_of, pred_ids):
                   f"{d.src.value_counts().to_dict()}; sums het_cnn {d.het_cnn.sum():.4f} logN_cnn "
                   f"{d.logN_cnn.sum():.4f} bmean_cnn {d.bmean_cnn.sum():.4f}"
                   + "".join(f" {nm}_cnn {d[f'{nm}_cnn'].sum():.4f}" for nm in xnames))
+    _write_score(a, out, P, Z, done, xnames)
+
+
+def _write_score(a, out, P, Z, done, xnames):
     per = {f: json.loads((out / f"fold{f}.json").read_text()) for f in done}
     # pooled stage-1 over the done folds' held-out renders
     vb = np.concatenate([Z[f]["val_b"] for f in done])
     vn = np.concatenate([Z[f]["val_logn"] for f in done])
     vr = np.concatenate([Z[f]["val_rows"][:, 0] for f in done]).astype(int)
-    pooled = stage1_metrics(vb, vn, P["b"][vr], P["het4"][vr], np.log(P["n_eff"][vr])) if len(done) > 1 else None
+    vc = vct = None
+    if all("val_cells" in Z[f] for f in done):  # FPNNet runs: cell maps of the held-out renders
+        vc = np.concatenate([Z[f]["val_cells"] for f in done]).astype(np.float64)
+        vct = np.stack([cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in vr])
+    pooled = (stage1_metrics(vb, vn, P["b"][vr], P["het4"][vr], np.log(P["n_eff"][vr]), vc, vct) if len(done) > 1
+              else None)
     pooled_x = None
     if xnames and len(done) > 1:
         vx = np.concatenate([Z[f]["val_x"] for f in done])
@@ -982,6 +1570,10 @@ def aggregate(a, out, P, folds_of, pred_ids):
                                  "(extra_target_values); columns <name>_cnn appended to the parquets")
     if a.render_preset != "noisy":
         score.update(render_preset=a.render_preset, render_preset_note=MID_NOTE)
+    if new_opts(a):
+        score.update(opts=new_opts(a))
+    if getattr(a, "screen", False):
+        score.update(notes_screen="--screen: only each fold's held-out real clean images were predicted; no parquets")
     (out / "score.json").write_text(json.dumps(score, indent=1, default=str))
     print(f"wrote {out / 'score.json'} (folds {done})")
 
@@ -1054,6 +1646,24 @@ def run_ingest(a):
     print(f"ingested {len(parts)} chunks -> {out}")
 
 
+def new_opts(a):
+    """The 2026-10-09 (evening) options that differ from their defaults ({} = a run of the earlier code)."""
+    o = {}
+    if getattr(a, "zoom", None) is not None:
+        o.update(zoom=list(a.zoom), p_zoom=a.p_zoom)
+    if getattr(a, "mosaic", 0) > 0:
+        o.update(mosaic=a.mosaic)
+        if getattr(a, "mosaic_dlogn", None) is not None:
+            o.update(mosaic_dlogn=a.mosaic_dlogn)
+    if getattr(a, "head", "grid4") != "grid4":
+        o.update(head=a.head, lambda_cell=a.lambda_cell, fpn_ch=a.fpn_ch)
+    if getattr(a, "lambda_within", 0) > 0:
+        o.update(lambda_within=a.lambda_within)
+    if getattr(a, "screen", False):
+        o.update(screen=True)
+    return o
+
+
 def main(a):
     if a.prep_only:
         run_prep(a.threads)
@@ -1106,16 +1716,15 @@ def main(a):
     print(f"het_cnn: device {dev} amp {amp_dtype} arch {a.arch} threads {a.threads} workers {a.workers} "
           f"epochs {a.epochs} renders {a.renders} batch {a.batch} lr {a.lr} -> {out}"
           + (f" | extra targets {a.extra_targets} lambda_x {a.lambda_x}" if a.extra_targets else "")
-          + (f" | render preset {a.render_preset}" if a.render_preset != "noisy" else ""), flush=True)
+          + (f" | render preset {a.render_preset}" if a.render_preset != "noisy" else "")
+          + (f" | options {new_opts(a)}" if new_opts(a) else ""), flush=True)
     t = time.time()
     for f in (a.folds if a.folds is not None else range(5)):
         if (out / f"fold{f}.npz").exists() and not a.overwrite:
-            prev = json.loads((out / f"fold{f}.json").read_text()) if (out / f"fold{f}.json").exists() else {}
-            got = (prev.get("render_preset", "noisy"), prev.get("extra_targets", []))
-            want = (a.render_preset, list(a.extra_targets or []))
+            got, want = _cfg_got(out, f), _cfg_want(a)
             if got != want:
-                raise SystemExit(f"{out}/fold{f}: cached with (render preset, extra targets) {got}, but this call "
-                                 f"asks for {want}: use another --out or --overwrite")
+                raise SystemExit(f"{out}/fold{f}: cached with (render preset, extra targets, options) {got}, but this "
+                                 f"call asks for {want}: use another --out or --overwrite")
             print(f"fold {f}: cached", flush=True)
             continue
         train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=xt)
@@ -1262,7 +1871,284 @@ def selftest(n_img=6):
     dm = RenderSet(PREP_FP, [0, 1], 2, 0, 0, preset="mid")
     assert all(torch.equal(u, v) for u, v in zip(dm[5], dm[5])) and not torch.equal(dm[5][0], ds[5][0])
     print("ok 7: render preset 'noisy' == the default renderer bit for bit; 'mid' renders deterministic, in its ranges")
+    selftest_aug(P, rows)
     print("selftest passed")
+
+
+def _ref_relabel(raw):
+    """Independent reference for relabel(): scipy 4-connected components per label value (find_objects windows)."""
+    out = np.zeros(raw.shape, np.int64)
+    n = 0
+    lab_ids = np.unique(raw)
+    remap = np.zeros(int(raw.max()) + 1, np.int64)
+    remap[lab_ids] = np.arange(1, len(lab_ids) + 1)
+    dense = remap[raw]
+    for v, sl in enumerate(ndi.find_objects(dense), start=1):
+        if sl is None:
+            continue
+        cc, m = ndi.label(dense[sl] == v)  # default structure = 4-connectivity
+        w = out[sl]
+        w[cc > 0] = cc[cc > 0] + n
+        n += m
+    return out
+
+
+def _small_grains_ok(ws, pore):
+    """split_merge invariant: every grain below MIN_GRAIN is a pore grain or touches (4-neighbour) no non-pore grain
+    of >= MIN_GRAIN px."""
+    big_np = (np.bincount(ws.ravel(), minlength=len(pore)) >= MIN_GRAIN) & ~pore
+    small_np = ~big_np & ~pore
+    s_ = small_np[ws]
+    if not s_.any():
+        return True
+    b_ = big_np[ws]
+    touch = (s_[1:] & b_[:-1]).any() | (s_[:-1] & b_[1:]).any() | (s_[:, 1:] & b_[:, :-1]).any() | \
+        (s_[:, :-1] & b_[:, 1:]).any()
+    return not touch
+
+
+def _same_partition(x, y):
+    pairs = np.unique(np.stack([x.ravel(), y.ravel()]), axis=1)
+    return pairs.shape[1] == len(np.unique(x)) == len(np.unique(y))
+
+
+def selftest_aug(P, rows):
+    """Checks of the 2026-10-09 (evening) options: (8) zoom s=1 and mosaic with an all-true / all-false mask reproduce
+    the prep targets and the plain cartoon render exactly; fast target functions == the originals; (9) mosaic of an
+    image with itself along random masks: relabel() == an independent scipy relabelling, targets == recomputed on it;
+    (10) augmented sources / dataset items: targets == the slow definitions, het4 == sd(valid b), finite logN;
+    (11) cells: D4 transform of the cell targets == targets of the transformed map, cells -> blocks, TTA path of
+    predict for cell maps, FPNNet outputs, RenderSet cell tensors; (12) defaults == the pre-options file (git show)."""
+    import importlib.util
+    import subprocess
+    import tempfile
+    n = len(P["ids"])
+    # (8)
+    for j in rows:
+        src = source_of(P, j)
+        other = source_of(P, (j + 1) % n)
+        ws0, pore0 = src["ws"], src["pore"]
+        assert np.array_equal(block_targets_fast(ws0, pore0), P["b"][j], equal_nan=True)
+        assert n_eff_fast(ws0, pore0) == n_eff_of(ws0, pore0) == P["n_eff"][j]
+        cands = [("zoom s=1", zoom_source(src, 1.0, 0.0, 0.0)),
+                 ("mosaic all-true", mosaic_source(src, other, np.ones((256, 256), bool))),
+                 ("mosaic all-false", mosaic_source(other, src, np.zeros((256, 256), bool))),
+                 ("zoom s=1 + mosaic all-true", mosaic_source(zoom_source(src, 1.0, 0.0, 0.0), other,
+                                                              np.ones((256, 256), bool)))]
+        for nm, s_ in cands:
+            t = targets_of(s_, list(EXTRA_TARGETS), cells=True)
+            assert np.array_equal(t["b"], P["b"][j], equal_nan=True), nm
+            assert np.array_equal(block_targets(s_["ws"], s_["pore"]), P["b"][j], equal_nan=True), nm
+            assert t["het4"] == P["het4"][j] and t["n_eff"] == P["n_eff"][j], nm
+            assert np.allclose(t["x"], extra_target_values({**P, "ids": P["ids"][j:j + 1], "ws": P["ws"][j:j + 1],
+                                                            "dark": P["dark"][j:j + 1], "pore": P["pore"][j:j + 1]},
+                                                           list(EXTRA_TARGETS))[0], rtol=0, atol=1e-6), nm
+            assert np.array_equal(t["cells"], cell_targets(ws0, pore0), equal_nan=True), nm
+            assert _same_partition(s_["ws"], ws0), nm
+            for force_seed in range(2 if "all-false" not in nm else 0):  # all-false sits on the other's shading
+                r0, i0 = render_noisy(P, j, np.random.default_rng([3, force_seed, j]), force="cartoon")
+                r1, i1 = render_source(s_, np.random.default_rng([3, force_seed, j]), RENDER)
+                assert np.array_equal(r0, r1) and i0 == i1, f"{nm}: render differs from the plain cartoon"
+    print(f"ok 8: zoom s=1 / mosaic all-true / all-false / both reproduce b, het4, N_eff, extras, cells and the plain "
+          f"cartoon render exactly ({len(rows)} images); block_targets_fast == block_targets, n_eff_fast == n_eff_of")
+    # (9)
+    nmask = nsmall = 0
+    for j in rows[:3]:
+        src = source_of(P, j)
+        for t_ in range(4):
+            ra = np.random.default_rng([11, j, t_])
+            mask = mosaic_mask(ra)
+            off = int(src["ws"].max()) + 1
+            raw = np.where(mask, src["ws"], src["ws"] + off)
+            tabs = {k: np.concatenate([src[k][:off], src[k]]) for k in GRAIN_TABS}
+            # pure relabel vs an independent scipy relabelling; targets on it == recomputed with the slow definitions
+            rl, rt = relabel(raw, tabs)
+            ref = _ref_relabel(raw)
+            assert _same_partition(rl, ref), "relabel != scipy reference"
+            pore_ref = np.zeros(int(ref.max()) + 1, bool)
+            pore_ref[ref.ravel()] = src["pore"][raw.ravel() % off]
+            dark_ref = np.zeros_like(pore_ref)
+            dark_ref[ref.ravel()] = src["dark"][raw.ravel() % off]
+            assert np.array_equal(rt["pore"][rl], pore_ref[ref]) and np.array_equal(rt["dark"][rl], dark_ref[ref])
+            b_ref = block_targets(ref, pore_ref)
+            t = targets_of(dict(ws=rl, **rt))
+            assert np.array_equal(t["b"], b_ref, equal_nan=True)
+            assert t["n_eff"] == n_eff_of(ref, pore_ref) and t["het4"] == float(np.std(b_ref[~np.isnan(b_ref)]))
+            assert len(np.unique(rl)) >= len(np.unique(src["ws"]))  # splitting only adds grains
+            # full mosaic_source (split_merge): only pixels of non-pore components < MIN_GRAIN change grain; no
+            # non-pore grain below MIN_GRAIN next to a bigger non-pore grain is left; the pore flag of EVERY pixel is
+            # unchanged; tables per pixel unchanged elsewhere; targets == slow definitions on the final map
+            mos = mosaic_source(src, src, mask)
+            small = ((np.bincount(rl.ravel()) < MIN_GRAIN) & ~rt["pore"])[rl]
+            assert _same_partition(np.where(small, -1, mos["ws"]), np.where(small, -1, rl))
+            assert _small_grains_ok(mos["ws"], mos["pore"])
+            assert _same_partition(mos["ws"], relabel(mos["ws"], {})[0])  # every grain connected
+            assert np.array_equal(mos["pore"][mos["ws"]], rt["pore"][rl])
+            for k_ in GRAIN_TABS:
+                assert np.array_equal(mos[k_][mos["ws"]][~small], rt[k_][rl][~small])
+            tm = targets_of(mos)
+            assert np.array_equal(tm["b"], block_targets(mos["ws"], mos["pore"]), equal_nan=True)
+            assert tm["n_eff"] == n_eff_of(mos["ws"], mos["pore"])
+            nmask += 1
+            nsmall += int(small.sum())
+    print(f"ok 9: mosaic of an image with itself ({nmask} random masks): relabel == scipy per-label 4-connected "
+          f"components; per-grain tables carried; b, het4, N_eff == recomputed on that map; split_merge only moved "
+          f"the {nsmall} pixels of non-pore components < {MIN_GRAIN} px (pore flag of every pixel unchanged)")
+    # (10)
+    aug = dict(zoom=(0.7, 1.4), p_zoom=0.5, mosaic=0.5)
+    trows = np.arange(min(n, 40))
+    n_aug = 0
+    for i in range(16):
+        j = int(trows[i % len(trows)])
+        s_ = augment_source(P, j, trows, np.random.default_rng([0, 0, 0, i, AUG_TAG]), aug)
+        if s_ is None:
+            continue
+        n_aug += 1
+        t = targets_of(s_, list(EXTRA_TARGETS), cells=True)
+        assert np.array_equal(t["b"], block_targets(s_["ws"], s_["pore"]), equal_nan=True)
+        v = ~np.isnan(t["b"])
+        assert t["het4"] == float(np.std(t["b"][v])) and np.isfinite(np.log(t["n_eff"]))
+        assert t["n_eff"] == n_eff_of(s_["ws"], s_["pore"])
+        assert abs(t["x"][2] - grain_log_aspect(s_["ws"], s_["pore"])) < 1e-6
+        assert len(s_["sn"]) >= s_["ws"].max() + 1 and s_["ws"].min() >= 1
+        assert _small_grains_ok(s_["ws"], s_["pore"])
+        assert _same_partition(s_["ws"], relabel(s_["ws"], {})[0])  # every grain connected
+        assert not (s_["pore"][s_["ws"]] & ~s_["rpore"]).any()  # target pores only where the render draws pores
+        assert s_["resid"].dtype == np.float32 and s_["im"].shape == (256, 256)
+    xt = extra_target_values(P, list(EXTRA_TARGETS))
+    dsa = RenderSet(PREP_FP, trows, 2, 0, 0, xt=xt, aug=aug, cells=True, xnames=list(EXTRA_TARGETS))
+    dsp = RenderSet(PREP_FP, trows, 2, 0, 0, xt=xt, cells=True)
+    n_same = 0
+    for idx in range(0, 2 * dsa.n_items, 7):
+        it = dsa[idx]
+        assert len(it) == 8 and it[0].dtype == torch.uint8 and it[6].shape == (16, 16)
+        bv = it[1][it[2] > 0].double().numpy()
+        assert abs(float(np.std(bv)) - float(it[3])) < 1e-5 and torch.isfinite(it[4])
+        assert all(torch.equal(u, w) for u, w in zip(it, dsa[idx]))
+        n_same += all(torch.equal(u, w) for u, w in zip(it, dsp[idx]))
+    print(f"ok 10: {n_aug} of 16 augmented sources: targets == slow definitions, het4 == sd(valid b), finite logN; "
+          f"augmented dataset items deterministic, het4 == sd(valid b) ({n_same} of {len(range(0, 2 * dsa.n_items, 7))}"
+          f" items drew no augmentation and equal the plain items)")
+    # (11)
+    for j in rows[:3]:
+        ws, pore = P["ws"][j].astype(np.int64), P["pore"][j]
+        c0 = cell_targets(ws, pore)
+        for k in range(8):
+            ck = cell_targets(np.ascontiguousarray(d4_np(ws, k)), pore)
+            assert np.array_equal(np.isnan(ck), np.isnan(d4_np(c0, k)))
+            assert np.allclose(ck, d4_np(c0, k), rtol=0, atol=1e-12, equal_nan=True)
+        cnt = np.bincount(_CELL[~pore[ws.ravel()]], minlength=256).reshape(4, 4, 4, 4).transpose(0, 2, 1, 3)
+        full = (cnt == 256).all((2, 3)).ravel()  # blocks whose 16 cells have no pore pixel: cells -> blocks exact
+        assert np.allclose(cells_to_blocks(c0)[full], P["b"][j][full], rtol=0, atol=1e-9)
+    x = torch.randn(2, 3, 16, 16)
+    assert all(torch.equal(d4_inv_t(d4_t(x, k), k), x) for k in range(8))
+
+    class CellMean(nn.Module):  # exact 64-px block means, image mean, exact 16-px cell means
+        has_cells = True
+
+        def forward(self, x):
+            return F.avg_pool2d(x, 64).flatten(1), x.mean((1, 2, 3)), F.avg_pool2d(x, 16)[:, 0]
+
+    X8 = np.stack([P["im8"][j] for j in rows[:3]])
+    refc = X8.astype(np.float64).reshape(3, 16, 16, 16, 16).mean((2, 4)) / 255.0
+    for tta in (1, 8):
+        r_ = predict(CellMean(), X8, torch.tensor(0.0), torch.tensor(1.0), torch.device("cpu"), None, tta=tta)
+        assert len(r_) == 3 and np.allclose(r_[2], refc, atol=1e-5), f"cell TTA un-transform wrong (tta={tta})"
+    for nx_ in (0, 3):
+        net = FPNNet("resnet18", pretrained=False, n_extra=nx_).eval()
+        o = net(torch.zeros(2, 1, 256, 256))
+        assert len(o) == 3 + (nx_ > 0) and o[0].shape == (2, 16) and o[1].shape == (2,) and o[-1].shape == (2, 16, 16)
+        r_ = predict(net, X8[:2], torch.tensor(0.5), torch.tensor(0.2), torch.device("cpu"), None, tta=2)
+        assert len(r_) == 3 + (nx_ > 0) and r_[-1].shape == (2, 16, 16)
+    dsc = RenderSet(PREP_FP, [0, 1], 2, 0, 0, cells=True)
+    for idx in (0, 3, 5):
+        it, it0 = dsc[idx], ds_plain_item(idx)
+        assert all(torch.equal(u, w) for u, w in zip(it[:5], it0))
+        ep, i = divmod(idx, dsc.n_items)
+        rng = np.random.default_rng([0, 0, ep, i])
+        render_noisy(P, [0, 1][i % 2], rng)
+        k = int(rng.integers(8))
+        ck = d4_np(cell_targets(P["ws"][[0, 1][i % 2]].astype(np.int64), P["pore"][[0, 1][i % 2]]), k)
+        assert np.array_equal(it[6].numpy() > 0, ~np.isnan(ck)) and np.allclose(it[5].numpy(), np.nan_to_num(ck),
+                                                                                 atol=1e-5)
+    print("ok 11: cell targets D4-equivariant (24 image-op pairs), cells -> blocks exact on pore-free blocks, "
+          "d4_inv_t inverts d4_t, predict un-transforms cell maps (tta 1/8), FPNNet output shapes (+extras), "
+          "RenderSet cell tensors == D4-transformed cell targets")
+    # (12) defaults vs the version of this file from before the 2026-10-09 (evening) options: the parent of the first
+    # commit that contains AUG_TAG (HEAD while the options are uncommitted), so the check stays meaningful after the
+    # commit. Loaded from a temp dir under a per-process module name (nothing is written into src/, no .pyc).
+    try:
+        log = subprocess.run(["git", "log", "--format=%H", "--reverse", "-S", "AUG_TAG = 9001", "--",
+                              "src/het_cnn.py"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+        rev = f"{log[0]}^" if log else "HEAD"
+        sha = subprocess.run(["git", "rev-parse", "--short", rev], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout.strip()
+        txt = subprocess.run(["git", "show", f"{rev}:src/het_cnn.py"], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout
+    except Exception as e:  # noqa: BLE001
+        print(f"skip 12: git could not provide the pre-options src/het_cnn.py ({e})")
+        return
+    assert "AUG_TAG" not in txt, f"reference {rev} already has the options"
+    mod_name = f"{__package__}._het_cnn_ref_{os.getpid()}"
+    tmp = tempfile.TemporaryDirectory(prefix="het_cnn_ref_")
+    ref_fp = Path(tmp.name) / f"_het_cnn_ref_{os.getpid()}.py"
+    ref_fp.write_text(txt)
+    dwb = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location(mod_name, ref_fp)
+        ref = importlib.util.module_from_spec(spec)  # __package__ = 'src': its relative imports resolve to src.*
+        sys.modules[mod_name] = ref
+        spec.loader.exec_module(ref)
+        nchk = 0
+        for preset in ("noisy", "mid"):
+            for use_x in (False, True):
+                kw = dict(preset=preset, xt=xt if use_x else None)
+                d_new = RenderSet(PREP_FP, np.arange(10), 1, 0, 1, **kw)
+                d_ref = ref.RenderSet(PREP_FP, np.arange(10), 1, 0, 1, **kw)
+                for idx in (0, 1, 4, 7, 8, 9, 10, 12, 15, 17, 18, 19):  # 12 items across 2 epochs
+                    a_, b_ = d_new[idx], d_ref[idx]
+                    assert len(a_) == len(b_) and all(torch.equal(u, w) for u, w in zip(a_, b_)), (preset, idx)
+                    nchk += 1
+        for t in range(6):
+            for force in (None, "cartoon", "m"):
+                for preset in ("noisy", "mid"):
+                    R_, M_ = PRESETS[preset]
+                    r0, i0 = render_noisy(P, t, np.random.default_rng([9, t]), R_, force, M_)
+                    r1, i1 = ref.render_noisy(P, t, np.random.default_rng([9, t]), R_, force, M_)
+                    assert np.array_equal(r0, r1) and i0 == i1
+        for nx_ in (0, 3):
+            torch.manual_seed(0)
+            m_new = HetNet("resnet18.a1_in1k", pretrained=False, n_extra=nx_)
+            torch.manual_seed(0)
+            m_ref = ref.HetNet("resnet18.a1_in1k", pretrained=False, n_extra=nx_)
+            sd_n, sd_r = m_new.state_dict(), m_ref.state_dict()
+            assert list(sd_n) == list(sd_r) and all(torch.equal(sd_n[k], sd_r[k]) for k in sd_n)
+            xin = torch.randn(2, 1, 256, 256, generator=torch.Generator().manual_seed(1))
+            for mode in ("train", "eval"):
+                getattr(m_new, mode)(), getattr(m_ref, mode)()
+                o_n, o_r = m_new(xin), m_ref(xin)
+                assert len(o_n) == len(o_r) and all(torch.equal(u, w) for u, w in zip(o_n, o_r))
+            pn = predict(m_new, X8, torch.tensor(0.5), torch.tensor(0.2), torch.device("cpu"), None, tta=8)
+            pr = ref.predict(m_ref, X8, torch.tensor(0.5), torch.tensor(0.2), torch.device("cpu"), None, tta=8)
+            assert len(pn) == len(pr) and all(np.array_equal(u, w) for u, w in zip(pn, pr))
+        bh = np.random.default_rng(2).normal(size=(30, 16))
+        args = (bh, bh[:, 0], P["b"][:30], P["het4"][:30], np.log(P["n_eff"][:30]))
+        m_n, m_r = stage1_metrics(*args), ref.stage1_metrics(*args)
+        assert all(m_n[k] == m_r[k] for k in m_r) and set(m_n) - set(m_r) == {"slope_het4_on_hat_given_logN",
+                                                                              "sdratio_het4_over_hat_given_logN"}
+        print(f"ok 12: default flags == src/het_cnn.py at {rev} ({sha}, before the evening options) bit for bit: "
+              f"{nchk} RenderSet items (2 epochs, presets noisy/mid, +-extras), 36 renders, HetNet init state_dict + "
+              f"train/eval outputs + TTA predict (n_extra 0/3), stage1_metrics old keys (two additive keys)")
+    finally:
+        sys.dont_write_bytecode = dwb
+        sys.modules.pop(mod_name, None)
+        tmp.cleanup()
+
+
+def ds_plain_item(idx):
+    """Item idx of the default RenderSet(PREP_FP, [0, 1], 2, 0, 0) (selftest helper)."""
+    return RenderSet(PREP_FP, [0, 1], 2, 0, 0)[idx]
 
 
 def parse(argv=None):
@@ -1295,6 +2181,29 @@ def parse(argv=None):
     ap.add_argument("--lambda-x", type=float, default=0.5, help="loss weight of each extra target (standardised SE)")
     ap.add_argument("--render-preset", default="noisy", choices=sorted(PRESETS),
                     help="noisy (default, as before) | mid (RENDER_MID, for raw ic_noise 9.5-12)")
+    ap.add_argument("--zoom", type=float, nargs=2, default=None, metavar=("LO", "HI"),
+                    help="label-map zoom augmentation of cartoon renders, s ~ logUniform(LO, HI), e.g. 0.7 1.4 "
+                         "(targets recomputed on the zoomed label map); default off")
+    ap.add_argument("--p-zoom", type=float, default=None,
+                    help="--zoom: probability per source image, 0-1 (default 0.5; only with --zoom)")
+    ap.add_argument("--mosaic", type=float, default=0.0,
+                    help="probability that a cartoon render composites two training images along a smooth random "
+                         "mask or a straight line (targets from the composite label map), 0-1; default 0 = off")
+    ap.add_argument("--mosaic-dlogn", type=float, default=None,
+                    help="--mosaic: draw the second image only among training images with |log N_eff - log N_eff(j)| "
+                         "<= D (nearest one if none), e.g. 0.5, so composites stay in the real het4 range; default "
+                         "none = any training image")
+    ap.add_argument("--head", default="grid4", choices=HEADS,
+                    help="grid4 (default, HetNet as before) | fpn (FPNNet: stride-8/16/32 FPN at stride 16 with "
+                         "block head + 16x16 cell head)")
+    ap.add_argument("--fpn-ch", type=int, default=128, help="--head fpn: channels of the merged map")
+    ap.add_argument("--lambda-cell", type=float, default=None,
+                    help="--head fpn: weight of the 16-px cell loss (default 1.0 with fpn; grid4 has no cells)")
+    ap.add_argument("--lambda-within", type=float, default=0.0,
+                    help="weight of the within-image block-deviation loss (targets the shrinkage); default 0 = off")
+    ap.add_argument("--screen", action="store_true",
+                    help="design screening: predict only the held-out real clean images, no parquets; per-epoch "
+                         "timing and het4-split stage-1 in the logs / fold json")
     ap.add_argument("--k-val", type=int, default=4, help="fixed-seed renders per held-out clean image")
     ap.add_argument("--tta", type=int, default=8)
     ap.add_argument("--folds", type=int, nargs="*", default=None)
@@ -1308,6 +2217,24 @@ def parse(argv=None):
     a = ap.parse_args(argv)
     if a.extra_targets is not None:  # dedupe, keep the given order; an empty list means none
         a.extra_targets = list(dict.fromkeys(a.extra_targets)) or None
+    if a.head == "fpn":
+        a.lambda_cell = 1.0 if a.lambda_cell is None else a.lambda_cell
+    else:
+        if a.lambda_cell:
+            ap.error("--lambda-cell needs --head fpn")
+        a.lambda_cell = 0.0
+    if a.zoom is not None and not (1 / 3 <= a.zoom[0] <= a.zoom[1]):
+        ap.error("--zoom LO HI needs 1/3 <= LO <= HI")
+    if a.p_zoom is not None and a.zoom is None:
+        ap.error("--p-zoom needs --zoom")
+    if a.zoom is not None:
+        a.p_zoom = 0.5 if a.p_zoom is None else a.p_zoom
+        if not 0 <= a.p_zoom <= 1:
+            ap.error("--p-zoom must be in [0, 1]")
+    if not 0 <= a.mosaic <= 1:
+        ap.error("--mosaic must be in [0, 1]")
+    if a.mosaic_dlogn is not None and (a.mosaic <= 0 or a.mosaic_dlogn < 0):
+        ap.error("--mosaic-dlogn D needs --mosaic P > 0 and D >= 0")
     a.prep_only = a.prep == "__BUILD__"
     if a.prep_only:
         a.prep = str(PREP_FP)
