@@ -1,6 +1,20 @@
-# Resume guide (updated 2026-10-09 ~23:20 KST)
+# Resume guide (updated 2026-10-10 ~01:30 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-10 01:30 KST: two files for 10/10 (blend_v26L, blend_v26r) - read this first
+- d1010 C clean-row search (128 candidates, one nested harness, fixed bar): no survivor; new clean terms are exhausted at
+  n = 267 (scripts/d1010/C/SYNTHESIS.md). Leads: ringall_avg5 (post hoc, refuted by re-splits).
+- **blend_v26L** (hardness-cache/submissions, md5 5e47b2fd...): the unchanged clean formula7 at fixed w 0.5 on the 42
+  line-visible mid-noise test rows. Pre-registered single test PASS (scripts/d1010/L). Expected about -0.03 vs v25.
+  Reading: <= 10.2094 carried (first final), 10.2094-10.2694 inconclusive (finals unchanged), > 10.2694 refuted.
+- **blend_v26r** (md5 1b6037e7...): bold probe of ringall_avg5 on the 519 clean rows. Expected about -0.03, SD 0.028.
+  Reading: <= 10.184 carried (first final); otherwise finals unchanged; > 10.256 closes the edge-count family.
+- The two change disjoint rows, so their public MSE changes add exactly; a union file (blend_v27u) is built only if both
+  carry. Slots 4-5 stay empty unless a new pre-registered test passes. Plan: scripts/d1010/PLAN_1010.md.
+- Phase-contrast diagnostic (scripts/d1010/E): the real G1 phase contrast c_d is near-constant, but the matrix spread e
+  is narrower than the render prior; a narrowed-prior dark-fraction estimator gains in renders (R2 0.684 -> 0.751) but
+  the plan's strict rule closes the route; at most a weak 10/11 CPU test.
 
 ## 2026-10-09 23:20 KST: blend_v25 10.2394 (best); route K ended with no file - read this first
 - Public (user, 22:51 KST): blend_v25 **10.2394** (-0.274 vs v24; past J/PREREG's <= 10.40 line). Public gained about the
