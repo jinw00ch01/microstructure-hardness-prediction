@@ -1,7 +1,7 @@
 """Label-free stage-1 pick for route K (laptop-gpu.md section 13; pre-registration d1010/K in the hardness-cache).
 
   python -m src.het_cnn_pick_k --base ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --d1 scrK_d1              # after the D1 screen
-  python -m src.het_cnn_pick_k --base ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --d1 scrK_d1 --d2 scrK_m2  # after the D2 screen
+  python -m src.het_cnn_pick_k --base ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --d1 scrK_d1 --d2 scrK_m   # after the D2 screen
   python -m src.het_cnn_pick_k --stage1b ev2sK_d1 --design d1        # 5-fold run of the pick: stage-1b gate
 
 Inputs (data/het_cnn/<run>/; no labels, no images): the base runs' score.json, score_eval.json (src.het_cnn --eval-only
@@ -28,7 +28,9 @@ Last line: 'PICK <run>', 'NEXT d2' (D1 does not qualify and no --d2 given) or 'P
 Missing or partial inputs (a fold without its eval, a D2 run that is not finished, the wrong training preset) are errors
 (exit 2, no PICK line), never a 'PICK none': no decision on partial folds.
 --stage1b RUN --design d1|d2: the 5-fold gate (D1: pooled P_cur >= 0.48 and R >= 0.70, R = mean over the 5 folds of
-heldout_real_clean pcorr; D2: pooled P >= 0.54); last line 'STAGE1B PASS', 'STAGE1B FAIL' or 'STAGE1B INCOMPLETE'."""
+heldout_real_clean pcorr; D2: pooled P >= 0.54); last line 'STAGE1B PASS', 'STAGE1B FAIL' or 'STAGE1B INCOMPLETE'.
+If a D1 fold was cached without its in-training eval (a cut between training and eval), the pooled eval is taken from
+--eval-only RUN --eval-presets noisy real over all 5 folds (score_eval.json) instead."""
 import argparse
 import json
 import sys
@@ -41,6 +43,7 @@ from .common import DATA_DIR as DATA
 ROOT = DATA / "het_cnn"
 FOLDS = ("0", "1")
 D1_BARS = dict(R=0.7358, W=0.6865, P_cur=0.5013, dP_real=0.05, logn=0.10, agree=0.75)
+BASE_RUNS = ["ev2s_loc_e32r4", "ev2s_loc_e32r4_s1"]  # the v24 estimator (PREREG section 0); exactly these two
 BASE_P_CUR = (0.5213, 0.01)  # PREREG section 4 mechanics check of the base re-scoring (target, tolerance)
 D1_ARCH, D2_ARCH = "tf_efficientnetv2_s.in21k_ft_in1k", "tf_efficientnetv2_m.in21k_ft_in1k"
 D2_BARS = dict(P=0.5713, W=0.6865, R=0.7358)
@@ -79,7 +82,8 @@ def base_metrics(run):
     per, ev = s["stage1_per_fold"], e["per_fold"]
     miss = [f for f in FOLDS if f not in per or f not in ev]
     if miss:
-        _die(f"{run}: folds {miss} missing in score.json / score_eval.json (step b: --eval-only {run} --folds 0 1)")
+        _die(f"{run}: folds {miss} missing in score.json / score_eval.json (step b: python -W ignore -m src.het_cnn "
+             f"--eval-only {run} --folds 0 1 --eval-presets noisy real --device cuda --threads 2)")
     m = dict(R=np.mean([per[f]["heldout_real_clean"]["pcorr_het_given_logN"] for f in FOLDS]),
              W_score=np.mean([per[f]["stage1_renders"]["corr_block_within"] for f in FOLDS]),
              P_score=np.mean([per[f]["stage1_renders"]["pcorr_het_given_logN"] for f in FOLDS]))
@@ -96,9 +100,10 @@ def d1_metrics(run):
     miss = [f for f in FOLDS if f not in per]
     if miss:
         _die(f"{run}: folds {miss} not done")
-    tp, arch = s.get("render_preset", "noisy"), s.get("args", {}).get("arch")
-    if tp != "real" or arch != D1_ARCH:
-        _die(f"{run}: trained with preset {tp} / arch {arch}; D1 is --render-preset real with {D1_ARCH}")
+    tp, arch, seed = s.get("render_preset", "noisy"), s.get("args", {}).get("arch"), s.get("args", {}).get("seed")
+    if tp != "real" or arch != D1_ARCH or seed != 0:
+        _die(f"{run}: trained with preset {tp} / arch {arch} / seed {seed}; D1 is --render-preset real with {D1_ARCH}, "
+             "seed 0")
     ev = (s.get("stage1_eval") or {}).get("per_fold", {})
     pattern = "fold{f}_eval.npz"
     if any(f not in ev for f in FOLDS) or any(not (ROOT / run / pattern.format(f=f)).exists() for f in FOLDS):
@@ -127,9 +132,10 @@ def d2_metrics(run):
     miss = [f for f in FOLDS if f not in per]
     if miss:
         _die(f"{run}: folds {miss} not done (rerun the D2 screen; it skips finished folds)")
-    tp, arch = s.get("render_preset", "noisy"), s.get("args", {}).get("arch")
-    if tp != "noisy" or arch != D2_ARCH:
-        _die(f"{run}: trained with preset {tp} / arch {arch}; D2 is the default 'noisy' prior with {D2_ARCH}")
+    tp, arch, seed = s.get("render_preset", "noisy"), s.get("args", {}).get("arch"), s.get("args", {}).get("seed")
+    if tp != "noisy" or arch != D2_ARCH or seed != 0:
+        _die(f"{run}: trained with preset {tp} / arch {arch} / seed {seed}; D2 is the default 'noisy' prior with "
+             f"{D2_ARCH}, seed 0")
     return dict(P=float(np.mean([per[f]["stage1_renders"]["pcorr_het_given_logN"] for f in FOLDS])),
                 W=float(np.mean([per[f]["stage1_renders"]["corr_block_within"] for f in FOLDS])),
                 R=float(np.mean([per[f]["heldout_real_clean"]["pcorr_het_given_logN"] for f in FOLDS])))
@@ -163,24 +169,34 @@ def stage1b(a):
         print(f"{a.stage1b}: only folds {done} done (no decision on partial folds; a rerun skips finished folds)")
         print("STAGE1B INCOMPLETE")
         return
-    tp = s.get("render_preset", "noisy")
-    want = "real" if a.design == "d1" else "noisy"
-    if tp != want:
-        _die(f"{a.stage1b}: trained with preset {tp}; design {a.design} is the '{want}' preset")
+    tp, arch, seed = s.get("render_preset", "noisy"), s.get("args", {}).get("arch"), s.get("args", {}).get("seed")
+    want = ("real", D1_ARCH) if a.design == "d1" else ("noisy", D2_ARCH)
+    if (tp, arch) != want or seed != 0:
+        _die(f"{a.stage1b}: trained with preset {tp} / arch {arch} / seed {seed}; design {a.design} is preset {want[0]} "
+             f"/ arch {want[1]} / seed 0")
     # R = mean over the 5 folds of heldout_real_clean pcorr (PREREG section 5), from the per-fold records
     R = float(np.mean([per[str(f)]["heldout_real_clean"]["pcorr_het_given_logN"] for f in done]))
     if a.design == "d1":
         pc = (se.get("pooled") or {}).get("noisy")
-        if pc is None or sorted(map(int, se.get("folds", []))) != done:
-            _die(f"{a.stage1b}: score.json stage1_eval lacks the pooled 'noisy' eval over all 5 folds (run with "
-                 "--eval-presets noisy real)")
+        if pc is None or sorted(map(int, se.get("folds", []))) != done or se.get("folds_missing"):
+            # a fold cached without its in-training eval: take the pooled eval of --eval-only over all 5 folds
+            eo = ROOT / a.stage1b / "score_eval.json"
+            e = json.loads(eo.read_text()) if eo.exists() else {}
+            if sorted(map(int, e.get("folds", []))) != done or "noisy" not in (e.get("pooled") or {}) \
+                    or "real" not in (e.get("pooled") or {}):
+                _die(f"{a.stage1b}: the in-training eval is missing for some fold; run: python -W ignore -m src.het_cnn "
+                     f"--eval-only {a.stage1b} --eval-presets noisy real --device cuda --threads 2, then this again")
+            print(f"{a.stage1b}: pooled eval taken from score_eval.json (--eval-only over folds {done})")
+            se = dict(se, pooled=e["pooled"], real_g1_train=e.get("real_g1_train"), R_mean_folds=None)
+            pc = se["pooled"]["noisy"]
         if se.get("R_mean_folds") is not None:
             assert abs(se["R_mean_folds"] - R) < 1e-9, (se["R_mean_folds"], R)
         P = pc["pcorr_het_given_logN"]
         ok = P >= S1B["d1"]["P_cur"] and R >= S1B["d1"]["R"]
         g = se.get("real_g1_train") or {}
         print(f"{a.stage1b} (D1, 5 folds): pooled P_cur {P:.4f} (bar >= 0.48), R (5-fold mean) {R:.4f} (bar >= 0.70); "
-              f"pooled P_real {se['pooled']['real']['pcorr_het_given_logN']:.4f} (report); real G1 logN-hat "
+              f"pooled W_cur {pc.get('corr_block_within', float('nan')):.4f}, pooled P_real "
+              f"{se['pooled']['real']['pcorr_het_given_logN']:.4f} (report); real G1 logN-hat "
               f"{g.get('logN_mean', float('nan')):.3f} / {g.get('logN_sd', float('nan')):.3f} (report)")
     else:
         pl = s.get("stage1_pooled")
@@ -194,7 +210,7 @@ def stage1b(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", nargs="+", default=["ev2s_loc_e32r4", "ev2s_loc_e32r4_s1"])
+    ap.add_argument("--base", nargs="+", default=BASE_RUNS)
     ap.add_argument("--d1", default=None)
     ap.add_argument("--d2", default=None)
     ap.add_argument("--stage1b", default=None)
@@ -207,6 +223,8 @@ def main():
         return
     if not a.d1:
         ap.error("--d1 RUN is required")
+    if sorted(a.base) != sorted(BASE_RUNS):
+        _die(f"--base must be exactly {' '.join(BASE_RUNS)} (got {' '.join(a.base)})")
     B = [base_metrics(r) for r in a.base]
     bm = {k: float(np.mean([b[0][k] for b in B])) for k in B[0][0]}
     print(f"base {'+'.join(a.base)} (folds 0-1): R {bm['R']:.4f} | eval noisy P_cur {bm['P_cur']:.4f} W_cur "

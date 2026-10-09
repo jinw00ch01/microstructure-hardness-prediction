@@ -658,10 +658,14 @@ a. [CPU] Pull, selftest, check the base checkpoints (3 min)
    git status --short
    git pull origin claude/lb-under-10-7080jr
    python -W ignore -m src.het_cnn --selftest        # must end with "selftest passed" (checks 1-13b)
+   git hash-object src\het_cnn.py src\het_cnn_pick_k.py   # git blob ids, the same with or without CRLF checkout
    Test-Path data\het_cnn\ev2s_loc_e32r4\fold0.pt, data\het_cnn\ev2s_loc_e32r4\fold1.pt, data\het_cnn\ev2s_loc_e32r4_s1\fold0.pt, data\het_cnn\ev2s_loc_e32r4_s1\fold1.pt   # True x4
    ```
    - Check 13 prints `208 real G1 train images`; another count means the laptop's `features_v3.parquet` differs from
      the cloud's: send the message and stop.
+   - The two blob ids must be the pre-registered ones (hardness-cache `scripts/d1010/K/PREREG.txt`, addendum 2):
+     `src\het_cnn.py` bc683a5218f713bb0a019f74b0c0fd5a6927a901,
+     `src\het_cnn_pick_k.py` e44c34d2dce20a1d673f94ba9143c846d785483e. Otherwise send them and stop.
 
 b. [GPU] Base scores on the fixed renders (about 3 min)
    ```powershell
@@ -669,14 +673,15 @@ b. [GPU] Base scores on the fixed renders (about 3 min)
    python -W ignore -m src.het_cnn --eval-only ev2s_loc_e32r4_s1 --folds 0 1 --eval-presets noisy real --device cuda --threads 2
    ```
    - Each ends with `wrote ...\score_eval.json`. The `noisy: P` of each fold should match that run's section-11
-     stage-1 values within about 0.005 (seed 0: 0.6416 / 0.3807; seed 1: 0.6471 / 0.4157).
+     stage-1 values within about 0.005 (seed 0: 0.6416 / 0.3807; seed 1: 0.6471 / 0.4157). A larger gap: say so in the
+     message and go on; step d checks the mean against 0.5213 +- 0.01 and stops if it is off.
 
 c. [GPU] D1 screen, seed 0, folds 0 and 1 (about 15 min)
    ```powershell
    python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --folds 0 1 --screen --eval-presets noisy real --out scrK_d1
    ```
-   - Same as ev2s_loc_e32r4 except `--render-preset real`, plus the screen and evaluation switches. Ends with
-     `wrote ...\score.json (folds [0, 1])`.
+   - Same as ev2s_loc_e32r4 except `--render-preset real`, plus the screen and evaluation switches. Near the end it
+     prints `wrote ...\score.json (folds [0, 1])`. A fold is finished only after its `fold k eval presets:` line.
 
 d. [CPU] The pick (seconds)
    ```powershell
@@ -707,8 +712,8 @@ e. [GPU] Only after `NEXT d2`: the D2 screen, then the pick again (about 30-40 m
    - On CUDA out of memory, rerun the screen with `--batch 8` and say so. The cloud measured about 1.6x the
      activation memory of ev2s at the same batch.
    - Send the pick output. `PICK scrK_m`: go to f with the D2 line. `PICK none`: stop the GPU work and go to g. Route
-     K ends without a file. `ERROR: ... folds ... not done`: rerun the screen line (it skips finished folds), then the
-     pick again.
+     K ends without a file. `ERROR: ... folds ... not done` or `ERROR: ...scrK_m\score.json missing` after a cut: rerun
+     the screen line (it skips finished folds), then the pick again. Any other `ERROR:` line follows the rule in d.
 
 f. [GPU] The pick on all 5 folds, seed 0 (D1 about 25 min; D2 about 60-80 min)
    ```powershell
@@ -726,8 +731,12 @@ f. [GPU] The pick on all 5 folds, seed 0 (D1 about 25 min; D2 about 60-80 min)
      back first, return it and resume later). The bars are pooled P_cur >= 0.48 and R (5-fold mean) >= 0.70 for D1,
      and pooled P >= 0.54 for D2. Make the dumps in g after PASS or FAIL; the cloud runs the label test only after a
      PASS.
+   - A line starting `ERROR:` decides nothing. If it names an `--eval-only` command (a fold was cut between training
+     and its eval), run that command [GPU] and then the `--stage1b` line again. A missing `score.json` after a cut:
+     rerun the training line. Any other `ERROR:`: send the output and stop.
 
 g. [CPU] Send back without pushing, one message each. Save a dump with `| Out-File -Encoding utf8 c0.txt`, not `>`.
+   After `PICK none`, `BASE CHECK FAIL` or a stopping `ERROR:`, send item 1 only (there is no 5-fold run to dump).
    1. The output of d (and e, if it ran), if not sent yet.
    2. The `--stage1b` output of f.
    3-5. The dumps of the 5-fold run (`ev2sK_d1`, or `ev2mK` for D2):
