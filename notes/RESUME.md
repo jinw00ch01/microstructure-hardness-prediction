@@ -1,6 +1,18 @@
-# Resume guide (updated 2026-10-09 ~19:40 KST)
+# Resume guide (updated 2026-10-09 ~23:20 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-09 23:20 KST: blend_v25 10.2394 (best); route K ended with no file - read this first
+- Public (user, 22:51 KST): blend_v25 **10.2394** (-0.274 vs v24; past J/PREREG's <= 10.40 line). Public gained about the
+  full train nested gain. Public-optimal mix weight about 0.66 vs train 0.56: no re-weighting (worth < 0.02). Finals:
+  v25 first, v24 second. Slot 5 of 10/09 left empty. To reach 10: about -0.24 more (about one more v25-sized gain).
+- Route K (laptop GPU 22:55-23:16 KST, returned with hardness_gpu_done): base re-scoring matched (0.5213); D1 'real'
+  prior failed P_cur 0.492 < 0.501 and P_real 0.666 < 0.671 (real clean R rose 0.786 -> 0.854; G1 agreement with v24's
+  estimator 0.94); D2 ev2m P 0.519 < 0.571. PICK none: no label test, no file (scripts/d1010/K/PREREG.txt). The het-CNN
+  route is saturated.
+- Running on cloud CPU: workflow clean-next-1010 (hardness-cache scripts/d1010/C): edge-corrected grain-size
+  estimators, edge-term refinements, a cross-fitted residual probe and a mid-noise extension of formula7, each judged by
+  one nested harness with a fixed bar (clean nested gain >= 0.08, 4/5 folds, perm p < 0.05) and two skeptics.
 
 ## 2026-10-09 19:40 KST: blend_v25 handed over (slot 4); route K prepared - read this first
 - Section 12 (GPU 15:25-16:38 KST, returned with the done file): 4 stronger localized designs all beat v24's model on
