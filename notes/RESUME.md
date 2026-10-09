@@ -19,6 +19,11 @@ Goal: public LB RMSE <= 10.
   render preset (`src/het_cnn.py --render-preset real`, line/blur/noise closer to the real noisy images), stage 1 ->
   1b -> one label test (scripts/d1010/K/k_test.py, PREREG.txt) -> blend_v26 only on PASS; effnetv2-m fallback. Needs
   the user's own GPU line in the thread and the robot hand-over tool re-armed.
+- Route K prep done 21:20 KST (9ea4ec1): `src/het_cnn.py --render-preset real / --eval-presets / --eval-only`, the
+  label-free pick `src/het_cnn_pick_k.py`, laptop commands in notes/handoff/laptop-gpu.md section 13. Prior gates
+  passed with the pre-registered seeds (AUC 0.792 vs 0.902 now, ridge 98%, coverage 94%; K/gates/). PREREG addenda 1-2
+  fix run names, the logN bar (vs the base runs, not the prep) and pin the blob ids. Two review rounds; defaults
+  bit-identical.
 
 ## 2026-10-09 15:45 KST: blend_v24 scored 10.5130 (best); section 12 running - read this first
 - Public 10/09 (user): blend_v24 **10.5130** (-0.332 vs v23, train-expected -0.22 +- 0.24). Public-optimal scale along
