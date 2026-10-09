@@ -633,10 +633,10 @@ f. Return the GPU the way the user's mode requires, also when stopping early. Ex
 Why:
 - The localized het CNN of blend_v24 (ev2s_loc_e32r4 + _s1) learns from renders that are more blurred and carry fewer
   boundary lines than the real line-free noisy images (G1). D1 trains the same design on a widened, more realistic
-  render prior (`--render-preset real`). Its label-free gates passed on the cloud (400 renders of clean train images):
-  fast-statistic domain AUC vs the 208 real G1 train images 0.806 (current prior 0.891; bar <= 0.82), 98% of the renders
-  keep ic_ridge_snr < 0.5 (bar >= 90%), and the inferred render parameters of 94% of real G1 train fall inside its box
-  (bar >= 85%; the earlier P7r box held 50%).
+  render prior (`--render-preset real`). Its label-free gates passed on the cloud (400 renders of clean train images
+  with the pre-registered seeds): fast-statistic domain AUC vs the 208 real G1 train images 0.792 (current prior 0.902;
+  bar <= 0.82), 98% of the renders keep ic_ridge_snr < 0.5 (bar >= 90%), and the inferred render parameters of 94% of
+  real G1 train fall inside its box (bar >= 85%; the earlier P7r box held 50%).
 - D2, only if D1 does not qualify: the same design with the tf_efficientnetv2_m backbone (Apache-2.0, 52.2M backbone
   parameters vs 19.9M for ev2s) on the current prior. Its FPN picks the stride 8/16/32 maps (80/176/512 channels).
 - New options in `src/het_cnn.py` (defaults are bit-identical to before; selftest checks 13 and 13b):
@@ -683,15 +683,19 @@ d. [CPU] The pick (seconds)
    python -m src.het_cnn_pick_k --base ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --d1 scrK_d1
    ```
    - Send the whole output to the cloud session right away.
+   - First it checks step b: the base fold models' P_cur on the fixed current-prior renders must reproduce 0.5213
+     within 0.01. Otherwise it prints `BASE CHECK FAIL` and decides nothing: send the output and stop the GPU work.
    - What it compares (folds 0-1 means):
      - D1 R against 0.7358: real held-out clean images.
      - D1 W against 0.6865: within-image block corr on the fixed current-prior renders.
-     - D1 P_cur against the base P_cur - 0.02: the base fold models scored on the identical renders in step b.
-     - D1 P_real against the base P_real + 0.05: the same, on the fixed 'real' renders.
-     - The real G1 logN-hat mean and sd must be within 0.10 of the prep's.
+     - D1 P_cur against 0.5013 (fixed).
+     - D1 P_real against the base P_real + 0.05: the base fold models scored on the identical 'real' renders in step b.
+     - The real G1 logN-hat mean and sd must be within 0.10 of the base fold models' on the same 208 images.
      - It also prints the agreement with the v24 estimator on real G1 train (bar 0.75). This is a sanity check only
        and never decides.
    - Last line `PICK scrK_d1`: skip e and go to f with the D1 line. `NEXT d2`: go to e.
+   - A line starting `ERROR:` (a fold without its eval, the wrong preset or backbone) means no decision. If it names an
+     `--eval-only` command, run that command [GPU] and then d again; otherwise send the output and stop.
 
 e. [GPU] Only after `NEXT d2`: the D2 screen, then the pick again (about 30-40 min)
    ```powershell
@@ -703,7 +707,8 @@ e. [GPU] Only after `NEXT d2`: the D2 screen, then the pick again (about 30-40 m
    - On CUDA out of memory, rerun the screen with `--batch 8` and say so. The cloud measured about 1.6x the
      activation memory of ev2s at the same batch.
    - Send the pick output. `PICK scrK_m`: go to f with the D2 line. `PICK none`: stop the GPU work and go to g. Route
-     K ends without a file.
+     K ends without a file. `ERROR: ... folds ... not done`: rerun the screen line (it skips finished folds), then the
+     pick again.
 
 f. [GPU] The pick on all 5 folds, seed 0 (D1 about 25 min; D2 about 60-80 min)
    ```powershell
@@ -716,18 +721,20 @@ f. [GPU] The pick on all 5 folds, seed 0 (D1 about 25 min; D2 about 60-80 min)
    ```
    - Run only the pair of lines for the pick. If the screen needed `--batch 8`, use it here too.
    - Cut-off rule and resume as in 9c: a rerun skips finished folds.
-   - The `--stage1b` line prints per-fold and pooled stage-1 numbers and ends with `STAGE1B PASS` or `STAGE1B FAIL`.
-     The bars are pooled P_cur >= 0.48 and pooled R >= 0.70 for D1, and pooled P >= 0.54 for D2. Make the dumps in g
-     either way; the cloud runs the label test only after a PASS.
+   - The `--stage1b` line prints per-fold and pooled stage-1 numbers and ends with `STAGE1B PASS`, `STAGE1B FAIL` or
+     `STAGE1B INCOMPLETE` (fewer than 5 folds: rerun the training line, it skips finished folds; if the GPU must go
+     back first, return it and resume later). The bars are pooled P_cur >= 0.48 and R (5-fold mean) >= 0.70 for D1,
+     and pooled P >= 0.54 for D2. Make the dumps in g after PASS or FAIL; the cloud runs the label test only after a
+     PASS.
 
 g. [CPU] Send back without pushing, one message each. Save a dump with `| Out-File -Encoding utf8 c0.txt`, not `>`.
    1. The output of d (and e, if it ran), if not sent yet.
    2. The `--stage1b` output of f.
    3-5. The dumps of the 5-fold run (`ev2sK_d1`, or `ev2mK` for D2):
    ```powershell
-   python -W ignore -m src.het_cnn --dump ev2sK_d1 --chunk 0
-   python -W ignore -m src.het_cnn --dump ev2sK_d1 --chunk 1
-   python -W ignore -m src.het_cnn --dump ev2sK_d1 --chunk 2
+   python -W ignore -m src.het_cnn --dump ev2sK_d1 --chunk 0 | Out-File -Encoding utf8 c0.txt
+   python -W ignore -m src.het_cnn --dump ev2sK_d1 --chunk 1 | Out-File -Encoding utf8 c1.txt
+   python -W ignore -m src.het_cnn --dump ev2sK_d1 --chunk 2 | Out-File -Encoding utf8 c2.txt
    ```
 
 h. Return the GPU the way the user's mode requires, also when stopping early. Exclusive mode:
