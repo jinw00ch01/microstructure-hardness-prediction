@@ -584,11 +584,10 @@ a. [CPU] Pull and selftest (2 min)
 
 b. [GPU] 12a: four screens, seed 0, folds 0 and 1 (about 50 min in total; fastest first)
    ```powershell
-   $L = "--device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --folds 0 1 --screen"
-   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 32 --renders 4 --lambda-within 2 --out scr12_lw2
-   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 32 --renders 4 --lambda-within 4 --out scr12_lw4
-   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 64 --renders 4 --lambda-within 1 --out scr12_e64
-   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 32 --renders 8 --lambda-within 1 --out scr12_r8
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --folds 0 1 --screen --epochs 32 --renders 4 --lambda-within 2 --out scr12_lw2
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --folds 0 1 --screen --epochs 32 --renders 4 --lambda-within 4 --out scr12_lw4
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --folds 0 1 --screen --epochs 64 --renders 4 --lambda-within 1 --out scr12_e64
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --folds 0 1 --screen --epochs 32 --renders 8 --lambda-within 1 --out scr12_r8
    ```
    - Each is ev2s_loc_e32r4 with one change. Each run ends with `wrote ...\score.json (folds [0, 1])`.
    - If the GPU must go back early, stop after the current run; 12b uses whatever finished.
@@ -602,15 +601,14 @@ c. [CPU] 12b: the pick (seconds)
 
 d. [GPU] 12c: the pick on all 5 folds, seed 0 (lw2/lw4 about 20 min; e64/r8 about 40 min)
    ```powershell
-   $F = "--device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4"
    # PICK scr12_lw2:
-   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 32 --renders 4 --lambda-within 2 --out ev2s_loc12
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --epochs 32 --renders 4 --lambda-within 2 --out ev2s_loc12
    # PICK scr12_lw4:
-   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 32 --renders 4 --lambda-within 4 --out ev2s_loc12
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --epochs 32 --renders 4 --lambda-within 4 --out ev2s_loc12
    # PICK scr12_e64:
-   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 64 --renders 4 --lambda-within 1 --out ev2s_loc12
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --epochs 64 --renders 4 --lambda-within 1 --out ev2s_loc12
    # PICK scr12_r8:
-   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 32 --renders 8 --lambda-within 1 --out ev2s_loc12
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --epochs 32 --renders 8 --lambda-within 1 --out ev2s_loc12
    ```
    - Run only the line of the pick. Cut-off rule and resume as in 9c (a rerun skips finished folds).
 
