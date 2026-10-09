@@ -1,6 +1,25 @@
-# Resume guide (updated 2026-10-09 ~00:20 KST)
+# Resume guide (updated 2026-10-09 ~14:15 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-09 afternoon: blend_v24 handed over (3rd slot) - read this first
+- Public 10/09 (user): blend_v23 **10.8445** (-0.130 vs v22), blend_v23m15 **10.8393** (v23 with the 9.5-12 line-free part
+  of the offset x1.5; public-only hedge, -0.005). Public-scale analysis (hardness-cache scripts/d1009/Q): public alone
+  wanted that part x2.5-3, train says x0.9, combined private optimum x1.2-1.6; after v23m15 the public optimum is ~x1.3.
+  No more rescaling.
+- Laptop section 11 (GPU exclusive 12:57-13:47 KST, returned with the done file, liaison confirmed): localized het CNN
+  ev2s_loc_e32r4 + _s1. Stage 1: render partial corr 0.49 / 0.50 (old 0.25), within 0.71 (old 0.43), real clean
+  held-out 0.72 mean (old 0.29). Stage 2 (G/PREREG.txt, run once on the seed average): G1 13.770 -> 13.385, 4/5 folds,
+  perm p 0.0005, drop-top 0.298: PASS. Dumps + parquets: hardness-cache laptop-gpu-2026-10-09/.
+- **blend_v24.csv** (md5 f4953098..., hardness-cache/submissions; builder scripts/d1009/G/g_build.py): nested CV 11.465
+  (v23 11.653). Independent verification (scripts/d1009/V24: reproduce, audit, skeptic, judge): exact, no leakage;
+  all the gain is in raw ic_noise >= 12 (5/5 folds), the 9.5-12 band is neutral; concentrated in a few coarse-grain
+  rows; bootstrap P(no gain vs v23) ~7%. Expected public 10.64-10.69 +- 0.2. Reading: <= 10.744 carried over;
+  10.744-11.108 not shown (keep v24); >= 11.108 harmful (back to v23). Final picks: v24 + v23 (safe).
+- Next lever (asked the user for GPU, decision card 14:15 KST): laptop-gpu.md section 12 screens 4 stronger localized
+  designs (lambda-within 2 / 4, 64 epochs, 8 renders) on folds 0-1, picks by src/het_cnn_pick.py, trains the pick on 5
+  folds; stage 2 vs v24 pre-registered in scripts/d1009/H (PREREG.txt, h_test.py sha 9cc5fc76...). If PASS:
+  blend_v25 via G/g_build.py on the new dir. The laptop needs the user's own line in the thread to start.
 
 ## 2026-10-08 20:30 KST: paused for the user's move (laptop off) - read this first
 - **On "재개":** the laptop runs `git pull origin claude/lb-under-10-7080jr`. If the user has written a GPU grant in the
