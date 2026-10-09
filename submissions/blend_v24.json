@@ -1,0 +1,45 @@
+{
+ "base": "blend_v21",
+ "gate": "G1: raw ic_noise >= 9.5 and ic_ridge_snr < 0.5 (features_v3); ic_noise >= 12 and ridge >= 0.5 keep blend_v22b",
+ "n_train_G1": 208,
+ "n_train_keep": 4,
+ "n_test_G1": 433,
+ "n_test_keep": 6,
+ "seeds": [
+  "data/het_cnn/ev2s_loc_e32r4",
+  "data/het_cnn/ev2s_loc_e32r4_s1"
+ ],
+ "g": [
+  -0.09452617453714718,
+  0.6839065057060183
+ ],
+ "beta": 119.09754512410339,
+ "fold_betas": [
+  110.08205932375654,
+  125.00762428809736,
+  103.45288381513278,
+  139.0867369178335,
+  117.30112928014618
+ ],
+ "nested_cv_all": 11.465115937207331,
+ "nested_cv_v22b": 11.682335370167472,
+ "G1_nested": 13.384550058242022,
+ "G1_v22b": 13.828698492999601,
+ "G1_v23": 13.769450802492878,
+ "nested_cv_v23": 11.653186132218545,
+ "fold_rmse": [
+  11.457582947877157,
+  11.959525389381502,
+  11.072659656359459,
+  11.75049782536382,
+  11.057123120949292
+ ],
+ "fold_rmse_v22b": [
+  11.795205218327254,
+  11.991872600604442,
+  11.501869654776998,
+  11.865485790892265,
+  11.24144854030839
+ ],
+ "notes": "PREREG d1009/G (localized het CNN, src/het_cnn.py --head fpn --mosaic --zoom --lambda-within); het_cnn from src.het_cnn trained on clean-train renders only; test images prediction only"
+}
