@@ -1,0 +1,115 @@
+{
+ "base": "blend_v24",
+ "rule": "clean rows (raw ic_noise < 9.5, features_v3): 0.5*blend_v24 + 0.5*formula7; other rows = blend_v24 bit-identical",
+ "formula7_terms": [
+  "intercept",
+  "fd_area",
+  "pore_frac",
+  "logasp_aw",
+  "S_align",
+  "logN_eff",
+  "het4",
+  "bd_frac"
+ ],
+ "formula7_terms_def": "cleanhead feats_C (src.het_blocks.segment, sigma 1.0; pores = gn<0.68 & area<600 excluded): logN_eff = log(N_in + 0.5*N_bd); bd_frac = N_bd/N_all (share of non-pore grains touching the image edge)",
+ "coef_full": {
+  "intercept": -73.52145094782848,
+  "fd_area": 133.8323461414155,
+  "pore_frac": 108.39411054948008,
+  "logasp_aw": -7.981799461510547,
+  "S_align": 12.718891854120947,
+  "logN_eff": 31.881644307257325,
+  "het4": 169.60904046011183,
+  "bd_frac": 151.26527658902768
+ },
+ "coef_folds": [
+  {
+   "intercept": -86.14445431329932,
+   "fd_area": 129.15884388011904,
+   "pore_frac": 117.70984883142106,
+   "logasp_aw": -11.740483072370981,
+   "S_align": 17.28617353366865,
+   "logN_eff": 33.735734612196595,
+   "het4": 163.68650221502926,
+   "bd_frac": 164.7752458924159
+  },
+  {
+   "intercept": -104.45624656738883,
+   "fd_area": 140.58936965245667,
+   "pore_frac": 157.02053824184756,
+   "logasp_aw": -7.647275186874018,
+   "S_align": 9.420008887204363,
+   "logN_eff": 36.34017364828683,
+   "het4": 184.39094373136152,
+   "bd_frac": 169.02102709136807
+  },
+  {
+   "intercept": -57.615922863259016,
+   "fd_area": 134.8974418454622,
+   "pore_frac": 99.46748692891637,
+   "logasp_aw": -3.3837200856295047,
+   "S_align": 9.662078178520801,
+   "logN_eff": 29.619995069242506,
+   "het4": 168.1620631412587,
+   "bd_frac": 134.42744850196354
+  },
+  {
+   "intercept": -59.49852084321042,
+   "fd_area": 132.300329435224,
+   "pore_frac": 136.82592384907895,
+   "logasp_aw": -8.488837240575144,
+   "S_align": 13.338956264416158,
+   "logN_eff": 29.929037768255352,
+   "het4": 165.35624464063068,
+   "bd_frac": 143.04124362240862
+  },
+  {
+   "intercept": -64.38599285306377,
+   "fd_area": 133.01128915401267,
+   "pore_frac": 50.12746835929365,
+   "logasp_aw": -8.866581827649263,
+   "S_align": 13.263720690619017,
+   "logN_eff": 30.512141348374897,
+   "het4": 163.72757865850383,
+   "bd_frac": 150.83155763536737
+  }
+ ],
+ "mix_weight": 0.5,
+ "n_train_clean": 267,
+ "n_test_clean": 519,
+ "nested_cv_all": 11.263099030768839,
+ "nested_cv_all_v24": 11.465115937207331,
+ "clean_nested": 9.251245194421806,
+ "clean_v24": 9.704834964391505,
+ "clean_formula7_alone_xfit": 9.541476436797453,
+ "noisy_nested": 13.196657356816578,
+ "fold_rmse": [
+  11.35118448860251,
+  11.733118415168052,
+  10.99970092416739,
+  11.34814155025528,
+  10.862679447545375
+ ],
+ "fold_rmse_v24": [
+  11.457582947877157,
+  11.959525389381502,
+  11.072659656359459,
+  11.75049782536382,
+  11.057123120949292
+ ],
+ "fold_rmse_clean": [
+  8.987721829154738,
+  9.798821832119753,
+  10.05716777961735,
+  8.195800162964359,
+  8.787646910044685
+ ],
+ "fold_rmse_clean_v24": [
+  9.229926300921244,
+  10.211243489285756,
+  10.207108328757894,
+  9.37145733233637,
+  9.26936017620655
+ ],
+ "notes": "PREREG d1009/J (cleanhead formula7 + bd_frac). formula7 cross-fitted on the shared folds for OOF, fitted on all 267 clean train rows for test; test images used only for label-free per-image features (segmentation, per-image GMM phase threshold), nothing fitted on test. Mix weight 0.5 and the bd_frac term were chosen on all train labels (nested choice picks 0.5 in 5/5 folds and bd_frac in 5/5 folds, d20/d8)."
+}
