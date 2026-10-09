@@ -18,6 +18,8 @@ models (prediction); nothing is fitted on them.
   python -m src.het_cnn --ingest ev2s_e32r4 c0.txt c1.txt c2.txt   # cloud: rebuild the parquets from that text
   ... --extra-targets fd pore asp --out ev2s_e32r4_x  # also learn 3 label-free scalars of the clean originals
   ... --render-preset mid --out ev2s_mid_e32r4        # renders for the raw ic_noise 9.5-12 band (RENDER_MID)
+  ... --render-preset real --eval-presets noisy real   # D1 prior (RENDER_REAL) + stage-1 on fixed noisy / real renders
+  python -m src.het_cnn --eval-only ev2s_loc_e32r4 --folds 0 1 --eval-presets noisy real   # score_eval.json only
 
 Options added 2026-10-09 (defaults reproduce the earlier runs bit-identically; checked on CPU):
 --extra-targets {fd,pore,asp}: extra scalar targets measured on the clean originals from the prep arrays (never from
@@ -94,6 +96,24 @@ pcorr_het_given_logN. Fold json: train_het4 (het4 of the training renders actual
 het4 mean / max in ep_log. Fold caches record the non-default options ('opts') and are not reused across different
 options; aggregate() refuses to pool folds whose (render preset, extra targets, options) differ from the call's.
 
+Options added 2026-10-09 (night), route d1010 K (defaults reproduce the earlier runs bit-identically: selftest check 13
+compares the default flags with the file before these options, git: parent of the commit that added RENDER_REAL):
+--render-preset real: RENDER_REAL / M_RANGES_REAL (= RENDER with p_line 0.9, line 0.2-1.1, blur 0.3-1.3, e 1.0-2.0;
+  M_RANGES with sb 0.4-1.4), the D1 training domain; --calib with it compares against raw ic_noise >= 12 (as noisy).
+--eval-presets PRESET [PRESET ...]: after a fold is trained, score its model on held-out renders of every listed preset
+  (eval_render_set: the fold's held-out clean images, K = --k-val renders each, seeds default_rng([EVAL_SEED, k, j]),
+  i.e. the stage-1 seeds; they depend on neither --seed, the fold model nor the training preset, so the renders of a
+  preset are identical across runs; for the training preset they are exactly the stage-1 renders). It also predicts
+  the real line-free noisy TRAIN images (G1: raw ic_noise >= 9.5 and ic_ridge_snr < 0.5 in features_v3; prediction
+  only, no label) for the logN / agreement sanity checks. Writes fold{f}_eval.json / fold{f}_eval.npz; score.json gains
+  one new key 'stage1_eval' (per fold, folds-mean P / W, pooled metrics per preset, pooled real held-out clean R, real
+  G1 logN summary); every existing key is unchanged. P = pcorr_het_given_logN, W = corr_block_within of all K renders.
+--eval-only RUN: no training. Loads data/het_cnn/RUN/fold{f}.pt (--folds, default every fold present), rebuilds the
+  model from the checkpoint (arch, head / fpn_ch, extra targets; no pretrained download) and computes only the
+  --eval-presets metrics (as above) with the held-out rows of fold{f}.npz when present (else data/folds.csv); writes
+  data/het_cnn/RUN/score_eval.json and score_eval_fold{f}.npz; never touches score.json, fold{f}.json/.npz or parquets.
+  Example: python -m src.het_cnn --eval-only ev2s_loc_e32r4 --folds 0 1 --eval-presets noisy real --device cuda
+
 Training, per fold f of data/folds.csv restricted to the clean images: train on the clean images not in fold f; every
 epoch renders each of them --renders times with fresh random parameters (DataLoader workers), then one random D4 op
 (flips/rot90 map the 64-px grid onto itself: the image is transformed and the 16 targets are permuted, GRID_PERM).
@@ -168,8 +188,20 @@ RENDER_MID = dict(RENDER, c_d=(0.8, 1.0), e=(1.0, 1.3), p_line=0.9, line=(0.3, 1
 M_RANGES_MID = dict(cd=(0.8, 1.0), ex=(1.0, 1.3), sb=(0.3, 1.0), sn=(8.0, 13.0))
 MID_NOTE = ("mid: c_d, e, p_line, line, noise as specified for the 9.5-12 band; blur 0.3-1.0 (noisy 0.3-1.6) and the "
             "degrade_m branch (p_m 0.25 as noisy) with the same mild compression / spread / noise and blur 0.3-1.0")
-PRESETS = {"noisy": (RENDER, M_RANGES), "mid": (RENDER_MID, M_RANGES_MID)}
-CALIB_BAND = {"noisy": (12.0, np.inf), "mid": (NOISE_MAX, 12.0)}  # real train images the --calib table compares to
+# 'real' preset (--render-preset real, 2026-10-09 night, route d1010 K, design D1): the noisy preset widened toward what
+# the label-free render-gap study inferred for the real line-free noisy images (G1: raw ic_noise >= 9.5 and ic_ridge_snr
+# < 0.5): real G1 keeps faint boundary lines (inferred line about 0.75) and is less blurred (blur about 0.6) than the
+# noisy renders (fast-statistic domain AUC 0.90). P7r (p_line 1.0, line 0.4-1.0, blur 0.3-0.9, e 1.0-1.6, sb 0.4-1.2)
+# cut the AUC to 0.77 but left about 45% of real G1 outside its box; these ranges cover that part too.
+RENDER_REAL = dict(RENDER, p_line=0.9, line=(0.2, 1.1), blur=(0.3, 1.3), e=(1.0, 2.0))
+M_RANGES_REAL = dict(M_RANGES, sb=(0.4, 1.4))
+REAL_NOTE = ("real: RENDER with p_line 0.9, line 0.2-1.1, blur 0.3-1.3, e 1.0-2.0; degrade_m branch (p_m 0.25) with sb "
+             "0.4-1.4 (M_RANGES otherwise); label-free gates in the d1010 K pre-registration")
+PRESETS = {"noisy": (RENDER, M_RANGES), "mid": (RENDER_MID, M_RANGES_MID), "real": (RENDER_REAL, M_RANGES_REAL)}
+CALIB_BAND = {"noisy": (12.0, np.inf), "mid": (NOISE_MAX, 12.0), "real": (12.0, np.inf)}  # --calib's real train images
+PRESET_NOTES = {"mid": MID_NOTE, "real": REAL_NOTE}  # score.json render_preset_note
+EVAL_SEED = 20261008  # held-out stage-1 renders: default_rng([EVAL_SEED, k, j]) (train_fold, eval_render_set)
+G1_RIDGE_MAX = 0.5  # line-free noisy images (G1): raw ic_noise >= NOISE_MAX and ic_ridge_snr < G1_RIDGE_MAX
 EXTRA_TARGETS = ("fd", "pore", "asp")  # --extra-targets choices; output columns <name>_cnn
 AUG_TAG = 9001  # last seed word of the augmentation generator (zoom / mosaic), separate from the render stream
 HEADS = ("grid4", "fpn")
@@ -1178,6 +1210,204 @@ def read_u8(i):
     return np.array(Image.open(DATA_DIR / ("train" if i.startswith("TRAIN") else "test") / f"{i}.png").convert("L"))
 
 
+# ----------------------------------------------------------- fixed-seed preset evaluation (--eval-presets, --eval-only)
+def eval_render_set(P, rows, preset, K):
+    """K held-out renders of every prep row in rows, in preset's style, with the stage-1 seeds
+    default_rng([EVAL_SEED, k, j]) -> (uint8 (len(rows) * K, 256, 256), meta (n, 3) int = (row, k, path)). The same
+    loop and seeds as train_fold's stage 1, so for the training preset these are exactly its stage-1 renders; the seeds
+    depend on neither the run (--seed), the fold model nor the training preset, so every run sees identical renders."""
+    R, M = PRESETS[preset]
+    X, meta = [], []
+    for j in rows:
+        for k in range(K):
+            img, info = render_noisy(P, int(j), np.random.default_rng([EVAL_SEED, k, int(j)]), R, M=M)
+            X.append(img)
+            meta.append((int(j), k, info["path"]))
+    return np.stack(X), np.array(meta)
+
+
+def g1_train_ids():
+    """The real line-free noisy TRAIN images (G1: raw ic_noise >= NOISE_MAX and ic_ridge_snr < G1_RIDGE_MAX in
+    features_v3.parquet, label-free image statistics) in train.csv order; used for prediction only."""
+    v3 = pd.read_parquet(DATA_DIR / "features_v3.parquet", columns=["ID", "ic_noise", "ic_ridge_snr"]).set_index("ID")
+    ids = pd.read_csv(DATA_DIR / "train.csv", usecols=["ID"]).ID  # IDs only; the hardness column is not read
+    return [i for i in ids if v3.loc[i, "ic_noise"] >= NOISE_MAX and v3.loc[i, "ic_ridge_snr"] < G1_RIDGE_MAX]
+
+
+def eval_presets_fold(model, consts, P, va_rows, presets, K, dev, amp_dtype, tta=8, bs=32, g1_ids=()):
+    """One fold model: stage-1 metrics on eval_render_set(P, va_rows, preset, K) for every preset (all K renders,
+    cartoon-path renders only, K-averaged; cell metrics for an FPNNet), plus predictions on the real G1 train images
+    g1_ids (prediction only; logN-hat mean / sd vs the prep's). consts: the fold's standardisation constants (ckpt
+    'consts'). -> (json-able dict, dict of arrays for an npz). P = pcorr_het_given_logN, W = corr_block_within (all K
+    renders), md5 = hash of the rendered uint8 stack (equal md5 = identical renders)."""
+    import hashlib
+    mu_t, sd_t = torch.tensor(consts["mu_px"], device=dev), torch.tensor(consts["sd_px"], device=dev)
+    mu_b, s_b, mu_n, s_n = (consts[k] for k in ("mu_b", "s_b", "mu_n", "s_n"))
+    b, het4, logn = P["b"], P["het4"], np.log(P["n_eff"])
+    va_rows = np.asarray(va_rows, int)
+    use_cells = getattr(model, "has_cells", False)
+    ct_of = {int(j): cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in va_rows} if use_cells else {}
+    sel = lambda v, m: None if v is None else v[m]  # noqa: E731
+    met, arr = {}, {}
+    for pr in presets:
+        X, meta = eval_render_set(P, va_rows, pr, K)
+        pv = predict(model, X, mu_t, sd_t, dev, amp_dtype, tta=tta, bs=bs)
+        bh, nh = mu_b + s_b * pv[0], mu_n + s_n * pv[1]
+        rows = meta[:, 0]
+        ch = mu_b + s_b * pv[-1] if use_cells else None
+        ct = np.stack([ct_of[int(j)] for j in rows]) if use_cells else None
+        m_all = stage1_metrics(bh, nh, b[rows], het4[rows], logn[rows], ch, ct)
+        cart = meta[:, 2] == 0
+        m_cart = (stage1_metrics(bh[cart], nh[cart], b[rows[cart]], het4[rows[cart]], logn[rows[cart]], sel(ch, cart),
+                                 sel(ct, cart)) if cart.sum() >= 4 else None)
+        bk = np.stack([bh[rows == j].mean(0) for j in va_rows])
+        nk = np.array([nh[rows == j].mean() for j in va_rows])
+        chk = None if ch is None else np.stack([ch[rows == j].mean(0) for j in va_rows])
+        m_k = stage1_metrics(bk, nk, b[va_rows], het4[va_rows], logn[va_rows], chk,
+                             None if ch is None else np.stack([ct_of[int(j)] for j in va_rows]))
+        met[pr] = dict(P=m_all["pcorr_het_given_logN"], W=m_all["corr_block_within"], n=int(len(rows)), K=int(K),
+                       n_cartoon=int(cart.sum()), md5=hashlib.md5(np.ascontiguousarray(X).tobytes()).hexdigest(),
+                       renders=m_all, renders_cartoon=m_cart, renders_Kavg=m_k)
+        arr.update({f"{pr}_meta": meta, f"{pr}_b": bh, f"{pr}_logn": nh})
+        if use_cells:
+            arr[f"{pr}_cells"] = ch.astype(np.float32)
+    if len(g1_ids):
+        Xg = np.stack([read_u8(i) for i in g1_ids])
+        pg = predict(model, Xg, mu_t, sd_t, dev, amp_dtype, tta=tta, bs=bs)
+        bg, ng = mu_b + s_b * pg[0], mu_n + s_n * pg[1]
+        met["real_g1_train"] = dict(n=int(len(g1_ids)), logN_mean=float(ng.mean()), logN_sd=float(ng.std()),
+                                    het_mean=float(bg.std(1).mean()), het_sd=float(bg.std(1).std()),
+                                    prep_logN_mean=float(logn.mean()), prep_logN_sd=float(logn.std()))
+        arr.update(g1_ids=np.array(g1_ids), g1_b=bg, g1_logn=ng)
+    return met, arr
+
+
+def summarize_eval(met, arr, P, presets):
+    """{fold: eval_presets_fold output} -> dict(folds, per_fold, mean_folds {preset: P, W, P_Kavg, W_Kavg (means over
+    the folds)}, pooled {preset: stage1_metrics over all folds' renders (> 1 fold)}, real_g1_train (blocks averaged over
+    the folds, then het = sd over the 16 blocks, as aggregate() does; logN-hat mean / sd vs the prep's))."""
+    folds = sorted(met)
+    out = dict(folds=folds, per_fold={str(f): met[f] for f in folds}, mean_folds={}, pooled={})
+    logn = np.log(P["n_eff"])
+    for pr in presets:
+        if not all(pr in met[f] for f in folds):
+            continue
+        mf = [met[f][pr] for f in folds]
+        out["mean_folds"][pr] = dict(
+            P=float(np.mean([m["P"] for m in mf])), W=float(np.mean([m["W"] for m in mf])),
+            P_Kavg=float(np.mean([m["renders_Kavg"]["pcorr_het_given_logN"] for m in mf])),
+            W_Kavg=float(np.mean([m["renders_Kavg"]["corr_block_within"] for m in mf])))
+        if len(folds) > 1 and all(f"{pr}_b" in arr[f] for f in folds):
+            rows = np.concatenate([arr[f][f"{pr}_meta"][:, 0] for f in folds]).astype(int)
+            bh = np.concatenate([arr[f][f"{pr}_b"] for f in folds])
+            nh = np.concatenate([arr[f][f"{pr}_logn"] for f in folds])
+            ch = ct = None
+            if all(f"{pr}_cells" in arr[f] for f in folds):
+                ch = np.concatenate([arr[f][f"{pr}_cells"] for f in folds]).astype(np.float64)
+                cto = {int(j): cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in np.unique(rows)}
+                ct = np.stack([cto[int(j)] for j in rows])
+            out["pooled"][pr] = stage1_metrics(bh, nh, P["b"][rows], P["het4"][rows], logn[rows], ch, ct)
+    if folds and all("g1_b" in arr[f] for f in folds):
+        ids0 = list(arr[folds[0]]["g1_ids"])
+        assert all(list(arr[f]["g1_ids"]) == ids0 for f in folds), "folds predicted different G1 image lists"
+        bg = np.mean([arr[f]["g1_b"] for f in folds], 0)
+        ng = np.mean([arr[f]["g1_logn"] for f in folds], 0)
+        out["real_g1_train"] = dict(n=len(ids0), folds_averaged=folds, logN_mean=float(ng.mean()),
+                                    logN_sd=float(ng.std()), het_mean=float(bg.std(1).mean()),
+                                    het_sd=float(bg.std(1).std()), prep_logN_mean=float(logn.mean()),
+                                    prep_logN_sd=float(logn.std()),
+                                    d_logN_mean=float(ng.mean() - logn.mean()), d_logN_sd=float(ng.std() - logn.std()))
+    return out
+
+
+def model_from_ckpt(ck):
+    """Rebuild a fold model from a fold{f}.pt dict (arch, opts head / fpn_ch, extra targets) without downloading
+    pretrained weights, and load its state_dict (strict)."""
+    opts = ck.get("opts", {}) or {}
+    nx = len(ck.get("extra_targets", []) or [])
+    if opts.get("head", "grid4") == "fpn":
+        m = FPNNet(ck["arch"], pretrained=False, n_extra=nx, ch=opts.get("fpn_ch", 128))
+    else:
+        m = HetNet(ck["arch"], pretrained=False, n_extra=nx)
+    m.load_state_dict(ck["state_dict"])
+    return m
+
+
+def _eval_line(tag, m, presets):
+    s = " | ".join(f"{pr}: P {m[pr]['P']:.4f} W {m[pr]['W']:.4f} (K-avg P "
+                   f"{m[pr]['renders_Kavg']['pcorr_het_given_logN']:.4f}, n {m[pr]['n']}, md5 {m[pr]['md5'][:8]})"
+                   for pr in presets if pr in m)
+    g = m.get("real_g1_train")
+    if g:
+        s += (f" | real G1 train n {g['n']}: logN-hat mean {g['logN_mean']:.3f} sd {g['logN_sd']:.3f} (prep "
+              f"{g['prep_logN_mean']:.3f} / {g['prep_logN_sd']:.3f})")
+    return f"{tag} eval presets: {s}"
+
+
+def run_eval_only(a):
+    """--eval-only RUN: score RUN's fold checkpoints on the --eval-presets renders; writes score_eval.json and
+    score_eval_fold{f}.npz in data/het_cnn/RUN (score.json, fold json / npz and parquets are never written)."""
+    out = OUT_ROOT / a.eval_only
+    folds = a.folds if a.folds is not None else [f for f in range(5) if (out / f"fold{f}.pt").exists()]
+    miss = [f for f in folds if not (out / f"fold{f}.pt").exists()]
+    if not folds or miss:
+        raise SystemExit(f"--eval-only {a.eval_only}: no fold checkpoints {miss or ''} in {out}")
+    use_cuda = a.device == "cuda" or (a.device == "auto" and torch.cuda.is_available())
+    dev = torch.device("cuda" if use_cuda else "cpu")
+    amp_dtype = None
+    if use_cuda:
+        torch.backends.cudnn.benchmark = True
+        amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    torch.set_num_threads(a.threads)
+    import cv2
+    cv2.setNumThreads(1)
+    P = load_prep(a.prep)
+    fo = pd.read_csv(DATA_DIR / "folds.csv").set_index("ID")
+    folds_of = fo.loc[P["ids"], "fold"].values.astype(int)
+    K = 2 if a.smoke else a.k_val
+    g1 = g1_train_ids()
+    g1 = g1[:8] if a.smoke else g1
+    print(f"het_cnn --eval-only {a.eval_only}: folds {folds}, presets {a.eval_presets}, K {K}, device {dev} amp "
+          f"{amp_dtype}, tta {a.tta}; {len(g1)} real G1 train images (prediction only)", flush=True)
+    met, arr, info = {}, {}, {}
+    t0 = time.time()
+    for f in folds:
+        ck = torch.load(out / f"fold{f}.pt", map_location="cpu", weights_only=False)
+        va_rows = np.where(folds_of == f)[0]
+        va_rows = va_rows[:8] if a.smoke else va_rows
+        if (out / f"fold{f}.npz").exists():  # the run's own held-out rows (a --smoke run held out the first 8)
+            with np.load(out / f"fold{f}.npz") as z:
+                vr = np.unique(z["val_rows"][:, 0]).astype(int)
+            if not np.array_equal(vr, np.where(folds_of == f)[0][:len(vr)]):
+                raise SystemExit(f"{out}/fold{f}.npz: held-out rows are not fold {f} of data/folds.csv")
+            va_rows = vr
+        model = model_from_ckpt(ck).to(dev).to(memory_format=torch.channels_last)
+        t = time.time()
+        m, ar = eval_presets_fold(model, ck["consts"], P, va_rows, a.eval_presets, K, dev, amp_dtype, a.tta,
+                                  a.pred_batch, g1)
+        m.update(fold=f, train_preset=ck.get("render_preset", "noisy"), n_heldout=int(len(va_rows)),
+                 t_s=round(time.time() - t, 1))
+        met[f], arr[f] = m, ar
+        info[f] = dict(arch=ck["arch"], train_preset=ck.get("render_preset", "noisy"), opts=ck.get("opts", {}),
+                       extra_targets=ck.get("extra_targets", []))
+        np.savez(out / f"score_eval_fold{f}.npz", **ar)
+        print(_eval_line(f"fold {f}", m, a.eval_presets), flush=True)
+        del model
+    S = summarize_eval(met, arr, P, a.eval_presets)
+    cmd = "python -m src.het_cnn " + " ".join(sys.argv[1:])
+    S = dict(run=a.eval_only, mode="eval-only", presets=a.eval_presets, K=K,
+             seed_form=f"default_rng([{EVAL_SEED}, k, j])", tta=a.tta, device=str(dev), amp=str(amp_dtype), ckpt=info,
+             ranges={pr: dict(render=PRESETS[pr][0], m_ranges=PRESETS[pr][1]) for pr in a.eval_presets},
+             command=cmd, t_s=round(time.time() - t0, 1), **S)
+    (out / "score_eval.json").write_text(json.dumps(S, indent=1, default=str))
+    for pr, v in S["mean_folds"].items():
+        pl = S["pooled"].get(pr)
+        print(f"{a.eval_only} {pr}: mean over folds {folds} P {v['P']:.4f} W {v['W']:.4f}"
+              + (f" | pooled P {pl['pcorr_het_given_logN']:.4f} W {pl['corr_block_within']:.4f}" if pl else ""),
+              flush=True)
+    print(f"wrote {out / 'score_eval.json'} ({time.time() - t0:.0f}s)", flush=True)
+
+
 # ---------------------------------------------------------------------------------------------------------- training
 def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     """xt: None or (n_prep, n_extra) extra targets (extra_target_values) for a.extra_targets."""
@@ -1452,6 +1682,15 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
               + (f" | real held-out clean: {_fmt_extra(mx_real)}" if mx_real else ""), flush=True)
     print(f"fold {f}: train {t_train:.0f}s, held-out renders {t_val:.0f}s, {len(pred_ids)} real images "
           f"(tta{a.tta}) {t_pred:.0f}s", flush=True)
+    if getattr(a, "eval_presets", None):  # --eval-presets: fixed-seed renders of each listed preset + real G1 train
+        t3 = time.time()
+        g1 = g1_train_ids()
+        em, ea = eval_presets_fold(model, consts, P, va_rows, a.eval_presets, K, dev, amp_dtype, a.tta, a.pred_batch,
+                                   g1[:8] if a.smoke else g1)
+        em.update(fold=f, train_preset=a.render_preset, n_heldout=int(len(va_rows)), t_s=round(time.time() - t3, 1))
+        np.savez(out / f"fold{f}_eval.npz", **ea)
+        (out / f"fold{f}_eval.json").write_text(json.dumps(em, indent=1))
+        print(_eval_line(f"fold {f}", em, a.eval_presets) + f" ({time.time() - t3:.0f}s)", flush=True)
     return res
 
 
@@ -1560,7 +1799,8 @@ def _write_score(a, out, P, Z, done, xnames):
         cmds.append(cmd)
     R, M = PRESETS[a.render_preset]
     score = dict(folds_done=done, stage1_per_fold={str(f): per[f] for f in done}, stage1_pooled=pooled,
-                 command=cmd, commands=cmds, args={k: v for k, v in vars(a).items()},
+                 command=cmd, commands=cmds,
+                 args={k: v for k, v in vars(a).items() if not (k in K_ARGS and v is None)},  # unset K options omitted
                  render=R, m_ranges=M,
                  notes="targets from src.het_blocks on the clean originals; hardness never read; test images "
                        "prediction only; clean train rows = OOF fold model, noisy train/test = mean over folds_done")
@@ -1569,13 +1809,54 @@ def _write_score(a, out, P, Z, done, xnames):
                      notes_extra="extra targets fd/pore/asp from the prep arrays of the clean originals "
                                  "(extra_target_values); columns <name>_cnn appended to the parquets")
     if a.render_preset != "noisy":
-        score.update(render_preset=a.render_preset, render_preset_note=MID_NOTE)
+        score.update(render_preset=a.render_preset, render_preset_note=PRESET_NOTES[a.render_preset])
     if new_opts(a):
         score.update(opts=new_opts(a))
     if getattr(a, "screen", False):
         score.update(notes_screen="--screen: only each fold's held-out real clean images were predicted; no parquets")
+    if getattr(a, "eval_presets", None):  # new key only; every key above is unchanged
+        score.update(stage1_eval=_stage1_eval_score(a, out, P, Z, done))
     (out / "score.json").write_text(json.dumps(score, indent=1, default=str))
     print(f"wrote {out / 'score.json'} (folds {done})")
+
+
+K_ARGS = ("eval_presets", "eval_only")  # 2026-10-09 (night) options: left out of score.json 'args' when unset
+
+
+def _stage1_eval_score(a, out, P, Z, done):
+    """score.json 'stage1_eval' (--eval-presets): summarize_eval over the done folds that have fold{f}_eval.json/.npz
+    (a fold cached from a run without --eval-presets has none: folds_missing), plus the real held-out clean R per fold
+    (heldout_real_clean pcorr_het_given_logN), its mean over the folds, and R pooled over the folds' held-out real clean
+    predictions (fold{f}.npz; no re-render)."""
+    have = [f for f in done if (out / f"fold{f}_eval.json").exists() and (out / f"fold{f}_eval.npz").exists()]
+    met, arr = {}, {}
+    for f in have:
+        met[f] = json.loads((out / f"fold{f}_eval.json").read_text())
+        with np.load(out / f"fold{f}_eval.npz") as z:
+            arr[f] = {k: z[k] for k in z.files}
+    S = summarize_eval(met, arr, P, a.eval_presets) if have else dict(folds=[], per_fold={}, mean_folds={}, pooled={})
+    ids, logn = P["ids"], np.log(P["n_eff"])
+    per_r, bR, nR, jj = {}, [], [], []
+    for f in done:
+        pos = {i: n for n, i in enumerate(Z[f]["pred_ids"])}
+        hv = [j for j in np.unique(Z[f]["val_rows"][:, 0]).astype(int) if ids[j] in pos]
+        if hv:
+            pr = np.array([pos[ids[j]] for j in hv])
+            bR.append(Z[f]["b"][pr])
+            nR.append(Z[f]["logn"][pr])
+            jj.append(np.array(hv))
+        hr = json.loads((out / f"fold{f}.json").read_text()).get("heldout_real_clean")
+        per_r[str(f)] = None if hr is None else hr["pcorr_het_given_logN"]
+    j = np.concatenate(jj) if jj else np.zeros(0, int)
+    rv = [v for v in per_r.values() if v is not None]
+    S.update(presets=list(a.eval_presets), seed_form=f"default_rng([{EVAL_SEED}, k, j])",
+             K=(met[have[0]][a.eval_presets[0]]["K"] if have else None),
+             folds_missing=[f for f in done if f not in have], R_per_fold=per_r,
+             R_mean_folds=float(np.mean(rv)) if rv else None,
+             heldout_real_clean_pooled=(stage1_metrics(np.concatenate(bR), np.concatenate(nR), P["b"][j], P["het4"][j],
+                                                       logn[j]) if len(j) >= 5 else None),
+             ranges={pr: dict(render=PRESETS[pr][0], m_ranges=PRESETS[pr][1]) for pr in a.eval_presets})
+    return S
 
 
 DUMP_COLS = ["het_cnn", "logN_cnn", "bmean_cnn"]
@@ -1680,6 +1961,9 @@ def main(a):
     if a.ingest:
         run_ingest(a)
         return
+    if a.eval_only:
+        run_eval_only(a)
+        return
     if a.out is None:
         raise SystemExit("--out NAME is required for training")
     use_cuda = a.device == "cuda" or (a.device == "auto" and torch.cuda.is_available())
@@ -1717,7 +2001,8 @@ def main(a):
           f"epochs {a.epochs} renders {a.renders} batch {a.batch} lr {a.lr} -> {out}"
           + (f" | extra targets {a.extra_targets} lambda_x {a.lambda_x}" if a.extra_targets else "")
           + (f" | render preset {a.render_preset}" if a.render_preset != "noisy" else "")
-          + (f" | options {new_opts(a)}" if new_opts(a) else ""), flush=True)
+          + (f" | options {new_opts(a)}" if new_opts(a) else "")
+          + (f" | eval presets {a.eval_presets}" if a.eval_presets else ""), flush=True)
     t = time.time()
     for f in (a.folds if a.folds is not None else range(5)):
         if (out / f"fold{f}.npz").exists() and not a.overwrite:
@@ -1872,6 +2157,7 @@ def selftest(n_img=6):
     assert all(torch.equal(u, v) for u, v in zip(dm[5], dm[5])) and not torch.equal(dm[5][0], ds[5][0])
     print("ok 7: render preset 'noisy' == the default renderer bit for bit; 'mid' renders deterministic, in its ranges")
     selftest_aug(P, rows)
+    selftest_k(P, rows)
     print("selftest passed")
 
 
@@ -2151,6 +2437,207 @@ def ds_plain_item(idx):
     return RenderSet(PREP_FP, [0, 1], 2, 0, 0)[idx]
 
 
+def selftest_k(P, rows):
+    """Check 13, the 2026-10-09 (night) options of route K: the 'real' preset is RENDER / M_RANGES with exactly the
+    specified changes, its renders are deterministic and inside its ranges on both paths; eval_render_set == the
+    stage-1 render loop of train_fold (seed 20261008) for every preset and identical on repeat; eval_presets_fold /
+    summarize_eval on an exact block / cell-mean model (pooled == metrics of the concatenated folds); model_from_ckpt
+    rebuilds FPNNet / HetNet (+extras) from a saved checkpoint with identical outputs; and the default flags == the file
+    before these options (git: parent of the first commit with RENDER_REAL; HEAD while uncommitted) bit for bit."""
+    import hashlib
+    import importlib.util
+    import subprocess
+    import tempfile
+    Rr, Mr = PRESETS["real"]
+    assert list(Rr) == list(RENDER) and list(Mr) == list(M_RANGES)
+    assert {k: v for k, v in Rr.items() if RENDER[k] != v} == dict(p_line=0.9, line=(0.2, 1.1), blur=(0.3, 1.3),
+                                                                     e=(1.0, 2.0))
+    assert {k: v for k, v in Mr.items() if M_RANGES[k] != v} == dict(sb=(0.4, 1.4))
+    assert CALIB_BAND["real"] == CALIB_BAND["noisy"]
+    n_line = n_cart = n_m = 0
+    for t in range(12):
+        j = t % len(P["ids"])
+        for force in (None, "cartoon", "m"):
+            r0, i0 = render_noisy(P, j, np.random.default_rng([13, t]), Rr, force, Mr)
+            r1, i1 = render_noisy(P, j, np.random.default_rng([13, t]), Rr, force, Mr)
+            assert np.array_equal(r0, r1) and i0 == i1 and r0.dtype == np.uint8 and r0.shape == (256, 256)
+            if i0["path"] == 0:
+                n_cart += 1
+                for key in ("c_d", "e", "blur", "noise"):
+                    assert Rr[key][0] <= i0[key] <= Rr[key][1], (key, i0[key])
+                assert i0["line"] == 0 or Rr["line"][0] <= i0["line"] <= Rr["line"][1], i0["line"]
+                n_line += i0["line"] > 0
+            else:
+                n_m += 1
+                for key, mk in (("c_d", "cd"), ("e", "ex"), ("blur", "sb"), ("noise", "sn")):
+                    assert Mr[mk][0] <= i0[key] <= Mr[mk][1], (key, i0[key])
+    dn, dr = RenderSet(PREP_FP, [0, 1], 2, 0, 0), RenderSet(PREP_FP, [0, 1], 2, 0, 0, preset="real")
+    assert all(torch.equal(u, v) for u, v in zip(dr[5], dr[5])) and not torch.equal(dr[5][0], dn[5][0])
+    # eval_render_set == train_fold's stage-1 loop (the literal seed of that loop), for every preset; repeatable
+    va = np.asarray(rows[:3])
+    md5 = {}
+    for pr in sorted(PRESETS):
+        rR, rM = PRESETS[pr]
+        Xv, meta = [], []
+        for j in va:
+            for k in range(2):
+                img, info = render_noisy(P, int(j), np.random.default_rng([20261008, k, int(j)]), rR, M=rM)
+                Xv.append(img)
+                meta.append((int(j), k, info["path"]))
+        X1, m1 = eval_render_set(P, va, pr, 2)
+        X2, m2 = eval_render_set(P, va, pr, 2)
+        assert np.array_equal(np.stack(Xv), X1) and np.array_equal(np.array(meta), m1)
+        assert np.array_equal(X1, X2) and np.array_equal(m1, m2)
+        md5[pr] = hashlib.md5(X1.tobytes()).hexdigest()[:8]
+    assert len(set(md5.values())) == len(md5)
+
+    class CellMean(nn.Module):  # exact 64-px block means, image mean, exact 16-px cell means
+        has_cells = True
+
+        def forward(self, x):
+            return F.avg_pool2d(x, 64).flatten(1), x.mean((1, 2, 3)), F.avg_pool2d(x, 16)[:, 0]
+
+    consts = dict(mu_b=0.0, s_b=1.0, mu_n=0.0, s_n=1.0, mu_px=0.0, sd_px=1.0)
+    g1 = g1_train_ids()
+    folds_rows = {0: np.asarray(rows[:6]), 1: np.asarray(rows[6:12]) if len(rows) >= 12 else np.arange(6, 12)}
+    met, arr = {}, {}
+    for f, vr in folds_rows.items():
+        met[f], arr[f] = eval_presets_fold(CellMean(), consts, P, vr, ["noisy", "real"], 2, torch.device("cpu"), None,
+                                           tta=8, bs=8, g1_ids=g1[:3])
+        for pr in ("noisy", "real"):
+            Xp, _ = eval_render_set(P, vr, pr, 2)
+            ref = Xp.astype(np.float64).reshape(len(Xp), 4, 64, 4, 64).mean((2, 4)).reshape(len(Xp), 16) / 255.0
+            assert np.allclose(arr[f][f"{pr}_b"], ref, atol=1e-5) and np.isfinite(met[f][pr]["P"])
+            assert arr[f][f"{pr}_cells"].shape == (len(Xp), 16, 16)
+        assert met[f]["real_g1_train"]["n"] == 3 and arr[f]["g1_b"].shape == (3, 16)
+    S = summarize_eval(met, arr, P, ["noisy", "real"])
+    for pr in ("noisy", "real"):
+        rws = np.concatenate([arr[f][f"{pr}_meta"][:, 0] for f in (0, 1)]).astype(int)
+        cto = np.stack([cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in rws])
+        ref = stage1_metrics(np.concatenate([arr[f][f"{pr}_b"] for f in (0, 1)]),
+                             np.concatenate([arr[f][f"{pr}_logn"] for f in (0, 1)]), P["b"][rws], P["het4"][rws],
+                             np.log(P["n_eff"][rws]),
+                             np.concatenate([arr[f][f"{pr}_cells"] for f in (0, 1)]).astype(np.float64), cto)
+        assert all(np.isclose(S["pooled"][pr][k], ref[k], rtol=0, atol=1e-12) for k in ref), pr
+        assert abs(S["mean_folds"][pr]["P"] - (met[0][pr]["P"] + met[1][pr]["P"]) / 2) < 1e-12
+    assert S["real_g1_train"]["n"] == 3
+    json.dumps(S)  # json-able
+    # model_from_ckpt round trip
+    nck = 0
+    with tempfile.TemporaryDirectory(prefix="het_cnn_ck_") as td:
+        for head, nx_ in (("fpn", 0), ("fpn", 3), ("grid4", 0), ("grid4", 3)):
+            torch.manual_seed(0)
+            m = (FPNNet("resnet18", pretrained=False, n_extra=nx_, ch=64) if head == "fpn"
+                 else HetNet("resnet18", pretrained=False, n_extra=nx_)).eval()
+            ck = {"state_dict": m.state_dict(), "consts": consts, "arch": "resnet18"}
+            if nx_:
+                ck.update(extra_targets=list(EXTRA_TARGETS), render_preset="noisy")
+            if head == "fpn":
+                ck.update(opts=dict(head="fpn", lambda_cell=1.0, fpn_ch=64))
+            torch.save(ck, Path(td) / "fold0.pt")
+            m2 = model_from_ckpt(torch.load(Path(td) / "fold0.pt", map_location="cpu", weights_only=False)).eval()
+            assert type(m2) is type(m)
+            x = torch.randn(2, 1, 256, 256, generator=torch.Generator().manual_seed(3))
+            with torch.no_grad():
+                assert all(torch.equal(u, w) for u, w in zip(m(x), m2(x)))
+            nck += 1
+    print(f"ok 13: 'real' preset = RENDER / M_RANGES with exactly p_line 0.9, line 0.2-1.1, blur 0.3-1.3, e 1.0-2.0 / "
+          f"sb 0.4-1.4; {n_cart} cartoon ({n_line} with lines) + {n_m} degrade_m renders deterministic and in range; "
+          f"eval_render_set == the stage-1 loop for {sorted(PRESETS)} (md5 {md5}); eval_presets_fold / summarize_eval "
+          f"exact on block / cell means (pooled == concatenated folds); model_from_ckpt round trip ({nck} heads); "
+          f"{len(g1)} real G1 train images")
+    # defaults vs the file before these options (loaded from git into a temp dir, as check 12 does)
+    try:
+        log = subprocess.run(["git", "log", "--format=%H", "--reverse", "-S", "RENDER_REAL = dict(", "--",
+                              "src/het_cnn.py"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+        rev = f"{log[0]}^" if log else "HEAD"
+        sha = subprocess.run(["git", "rev-parse", "--short", rev], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout.strip()
+        txt = subprocess.run(["git", "show", f"{rev}:src/het_cnn.py"], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout
+    except Exception as e:  # noqa: BLE001
+        print(f"skip 13b: git could not provide the pre-K src/het_cnn.py ({e})")
+        return
+    assert "RENDER_REAL" not in txt, f"reference {rev} already has the K options"
+    mod_name = f"{__package__}._het_cnn_refk_{os.getpid()}"
+    tmp = tempfile.TemporaryDirectory(prefix="het_cnn_refk_")
+    ref_fp = Path(tmp.name) / f"_het_cnn_refk_{os.getpid()}.py"
+    ref_fp.write_text(txt)
+    dwb = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location(mod_name, ref_fp)
+        ref = importlib.util.module_from_spec(spec)
+        sys.modules[mod_name] = ref
+        spec.loader.exec_module(ref)
+        for pr in ("noisy", "mid"):
+            assert PRESETS[pr] == ref.PRESETS[pr] and CALIB_BAND[pr] == ref.CALIB_BAND[pr]
+        assert set(ref.PRESETS) == {"noisy", "mid"}
+        xt = extra_target_values(P, list(EXTRA_TARGETS))
+        aug = dict(zoom=(1.0, 1.4), p_zoom=0.5, mosaic=0.5, mosaic_dlogn=0.5)  # the ev2s_loc_e32r4 options
+        nitem = 0
+        for kw in (dict(preset="noisy"), dict(preset="mid", xt=xt), dict(preset="noisy", aug=aug, cells=True),
+                   dict(preset="noisy", xt=xt, aug=aug, cells=True, xnames=list(EXTRA_TARGETS))):
+            d_new = RenderSet(PREP_FP, np.arange(12), 1, 0, 1, **kw)
+            d_ref = ref.RenderSet(PREP_FP, np.arange(12), 1, 0, 1, **kw)
+            for idx in (0, 1, 5, 7, 11, 12, 13, 18, 23):  # 9 items across 2 epochs
+                a_, b_ = d_new[idx], d_ref[idx]
+                assert len(a_) == len(b_) and all(torch.equal(u, w) for u, w in zip(a_, b_)), (kw.keys(), idx)
+                nitem += 1
+        nr = 0
+        for t in range(4):
+            for force in (None, "cartoon", "m"):
+                for pr in ("noisy", "mid"):
+                    R_, M_ = PRESETS[pr]
+                    r0, i0 = render_noisy(P, t, np.random.default_rng([9, t]), R_, force, M_)
+                    r1, i1 = ref.render_noisy(P, t, np.random.default_rng([9, t]), R_, force, M_)
+                    assert np.array_equal(r0, r1) and i0 == i1
+                    nr += 1
+        for pr in ("noisy", "mid"):  # held-out stage-1 renders (the ref has no eval_render_set: its loop by hand)
+            R_, M_ = PRESETS[pr]
+            X1, _ = eval_render_set(P, va, pr, 4)
+            X0 = np.stack([ref.render_noisy(P, int(j), np.random.default_rng([20261008, k, int(j)]), R_, M=M_)[0]
+                           for j in va for k in range(4)])
+            assert np.array_equal(X0, X1)
+        X8 = np.stack([P["im8"][j] for j in rows[:3]])
+        for nx_ in (0, 3):
+            torch.manual_seed(0)
+            m_new = FPNNet("resnet18.a1_in1k", pretrained=False, n_extra=nx_)
+            torch.manual_seed(0)
+            m_ref = ref.FPNNet("resnet18.a1_in1k", pretrained=False, n_extra=nx_)
+            sd_n, sd_r = m_new.state_dict(), m_ref.state_dict()
+            assert list(sd_n) == list(sd_r) and all(torch.equal(sd_n[k], sd_r[k]) for k in sd_n)
+            xin = torch.randn(2, 1, 256, 256, generator=torch.Generator().manual_seed(1))
+            for mode in ("train", "eval"):
+                getattr(m_new, mode)(), getattr(m_ref, mode)()
+                o_n, o_r = m_new(xin), m_ref(xin)
+                assert len(o_n) == len(o_r) and all(torch.equal(u, w) for u, w in zip(o_n, o_r))
+            pn = predict(m_new, X8, torch.tensor(0.5), torch.tensor(0.2), torch.device("cpu"), None, tta=8)
+            pr_ = ref.predict(m_ref, X8, torch.tensor(0.5), torch.tensor(0.2), torch.device("cpu"), None, tta=8)
+            assert len(pn) == len(pr_) and all(np.array_equal(u, w) for u, w in zip(pn, pr_))
+        bh = np.random.default_rng(2).normal(size=(30, 16))
+        ch = np.random.default_rng(3).normal(size=(30, 16, 16))
+        ct = np.stack([cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in range(30)])
+        args = (bh, bh[:, 0], P["b"][:30], P["het4"][:30], np.log(P["n_eff"][:30]), ch, ct)
+        m_n, m_r = stage1_metrics(*args), ref.stage1_metrics(*args)
+        assert list(m_n) == list(m_r) and all(m_n[k] == m_r[k] for k in m_r)
+        loc = ["--head", "fpn", "--mosaic", "0.5", "--mosaic-dlogn", "0.5", "--zoom", "1.0", "1.4", "--lambda-within",
+               "1", "--folds", "0", "1", "--screen", "--out", "x"]
+        for argv in ([], ["--out", "x"], loc, ["--render-preset", "mid", "--extra-targets", "fd", "asp"]):
+            vn, vr_ = vars(parse(argv)), vars(ref.parse(argv))
+            assert {k: v for k, v in vn.items() if k not in K_ARGS} == vr_ and all(vn[k] is None for k in K_ARGS)
+            assert new_opts(parse(argv)) == ref.new_opts(ref.parse(argv))
+            assert _cfg_want(parse(argv)) == ref._cfg_want(ref.parse(argv))
+        print(f"ok 13b: default flags == src/het_cnn.py at {rev} ({sha}, before the K options) bit for bit: {nitem} "
+              f"RenderSet items (presets noisy/mid, +-extras, +-zoom/mosaic/cells), {nr} renders, the stage-1 held-out "
+              f"renders (noisy/mid), FPNNet init state_dict + train/eval outputs + TTA predict (n_extra 0/3), "
+              f"stage1_metrics with cells (all keys), parse / new_opts / cache keys (only the two new args, None)")
+    finally:
+        sys.dont_write_bytecode = dwb
+        sys.modules.pop(mod_name, None)
+        tmp.cleanup()
+
+
 def parse(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--prep", nargs="?", const="__BUILD__", default=str(PREP_FP),
@@ -2180,7 +2667,15 @@ def parse(argv=None):
                     help="extra label-free targets of the clean originals (fd pore asp); default none = as before")
     ap.add_argument("--lambda-x", type=float, default=0.5, help="loss weight of each extra target (standardised SE)")
     ap.add_argument("--render-preset", default="noisy", choices=sorted(PRESETS),
-                    help="noisy (default, as before) | mid (RENDER_MID, for raw ic_noise 9.5-12)")
+                    help="noisy (default, as before) | mid (RENDER_MID, for raw ic_noise 9.5-12) | real (RENDER_REAL, "
+                         "the widened realistic prior of route K / D1)")
+    ap.add_argument("--eval-presets", nargs="+", default=None, choices=sorted(PRESETS), metavar="PRESET",
+                    help="stage-1 evaluation of each fold model on fixed-seed held-out renders of these presets "
+                         f"({', '.join(sorted(PRESETS))}; identical across runs) and on the real G1 train images -> "
+                         "fold{f}_eval.json/.npz and score.json 'stage1_eval'; default none = as before")
+    ap.add_argument("--eval-only", default=None, metavar="RUN",
+                    help="no training: score data/het_cnn/RUN/fold{f}.pt (--folds, default all present) on "
+                         "--eval-presets -> data/het_cnn/RUN/score_eval.json (score.json / parquets untouched)")
     ap.add_argument("--zoom", type=float, nargs=2, default=None, metavar=("LO", "HI"),
                     help="label-map zoom augmentation of cartoon renders, s ~ logUniform(LO, HI), e.g. 0.7 1.4 "
                          "(targets recomputed on the zoomed label map); default off")
@@ -2235,6 +2730,10 @@ def parse(argv=None):
         ap.error("--mosaic must be in [0, 1]")
     if a.mosaic_dlogn is not None and (a.mosaic <= 0 or a.mosaic_dlogn < 0):
         ap.error("--mosaic-dlogn D needs --mosaic P > 0 and D >= 0")
+    if a.eval_presets is not None:  # dedupe, keep the given order
+        a.eval_presets = list(dict.fromkeys(a.eval_presets))
+    if a.eval_only is not None and not a.eval_presets:
+        ap.error("--eval-only RUN needs --eval-presets PRESET [PRESET ...]")
     a.prep_only = a.prep == "__BUILD__"
     if a.prep_only:
         a.prep = str(PREP_FP)
