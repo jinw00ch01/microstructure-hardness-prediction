@@ -558,3 +558,75 @@ e. Return the GPU the way the user's mode requires, also when stopping early. Ex
 | b, 11a (GPU) | 30-40 min |
 | c, 11c (GPU) | 30-40 min |
 | d | a few minutes |
+
+## 12. Next GPU run: a stronger localized het CNN (prepared 2026-10-09 14:10 KST)
+Why:
+- Section 11 worked: the localized het CNN (ev2s_loc_e32r4 + _s1) passed its pre-registered label test (noisy line-free
+  images 13.77 -> 13.38, nested CV 11.653 -> 11.465) and became blend_v24. The gain grew with the render partial corr
+  (old 0.25 -> 0.49), so a design that localizes better should gain more. Pre-registration: hardness-cache
+  `scripts/d1009/H/PREREG.txt`.
+- 12a screens four one-change variants on folds 0 and 1 only (`--screen`: no parquets, label-free); 12b picks one with a
+  fixed rule; 12c trains the pick on all 5 folds and dumps it.
+
+Rules: as in section 11 (GPU mode only as the user says in the thread for this run; exclusive mode returns the GPU with
+`New-Item C:\Dacon\WM_Runtime\hardness_gpu_done`, also when stopping early; shared mode wraps each [GPU] command with
+`python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- `; never touch the robot project in any
+other way; no commits or pushes; PowerShell at the repo root with the `.venv` active).
+
+a. [CPU] Pull and selftest (2 min)
+   ```powershell
+   Set-Location C:\Daker\microstructure-hardness-prediction
+   git status --short
+   git pull origin claude/lb-under-10-7080jr
+   python -W ignore -m src.het_cnn --selftest        # must end with "selftest passed"
+   Test-Path data\het_cnn\ev2s_loc_e32r4\score.json, data\het_cnn\ev2s_loc_e32r4_s1\score.json   # True x2
+   ```
+
+b. [GPU] 12a: four screens, seed 0, folds 0 and 1 (about 50 min in total; fastest first)
+   ```powershell
+   $L = "--device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --folds 0 1 --screen"
+   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 32 --renders 4 --lambda-within 2 --out scr12_lw2
+   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 32 --renders 4 --lambda-within 4 --out scr12_lw4
+   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 64 --renders 4 --lambda-within 1 --out scr12_e64
+   python -W ignore -m src.het_cnn @($L -split ' ') --epochs 32 --renders 8 --lambda-within 1 --out scr12_r8
+   ```
+   - Each is ev2s_loc_e32r4 with one change. Each run ends with `wrote ...\score.json (folds [0, 1])`.
+   - If the GPU must go back early, stop after the current run; 12b uses whatever finished.
+
+c. [CPU] 12b: the pick (seconds)
+   ```powershell
+   python -m src.het_cnn_pick --base ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --runs scr12_lw2 scr12_lw4 scr12_e64 scr12_r8
+   ```
+   - The last line is `PICK <run>` or `PICK none`. Send the whole output to the cloud session right away.
+   - `PICK none`: skip 12c, go to e.
+
+d. [GPU] 12c: the pick on all 5 folds, seed 0 (lw2/lw4 about 20 min; e64/r8 about 40 min)
+   ```powershell
+   $F = "--device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4"
+   # PICK scr12_lw2:
+   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 32 --renders 4 --lambda-within 2 --out ev2s_loc12
+   # PICK scr12_lw4:
+   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 32 --renders 4 --lambda-within 4 --out ev2s_loc12
+   # PICK scr12_e64:
+   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 64 --renders 4 --lambda-within 1 --out ev2s_loc12
+   # PICK scr12_r8:
+   python -W ignore -m src.het_cnn @($F -split ' ') --epochs 32 --renders 8 --lambda-within 1 --out ev2s_loc12
+   ```
+   - Run only the line of the pick. Cut-off rule and resume as in 9c (a rerun skips finished folds).
+
+e. [CPU] Send back without pushing, one message each: the 12b output (if not sent yet); the stage-1 summary of
+   `data\het_cnn\ev2s_loc12\score.json` (pooled and per-fold P, W, R as in section 11); then
+   `python -W ignore -m src.het_cnn --dump ev2s_loc12 --chunk 0`, `--chunk 1`, `--chunk 2`.
+
+f. Return the GPU the way the user's mode requires, also when stopping early. Exclusive mode:
+   ```powershell
+   New-Item C:\Dacon\WM_Runtime\hardness_gpu_done
+   ```
+
+| step | time |
+|---|---|
+| a (CPU) | 2 min |
+| b, 12a (GPU) | about 50 min |
+| c, 12b (CPU) | seconds |
+| d, 12c (GPU) | 20-40 min |
+| e | a few minutes |
