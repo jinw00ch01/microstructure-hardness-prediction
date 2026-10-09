@@ -1,8 +1,22 @@
-# Resume guide (updated 2026-10-09 ~14:15 KST)
+# Resume guide (updated 2026-10-09 ~15:45 KST)
 
 Goal: public LB RMSE <= 10.
 
-## 2026-10-09 afternoon: blend_v24 handed over (3rd slot) - read this first
+## 2026-10-09 15:45 KST: blend_v24 scored 10.5130 (best); section 12 running - read this first
+- Public 10/09 (user): blend_v24 **10.5130** (-0.332 vs v23, train-expected -0.22 +- 0.24). Public-optimal scale along
+  v23 -> v24 about 1.24 (worth about 0.01): no rescale (hardness-cache scripts/d1009/I/pub_analysis). Estimated private
+  gain vs v23 about -0.27 +- 0.16, P(better) about 0.95. Final picks: v24 first; v23 second unless v25 passes.
+- GPU: the robot side's hand-over tool (C:\Dacon\WM_Runtime\handover_after_jobs.py <ledger job>) handed the GPU over at
+  15:25 KST when robot submit4 ended; the laptop started section 12 at 15:27 (screens -> pick -> 5-fold), return with
+  hardness_gpu_done expected 16:30-16:50 KST. User line 14:43: "인계도구로 두 세션이 서로 점유를 주고받는 활동 시작할것".
+- Section 12 next steps: 12b pick output; stage 1b (pooled P >= 0.54); then once `python H/h_test.py --het
+  data/het_cnn/ev2s_loc12 --name loc12` (vs v24); if PASS `G/g_build.py blend_v25 data/het_cnn/ev2s_loc12`, verify,
+  hand over as slot 4. Pre-set reading vs v24 in H/PREREG.txt addendum (<= 10.463 in line, > 10.613 demote).
+- Slot 5 of 10/09 stays unused: the design review (scripts/d1009/I) found no CPU candidate worth a label test.
+- Reaching <= 10 needs about 10.5 more public MSE, as much as the whole het route gave from v21 to v24; it needs new
+  information for the G1 rows with ic_noise >= 12 (nested RMSE 14.1 vs 9.7 clean).
+
+## 2026-10-09 afternoon: blend_v24 handed over (3rd slot)
 - Public 10/09 (user): blend_v23 **10.8445** (-0.130 vs v22), blend_v23m15 **10.8393** (v23 with the 9.5-12 line-free part
   of the offset x1.5; public-only hedge, -0.005). Public-scale analysis (hardness-cache scripts/d1009/Q): public alone
   wanted that part x2.5-3, train says x0.9, combined private optimum x1.2-1.6; after v23m15 the public optimum is ~x1.3.
