@@ -1,6 +1,24 @@
-# Resume guide (updated 2026-10-09 ~15:45 KST)
+# Resume guide (updated 2026-10-09 ~19:40 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-09 19:40 KST: blend_v25 handed over (slot 4); route K prepared - read this first
+- Section 12 (GPU 15:25-16:38 KST, returned with the done file): 4 stronger localized designs all beat v24's model on
+  renders (0.521 -> 0.532-0.546) but none cleared the pre-set +0.05 bar: PICK none, no 5-fold run (scripts/d1009/H).
+- **blend_v25.csv** (md5 f1e6dbc4..., hardness-cache/submissions; builder scripts/d1009/J/j_build.py): on the 519 clean
+  test rows (raw ic_noise < 9.5) 0.5*v24 + 0.5*formula7, other rows bit-identical to v24. formula7 = OLS on fd_area,
+  pore_frac, logasp_aw, S_align, log N_eff, het4, bd_frac (share of grains cut by the image edge; J/cleanhead feats).
+  Nested CV 11.465 -> 11.263, clean 9.705 -> 9.251 (5/5 folds). Found by exploring the labels, so expect ~2/3 of it.
+  The earlier "bd_frac explains the anti-Hall-Petch slope" claim is withdrawn (collinear with logN, corr -0.97).
+  Pre-set reading vs v24 10.5130 (J/PREREG.txt): <= 10.40 final candidate; 10.40-10.46 keep; 10.46-10.53 finals
+  v25 + v24; 10.53-10.60 v24 stays first; > 10.60 drop v25 and every edge-count extension. The 0.5 weight is never
+  tuned on public. Slot 5 of 10/09 stays empty.
+- Headroom (scripts/d1009/I, J): public/nested ratio ~0.84; <= 10 needs ~10.5 more public MSE. G1-only routes cap near
+  -0.1 to -0.2 public. Honest odds of <= 10 by 10/10: under 1%.
+- Route K (next GPU lever, decision card to the user 19:30 KST): retrain the localized het CNN on a more realistic
+  render preset (`src/het_cnn.py --render-preset real`, line/blur/noise closer to the real noisy images), stage 1 ->
+  1b -> one label test (scripts/d1010/K/k_test.py, PREREG.txt) -> blend_v26 only on PASS; effnetv2-m fallback. Needs
+  the user's own GPU line in the thread and the robot hand-over tool re-armed.
 
 ## 2026-10-09 15:45 KST: blend_v24 scored 10.5130 (best); section 12 running - read this first
 - Public 10/09 (user): blend_v24 **10.5130** (-0.332 vs v23, train-expected -0.22 +- 0.24). Public-optimal scale along
