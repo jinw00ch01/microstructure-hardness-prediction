@@ -7,6 +7,11 @@ Goal: public LB RMSE <= 10.
   Finals v27u + v28n (user's rule). blend_v28p next; switch to v28p only if it reads <= 10.0112. To reach 10: -0.071.
 - Public (user, 14:21 KST): blend_v28p 10.0796 (-0.025, inconclusive by 0.005). Joint reading: no conclusion on
   low-half vs pooled; no further G1hi stretch files. Finals stay v27u + v28n. All 5 slots of 10/10 used.
+- 10/11 design (15:50 KST, hardness-cache scripts/d1011/PLAN_1011.txt): 4 lenses, 6 proposals, all 18 judge votes
+  'drop'. Default for 10/11: submit nothing; finals stay v27u + v28n. Anatomy: 66% of train SSE follows a 1/N law
+  (grain-level sampling, slope 1.00, calibration flat; looks label-side), 23% is the G1hi noise constant. Only
+  unopened channel: a GPU edge-cut head on G1 rows (P(pass) about 0.07; needs the user's GPU word and an exception to
+  the G1hi pre-set), not recommended.
 - Public (user, 12:08 KST): blend_v27u **10.1041**, exactly the value predicted from the v26L and v26r readings (build
   check passed). Finals v26L + v27u (user's choice 12:06 KST). User: the last two 10/10 submissions only after careful
   review.
