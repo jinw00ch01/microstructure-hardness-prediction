@@ -1,6 +1,10 @@
-# Resume guide (updated 2026-10-10 ~15:00 KST)
+# Resume guide (updated 2026-10-10 ~16:15 KST)
 
-Goal: public LB RMSE <= 10.
+Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
+automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
+every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
+could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
 
 ## 2026-10-10 15:00 KST: blend_v27u 10.1041 (best); two files for the last 10/10 slots - read this first
 - Public (user, 14:20 KST): **blend_v28n 10.0712** (best; -0.033 vs v27u, inconclusive band, carried needed <= 10.0641).

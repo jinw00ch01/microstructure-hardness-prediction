@@ -1,10 +1,11 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-10 14:25 KST):** best public blend_v28n 10.0712 (finals v27u, v28n); all 5 submissions of 10-10 used (v28p 10.0796). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-10 16:15 KST):** best public blend_v28n 10.0712 (it is the automatic final while it stays best); all 5 submissions of 10-10 used. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
-Goal: **public LB ≤ 10**. Train 500 images, test 1,000 images. Rules: no external data, test images
+Goal: **public LB ≤ 9** (raised from 10 by the user, 2026-10-10 16:11 KST). Final = the submission with the best
+public score, picked automatically at the deadline **2026-10-19 10:00 KST** (user, 2026-10-10). Train 500 images, test 1,000 images. Rules: no external data, test images
 must never be used for training (no pseudo-labels, no test-time fitting of scalers), only openly
 licensed pretrained weights (MIT/Apache/CC BY/CC BY-NC), no remote APIs, max 5 submissions/day.
 
