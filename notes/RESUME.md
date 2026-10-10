@@ -3,6 +3,8 @@
 Goal: public LB RMSE <= 10.
 
 ## 2026-10-10 15:00 KST: blend_v27u 10.1041 (best); two files for the last 10/10 slots - read this first
+- Public (user, 14:20 KST): **blend_v28n 10.0712** (best; -0.033 vs v27u, inconclusive band, carried needed <= 10.0641).
+  Finals v27u + v28n (user's rule). blend_v28p next; switch to v28p only if it reads <= 10.0112. To reach 10: -0.071.
 - Public (user, 12:08 KST): blend_v27u **10.1041**, exactly the value predicted from the v26L and v26r readings (build
   check passed). Finals v26L + v27u (user's choice 12:06 KST). User: the last two 10/10 submissions only after careful
   review.
