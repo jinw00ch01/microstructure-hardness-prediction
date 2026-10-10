@@ -439,7 +439,7 @@ def param_groups(model, a):
     return out
 
 
-def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
+def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
     """Train one model with a fixed schedule; return predictions of the chosen weights.
     bank: uint8 tensor (Nb, K, C, H, W) of degraded copies; bidx[i] = bank row of training image i or -1.
     Xva None (--full, f = FULL_F): no validation fold; only the test predictions are returned."""
@@ -451,6 +451,7 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
     drng = np.random.default_rng(seed + 13)  # degraded-copy sampling (separate stream)
     ymu, ysd = float(ytr.mean()), float(ytr.std())
     yt = torch.tensor((ytr - ymu) / ysd, dtype=torch.float32, device=RT["dev"])
+    wt = None if wtr is None else torch.tensor(wtr, dtype=torch.float32, device=RT["dev"])  # --wN row weights (mean 1)
     pix = Xtr.float() / 255.0  # input normalization from this fold's training images only
     mu, sd = pix.mean((0, 2, 3)).view(1, -1, 1, 1), pix.std((0, 2, 3)).view(1, -1, 1, 1)
     del pix
@@ -472,6 +473,8 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
         ema = ModelEmaV3(model, decay=a.ema, use_warmup=True)
     loss_fn = (lambda p, t: F.mse_loss(p, t)) if a.loss == "mse" else \
         (lambda p, t: F.smooth_l1_loss(p, t, beta=a.huber_beta))
+    loss_el = (lambda p, t: F.mse_loss(p, t, reduction="none")) if a.loss == "mse" else \
+        (lambda p, t: F.smooth_l1_loss(p, t, beta=a.huber_beta, reduction="none"))  # per-row, for --wN
 
     t0, step = time.time(), 0
     for ep in range(a.epochs):
@@ -500,11 +503,13 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
                 p = model(x)
             p = p.float()
             tb = yt[torch.as_tensor(idx, device=RT["dev"])]
-            loss = loss_fn(p[:len(idx)], tb)
+            wb = None if wt is None else wt[torch.as_tensor(idx, device=RT["dev"])]
+            loss = loss_fn(p[:len(idx)], tb) if wb is None else (wb * loss_el(p[:len(idx)], tb)).mean()
             if di:  # degraded twins: supervised + consistency with the (stop-grad) original prediction
                 dj = torch.as_tensor(di, device=RT["dev"])
                 pdg = p[len(idx):]
-                loss = loss + loss_fn(pdg, tb[dj]) + a.cons * F.mse_loss(pdg, p[:len(idx)][dj].detach())
+                lab_dg = loss_fn(pdg, tb[dj]) if wb is None else (wb[dj] * loss_el(pdg, tb[dj])).mean()
+                loss = loss + lab_dg + a.cons * F.mse_loss(pdg, p[:len(idx)][dj].detach())
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             if a.clip > 0:
@@ -549,6 +554,15 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None):
 
 
 FULL_F = 5  # seed offset of --full models (fold models use 0..4)
+WN_SRC = ["het_cnn/ev2s_loc_e32r4", "het_cnn/ev2s_loc_e32r4_s1"]  # localized het CNN outputs (v24's offset input)
+
+
+def grain_count(ids):
+    """--wN: label-free grain count N = exp(mean logN_cnn over WN_SRC) per train image (no label is read)."""
+    import pandas as pd
+    ls = [pd.read_parquet(DATA_DIR / d / "het_cnn_train.parquet").set_index("ID").loc[list(ids), "logN_cnn"].values
+          for d in WN_SRC]
+    return np.exp(np.mean(ls, 0))
 
 
 def _check_name(a):
@@ -577,6 +591,8 @@ def recipe_notes(a, rest_dir=None, rest_sha=None):
         notes += f"; deg_v2 aug p{a.deg_p} k{a.deg_k} src snr>{a.deg_snr_min}" + (f" cons{a.cons}" if a.cons > 0 else "")
     if a.scale != 1.0:
         notes += f"; input x{a.scale} bilinear ({round(a.crop * a.scale)} px crops, {round(256 * a.scale)} px views)"
+    if a.wN > 0:
+        notes += f"; 1/N label-noise row weights (N/mean N)^{a.wN}, N = exp(logN_cnn) of {', '.join(WN_SRC)}"
     return notes
 
 
@@ -661,7 +677,14 @@ def main(a):
         print(f"degradation bank: {len(bank_ids)} train sources x {bank_t.shape[1]} copies, p={a.deg_p}", flush=True)
     cache = CACHE / a.name
     cache.mkdir(parents=True, exist_ok=True)
-    used = {"rest_dir": rest_dir is not None, "full": a.full, "scale": a.scale != 1.0}  # new options only when used
+    used = {"rest_dir": rest_dir is not None, "full": a.full, "scale": a.scale != 1.0, "wN": a.wN > 0}  # new options only when used
+    Nrow = grain_count(tr.ID) if a.wN > 0 else None  # label-free per-train-image grain count (--wN)
+
+    def wts(rows):  # --wN weights of these training rows, normalised to mean 1 over them (None = unweighted)
+        if Nrow is None:
+            return None
+        w = Nrow[rows] ** a.wN
+        return w / w.mean()
     args = {k: v for k, v in vars(a).items() if used.get(k, True)}
     (cache / "args.json").write_text(json.dumps(args, indent=2))
     t_all = time.time()
@@ -678,7 +701,7 @@ def main(a):
             if fp.exists() and not a.overwrite:
                 print(f"full seed {s}: cached", flush=True)
                 continue
-            r = train_one(a, FULL_F, s, Xall, y, None, None, Xte, bank=bank_t, bidx=bidx)
+            r = train_one(a, FULL_F, s, Xall, y, None, None, Xte, bank=bank_t, bidx=bidx, wtr=wts(np.arange(len(y))))
             np.savez(fp, test=r["test"], n_train=len(y))
         assemble_full(a, te, cache, rest_dir, rest_sha)
         print(f"total wall time {time.time() - t_all:.0f}s", flush=True)
@@ -692,7 +715,7 @@ def main(a):
                 print(f"fold {f} seed {s}: cached", flush=True)
                 continue
             bidx = np.array([row.get(i, -1) for i in tr.ID.values[trn]]) if bank_t is not None else None
-            r = train_one(a, f, s, Xall[trn], y[trn], Xall[val], y[val], Xte, bank=bank_t, bidx=bidx)
+            r = train_one(a, f, s, Xall[trn], y[trn], Xall[val], y[val], Xte, bank=bank_t, bidx=bidx, wtr=wts(trn))
             np.savez(fp, val_idx=val, val=r["val"], val_other=r.get("val_other", np.full(len(val), np.nan)),
                      test=r["test"] if r["test"] is not None else np.zeros(0))
 
@@ -790,6 +813,9 @@ def parse(argv=None):
     ap.add_argument("--blur-p", type=float, default=0.0)
     ap.add_argument("--tta", type=int, default=8)
     ap.add_argument("--seeds", type=int, default=1, help="models per fold (averaged)")
+    ap.add_argument("--wN", type=float, default=0.0,
+                    help="1/N label-noise weights: each training image's loss is weighted by (N / mean N)^wN, N = its "
+                         "label-free grain count (exp logN_cnn of the localized het CNN); 0 = off (default, unchanged)")
     ap.add_argument("--train-seeds", type=int, nargs="*",
                     help="train only these seed indices (run seeds in parallel processes; assemble later)")
     ap.add_argument("--no-save", action="store_true", help="do not write experiments/ even if complete")
