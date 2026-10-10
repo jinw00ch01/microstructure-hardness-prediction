@@ -14,8 +14,8 @@ Goal: public LB RMSE <= 10.
   reading sd 0.08. Lines: <= 10.0641 carried, > 10.1441 refuted (close the G1hi stretch family), > 10.3541 build check.
 - **blend_v28p** (submit second, whatever A reads; md5 d35dfd6b...): pooled stretch of all 320 G1hi rows, k 1.100.
   Bar PASS (-0.80, 3/5 at the line). Lines: <= 10.0741 carried, > 10.1241 refuted. Joint reading table in D/B/PREREG.txt.
-- Finals rule for v28n: decision card to the user (always include v27u + v28n, or only if carried); recorded in
-  D/A/PREREG.txt before any reading.
+- Finals rule (user's choice 14:17 KST, before any reading; appended to D/A and D/B PREREG): always v27u + v28n;
+  v27u + v28p only if R_B <= R_A - 0.06; v28n > 10.3541 means build check and finals v26L + v27u.
 
 ## 2026-10-10 09:30 KST: blend_v26L 10.1302 (best, carried); v26r inconclusive - read this first
 - Public (user, 09:23 KST): **blend_v26L 10.1302** (-0.109 vs v25; pre-set carried line 10.2094; expected -0.03, as
