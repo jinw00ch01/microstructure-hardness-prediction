@@ -19,6 +19,8 @@ Goal: public LB RMSE <= 10.
   submitted to be selectable; its public must read 10.1041 or it is a build error). Rationale: if the better of the two
   finals counts, v25 is almost surely worse than v26L, while ringall's honest train gain (clean MSE -1.1 per row) matches
   its public reading (-1.0), so v27u is at least as likely to beat v26L on private (expected about -0.02).
+- 12:06 KST: the user chose the swap. Submit blend_v27u (md5 97a7cf2b...) on 10/10; if it reads 10.1041 (4-decimal
+  rounding) the finals are v26L + v27u, otherwise it is a build error and the finals stay v26L + v25.
 
 ## 2026-10-10 01:30 KST: two files for 10/10 (blend_v26L, blend_v26r) - read this first
 - d1010 C clean-row search (128 candidates, one nested harness, fixed bar): no survivor; new clean terms are exhausted at
