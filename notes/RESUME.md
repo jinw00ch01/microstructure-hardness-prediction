@@ -1,6 +1,16 @@
-# Resume guide (updated 2026-10-10 ~01:30 KST)
+# Resume guide (updated 2026-10-10 ~09:40 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-10 09:30 KST: blend_v26L 10.1302 (best, carried); v26r inconclusive - read this first
+- Public (user, 09:23 KST): **blend_v26L 10.1302** (-0.109 vs v25; pre-set carried line 10.2094; expected -0.03, as
+  built -0.074). The unchanged clean formula7 transfers strongly to noisy rows where the clean segmentation works.
+- blend_v26r 10.2136 (-0.026): inside the pre-set inconclusive band 10.212-10.256 by 0.0016. ringall is closed; v26r is
+  never a final. The union blend_v27u is not submitted (its public score follows without a slot: 10.1041) and is not a
+  final.
+- Finals: v26L first, v25 second. New base for further files: blend_v26L. To reach 10: public MSE -2.62 more.
+- 10/10 slots 3-5: only files that pass a new single-shot pre-registered label test plus an independent review.
+  Next-round design (gate extension, G1 rows, formula form, fresh angles): hardness-cache scripts/d1010/N/.
 
 ## 2026-10-10 01:30 KST: two files for 10/10 (blend_v26L, blend_v26r) - read this first
 - d1010 C clean-row search (128 candidates, one nested harness, fixed bar): no survivor; new clean terms are exhausted at
