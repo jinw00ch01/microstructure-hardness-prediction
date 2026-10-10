@@ -760,3 +760,152 @@ h. Return the GPU the way the user's mode requires, also when stopping early. Ex
 | e (GPU, only after `NEXT d2`) | 30-40 min |
 | f (GPU) | D1 about 25 min; D2 about 60-80 min |
 | g | a few minutes |
+
+## 14. Next GPU run: het reader for the noisy line-free images (GPU-A), then a 1/N-weighted y-CNN (GPU-B), optional GPU-C (prepared 2026-10-11 06:00 KST)
+Why:
+- blend_v29g (the 10-11 file) improves het where it is measured on the image. The 320 noisy line-free test rows (G1)
+  still read het with the localized het CNN of blend_v24 (ev2s_loc_e32r4 + _s1), trained on renders cleaner than the
+  real G1 images. GPU-A tries three label-free ways to read het better there; the cloud tests each once against a
+  bar fixed beforehand (hardness-cache `scripts/d1011/bold/PLAN_BOLD.txt` section 4 and its 2026-10-11 05:55 addendum):
+  - A1: AdaBN. The same fold models, with batch-norm statistics re-estimated on the 208 real G1 TRAIN images (no
+    label; test images are only predicted).
+  - A2: retrain with half of the renders passed through the noise world of `tools/fsim` (degrade_sim).
+  - A3: route K's realistic render prior (`--render-preset real`) on all 5 folds.
+- GPU-B: the y-CNN recipe of `cnn_ev2s_rawnlm_degcons_gpu_s3` with each train image's loss weighted by its label-free
+  grain count N (`--wN 1`; images with few grains carry noisier labels). New option, off by default and bit-identical
+  at 0. It reads `data\het_cnn\ev2s_loc_e32r4{,_s1}\het_cnn_train.parquet` (no label).
+- GPU-C (optional, only after B in the same session): the same with full 256-px crops and a 4x4 grid pool, 45 epochs.
+
+Rules:
+- GPU mode only as the user says in the thread for this run. The expected mode is the hand-over tool: if a robot job
+  holds the GPU, arm `C:\Dacon\WM_Runtime\handover_after_jobs.py <ledger job id>` as on 10-09 and start the [GPU]
+  steps once `handover_started.json` appears. Keep watching until the GPU is actually ours (a waiter that exits early
+  misses the hand-over). Then run in exclusive mode and return the GPU with
+  `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done` after the last [GPU] step, also when stopping early.
+- Never pause, stop or edit the robot project's jobs or files in any other way. If the robot side asks for the GPU
+  back, stop after the current command, return it, and say which step was next (every training line resumes).
+- Shared mode only if the user says so: wrap each [GPU] command with
+  `python C:\Dacon\RobotWorldModel_ActionVideo\wm_ops\gpu_turn.py --who hardness -- `, and start B only if
+  `nvidia-smi` shows memory.used <= 3 GB (C: <= 2.5 GB).
+- CUDA out of memory (this replaces "lower the batch size" for this section):
+  - First rerun the IDENTICAL command; it resumes from the finished folds / fold-seeds.
+  - A2 / A3 after a second OOM: add `--batch 8` and append `_b8` to the `--out` name; say so in the message.
+  - GPU-B: never change `--bs` or `--lr` (its bar is paired with s3). After a second OOM, skip B and say so.
+  - GPU-C after a second OOM: the `_bs8` line in step i only.
+- No commits or pushes. PowerShell at the repo root with the `.venv` active. Save each dump with
+  `| Out-File -Encoding utf8 <file>`, not `>`.
+
+a. [CPU] Pull and checks (about 5 min)
+   ```powershell
+   Set-Location C:\Daker\microstructure-hardness-prediction
+   git status --short
+   git pull origin claude/lb-under-10-7080jr
+   git log -1 --format=%h
+   git hash-object src\het_cnn.py tools\fsim\fsim_set.py tools\fsim\het_fsim.py tools\fsim\het_adabn.py tools\fsim\degrade_sim.py tools\fsim\fx_sim.py src\train_cnn.py
+   Test-Path data\het_cnn\prep.npz, data\features_v3.parquet, data\folds.csv, data\het_cnn\ev2s_loc_e32r4\het_cnn_train.parquet, data\het_cnn\ev2s_loc_e32r4_s1\het_cnn_train.parquet, data\cnn_cache\_pre\nlm.npz, data\cnn_cache\_pre\deg2_k8_snr0.5.npz
+   (Get-ChildItem data\het_cnn\ev2s_loc_e32r4\fold?.pt, data\het_cnn\ev2s_loc_e32r4_s1\fold?.pt).Count
+   (Get-ChildItem data\het_cnn\ev2s_loc_e32r4\fold?.json).Count
+   [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB)
+   python -c "import numpy as np, pandas as pd; ids=pd.read_csv('data/train.csv', usecols=['ID']).ID; ls=[pd.read_parquet('data/het_cnn/'+d+'/het_cnn_train.parquet').set_index('ID').loc[ids, 'logN_cnn'].values for d in ('ev2s_loc_e32r4', 'ev2s_loc_e32r4_s1')]; N=np.exp(np.mean(ls, 0)); print('logN sums', [round(float(np.round(l, 4).sum()), 2) for l in ls], 'nan', int(np.isnan(N).sum()), 'N', round(float(N.min()), 1), round(float(N.max()), 1))"
+   python -W ignore tools\fsim\het_fsim.py --selfcheck
+   python -W ignore tools\fsim\het_fsim.py --p-fsim 0.5 --device cpu --smoke --folds 0 --epochs 1 --renders 1 --batch 8 --threads 2 --workers 2 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --overwrite --out smoke_fsim
+   python -W ignore tools\fsim\het_fsim.py --eval-fsim smoke_fsim --eval-smoke --device cpu
+   ```
+   - `git status` must not list `tools\` as untracked; the log line is the commit named in the thread (or later).
+   - Blob ids, in order (prefixes): bc683a52 14826b37 60d93eac 5f13a8ac 6c3d26b5 8366f904 fbcb1826.
+   - Test-Path True x7; counts 10 and 5; the RAM line decides `--workers` (keep 4; never more than 4 below 32 GB).
+   - The fingerprint must print `logN sums [2722.08, 2729.81] nan 0 N 41.3 698.2`. Otherwise skip GPU-B (steps g-i)
+     and say so; never overwrite those parquets.
+   - selfcheck ends `selfcheck passed: ... noise sd 15.3` (about 15 if the laptop prep differs slightly); the smoke
+     ends `total wall ...` (1-2 min); the eval smoke prints 2 `EVAL` lines.
+   - SEND one message: the log line, the blob ids, Test-Path / counts / RAM, the fingerprint, the selfcheck line, the
+     smoke's last 4 lines, the 2 EVAL lines. A Traceback: send it and stop.
+
+b. [GPU] A1: AdaBN, with a control first (about 10-15 min)
+   ```powershell
+   python -W ignore tools\fsim\het_adabn.py --run data\het_cnn\ev2s_loc_e32r4 --out data\het_cnn\ev2s_loc_e32r4_ctrlg1 --control --tta 8 --g1-only --device cuda --threads 2
+   python -c "import pandas as pd, numpy as np; a=pd.read_parquet('data/het_cnn/ev2s_loc_e32r4_ctrlg1/het_cnn_train.parquet').set_index('ID').dropna(subset=['het_cnn']); b=pd.read_parquet('data/het_cnn/ev2s_loc_e32r4/het_cnn_train.parquet').set_index('ID').loc[a.index]; print('CTRL n %d max_d_het %.4f max_d_logN %.4f corr %.5f' % (len(a), np.abs(a.het_cnn-b.het_cnn).max(), np.abs(a.logN_cnn-b.logN_cnn).max(), np.corrcoef(a.het_cnn, b.het_cnn)[0,1]))"
+   python -W ignore tools\fsim\het_adabn.py --run data\het_cnn\ev2s_loc_e32r4 --out data\het_cnn\ev2s_loc_e32r4_adabn --adapt-views 8 --tta 8 --with-test --device cuda --threads 2
+   python -W ignore tools\fsim\het_adabn.py --run data\het_cnn\ev2s_loc_e32r4_s1 --out data\het_cnn\ev2s_loc_e32r4_s1_adabn --adapt-views 8 --tta 8 --with-test --device cuda --threads 2
+   python -W ignore -m src.het_cnn --dump ev2s_loc_e32r4_adabn --chunk 0 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_e32r4_adabn\c0.txt
+   python -W ignore -m src.het_cnn --dump ev2s_loc_e32r4_s1_adabn --chunk 0 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_e32r4_s1_adabn\c0.txt
+   ```
+   - Each het_adabn line first prints `het_adabn: device cuda ...`; it stops with an AssertionError if CUDA is not
+     available (it never falls back to CPU).
+   - The CTRL line must show n 208, max_d_het <= 0.005 and corr >= 0.999. Otherwise send the CTRL line, skip the
+     other lines of b and go to c.
+   - SEND now, one message each: the CTRL line; `ev2s_loc_e32r4_adabn\c0.txt`; `ev2s_loc_e32r4_s1_adabn\c0.txt`.
+     The cloud tests A1 while c and d train.
+
+c. [GPU] A2: retrain with 50% noise-world renders, seed 0, 5 folds (35-50 min)
+   ```powershell
+   python -W ignore tools\fsim\het_fsim.py --p-fsim 0.5 --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --out ev2s_loc_fsim
+   ```
+   - First line `het_fsim: p_fsim 0.5 p_g1hi 0.77 -> ...`; last line `total wall ...`. A rerun skips finished folds.
+
+d. [GPU] A3: route K's realistic render prior, seed 0, 5 folds (30-40 min)
+   ```powershell
+   python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --out ev2s_locK_real5
+   ```
+   - The header shows `render preset real`; last line `total wall ...`.
+
+e. [GPU] Label-free noise-world numbers, report only (3-6 min)
+   ```powershell
+   python -W ignore tools\fsim\het_fsim.py --eval-fsim ev2s_loc_e32r4 ev2s_loc_fsim ev2s_locK_real5 --device cuda --threads 2
+   ```
+   - Six `EVAL` lines. They decide nothing.
+
+f. [CPU] Dumps and summaries of A2 / A3 (seconds)
+   ```powershell
+   python -W ignore -m src.het_cnn --dump ev2s_loc_fsim --chunk 0 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_fsim\c0.txt
+   python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --chunk 0 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\c0.txt
+   python -c "import json; d=json.load(open('data/het_cnn/ev2s_loc_fsim/score.json')); p=d['stage1_pooled']; print('POOLED P %.4f W %.4f corr_logN %.4f' % (p['pcorr_het_given_logN'], p['corr_block_within'], p['corr_logN'])); [print('fold', k, 'P %.4f W %.4f R %.4f' % (v['stage1_renders']['pcorr_het_given_logN'], v['stage1_renders']['corr_block_within'], (v.get('heldout_real_clean') or {}).get('pcorr_het_given_logN', float('nan')))) for k, v in d['stage1_per_fold'].items()]"
+   python -c "import json; d=json.load(open('data/het_cnn/ev2s_locK_real5/score.json')); p=d['stage1_pooled']; print('POOLED P %.4f W %.4f corr_logN %.4f' % (p['pcorr_het_given_logN'], p['corr_block_within'], p['corr_logN'])); [print('fold', k, 'P %.4f W %.4f R %.4f' % (v['stage1_renders']['pcorr_het_given_logN'], v['stage1_renders']['corr_block_within'], (v.get('heldout_real_clean') or {}).get('pcorr_het_given_logN', float('nan')))) for k, v in d['stage1_per_fold'].items()]"
+   ```
+   - SEND, one message each: the six EVAL lines; the two summaries; `ev2s_loc_fsim\c0.txt`;
+     `ev2s_locK_real5\c0.txt`. Test chunks (1-2) only when the thread asks for them after a pass.
+
+g. [GPU] GPU-B stage 1: 1/N-weighted y-CNN, 3 seeds x 5 folds (20-55 min)
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --lr 1e-3 --wN 1 --device cuda --seeds 3 --name cnn_ev2s_rawnlm_degcons_wN1_gpu_s3
+   ```
+   - Early lines: `--wN: N of 500 train images from ...: sum logN 2725.94, range 41.3-698.2` and
+     `degradation bank: 263 train sources x 8 copies, p=0.5`; 15 fold-seeds; the last line
+     `[cnn_ev2s_rawnlm_degcons_wN1_gpu_s3] CV RMSE ...`.
+   - A cut or OOM: the OOM rule above (never another `--bs` / `--lr`).
+
+h. [CPU] GPU-B back to the cloud, one message each (score first; the 2 oof chunks are all the gate needs)
+   ```powershell
+   Get-Content experiments\cnn_ev2s_rawnlm_degcons_wN1_gpu_s3\score.json
+   python -c "import pandas as pd; n='cnn_ev2s_rawnlm_degcons_wN1_gpu_s3'; f='oof'; k=0; d=pd.read_csv('experiments/'+n+'/'+f+'.csv'); v=d.hardness.round(2).values[250*k:250*k+250]; print('#', n, f, 'chunk', k, 'IDs', d.ID.iloc[250*k], d.ID.iloc[250*k+len(v)-1], 'n', len(v), 'sum %.2f' % v.sum()); print(' '.join('%.2f' % x for x in v))"
+   ```
+   - Run the chunk line for f='oof' k=0, 1, then f='test' k=0, 1, 2, 3 (7 messages with the score).
+
+i. [GPU] Optional GPU-C, only if the GPU is still ours after h (40-105 min)
+   ```powershell
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --crop 256 --pool grid4 --epochs 45 --lr 1e-3 --wN 1 --device cuda --seeds 3 --name cnn_ev2s_rawnlm_degcons_c256g4_e45_wN1_gpu_s3
+   # only after a second CUDA OOM on the line above:
+   python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --input raw+nlm --deg-p 0.5 --cons 1.0 --crop 256 --pool grid4 --epochs 45 --bs 8 --lr 5e-4 --wN 1 --device cuda --seeds 3 --name cnn_ev2s_rawnlm_degcons_c256g4_e45_wN1_bs8_gpu_s3
+   ```
+   - Send back as in h, with `n` set to the name that finished.
+
+j. Return the GPU (exclusive mode) after the session's last [GPU] step, also when stopping early:
+   ```powershell
+   New-Item C:\Dacon\WM_Runtime\hardness_gpu_done
+   ```
+
+Later, only when the thread says a candidate passed (a new user line is needed then): GPU-B stage 2 (6 seeds plus a
+--full run, 1-1.5 h) or A2 / A3 seed-1 runs and test chunks. Those commands go in the thread at that point.
+
+| step | time |
+|---|---|
+| a (CPU) | about 5 min |
+| b (GPU) | 10-15 min |
+| c (GPU) | 35-50 min |
+| d (GPU) | 30-40 min |
+| e (GPU) | 3-6 min |
+| f (CPU) | seconds |
+| g (GPU) | 20-55 min |
+| h (CPU) | a few minutes |
+| i (GPU, optional) | 40-105 min |
+| total GPU | about 2-2.8 h without i; up to about 4.5 h with i |

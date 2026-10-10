@@ -560,9 +560,18 @@ WN_SRC = ["het_cnn/ev2s_loc_e32r4", "het_cnn/ev2s_loc_e32r4_s1"]  # localized he
 def grain_count(ids):
     """--wN: label-free grain count N = exp(mean logN_cnn over WN_SRC) per train image (no label is read)."""
     import pandas as pd
-    ls = [pd.read_parquet(DATA_DIR / d / "het_cnn_train.parquet").set_index("ID").loc[list(ids), "logN_cnn"].values
-          for d in WN_SRC]
-    return np.exp(np.mean(ls, 0))
+    ls = []
+    for d in WN_SRC:
+        fp = DATA_DIR / d / "het_cnn_train.parquet"
+        if not fp.exists():
+            raise SystemExit(f"--wN needs {fp} (label-free output of the localized het CNN run)")
+        ls.append(pd.read_parquet(fp).set_index("ID").loc[list(ids), "logN_cnn"].values)
+    N = np.exp(np.mean(ls, 0))
+    if not np.isfinite(N).all():
+        raise SystemExit(f"--wN: {int((~np.isfinite(N)).sum())} train images have no finite logN_cnn")
+    print(f"--wN: N of {len(N)} train images from {', '.join(WN_SRC)}: sum logN {float(np.log(N).sum()):.2f}, "
+          f"range {N.min():.1f}-{N.max():.1f}", flush=True)
+    return N
 
 
 def _check_name(a):
@@ -654,6 +663,8 @@ def main(a):
             rest_bank(a.deg_k, a.deg_snr_min, rest_dir, build=True)
         return
     _check_name(a)
+    if a.wN < 0:
+        raise SystemExit("--wN must be >= 0")
     tr, te = load_train(), load_test()
     y = tr.hardness.values.astype(np.float64)
     folds = a.folds if a.folds else list(range(5))

@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-11 ~05:30 KST)
+# Resume guide (updated 2026-10-11 ~06:00 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -19,7 +19,11 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   - GPU plan (PLAN_BOLD section 4): GPU-A het session on G1 rows (AdaBN on train G1 images, degrade_sim 50% retrain,
     route-K real preset), GPU-B y-CNN with 1/N row weights (--wN 1), GPU-C full-image grid4 y-CNN (optional). User OK'd
     GPU use tonight on the card (00:05 KST); take it via the handover tool, never pause the robot job unless the user
-    says so. Code check before the laptop run: workflow gpu14-review.
+    says so. Code check before the laptop run: workflow gpu14-review (bold/gpu14_review_A.txt, _B.txt); fixes applied
+    06:00 KST (het_adabn never falls back to CPU, train_cnn --wN guards, q7 --gate-hi). Laptop commands:
+    notes/handoff/laptop-gpu.md section 14 (A1-A3, then GPU-B stage 1, GPU-C optional); pre-registered bars in the
+    PLAN_BOLD addendum 2026-10-11 05:55 KST (C1 gate 0.995, OOM rule, GPU-B binding swap bar). Waits for the
+    laptop session to reconnect and the user's line in the main thread.
   - For the top-10 code check: port V4 / FD6t / f8_C2 / the T-CP gate into src/ by 10/16 so the repo rebuilds v29g.
 - Laptop CPU checks 10-11 00:05 KST: per-grain mixture law null (9.53-9.90 vs 9.52); no train/test duplicates.
 

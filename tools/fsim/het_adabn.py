@@ -22,7 +22,9 @@ import torch
 torch.set_num_threads(A.threads)
 from PIL import Image
 from src import het_cnn as H
-dev = torch.device(A.device if (A.device == 'cpu' or torch.cuda.is_available()) else 'cpu')
+dev = torch.device(A.device)
+assert dev.type == 'cpu' or torch.cuda.is_available(), '--device cuda but CUDA is not available'
+print(f'het_adabn: device {dev} run {A.run} control {A.control} adapt_views {A.adapt_views} tta {A.tta}', flush=True)
 REPO = A.repo
 v3 = pd.read_parquet(f'{REPO}/data/features_v3.parquet').set_index('ID')
 tr_ids = pd.read_csv(f'{REPO}/data/train.csv', usecols=['ID']).ID.astype(str).tolist()     # IDs only, no label
