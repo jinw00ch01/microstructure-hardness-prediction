@@ -1,9 +1,27 @@
-# Resume guide (updated 2026-10-10 ~16:15 KST)
+# Resume guide (updated 2026-10-10 ~20:10 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+
+## 2026-10-10 20:00 KST: no file for 10/11 slot 1; G1hi term-reader route closed - read this first
+- Best public is still blend_v28n 10.0712 (automatic final while it stays best).
+- Plan G (hardness-cache scripts/d1011/G/PLAN_G.txt): a CNN that reads the formula7 terms on high-noise (G1hi) images,
+  trained on clean train images degraded by the new simulator degrade_sim (G/forensics). Default NO-GO; a label-free
+  CPU stage 0 decided whether the route re-opens.
+- Stage 0 (G/s0, label-free, no test image, each item checked by an independent verifier):
+  - S0a realism PASS: degrade_sim copies vs real G1hi train, fast-stat AUC 0.679 (bar 0.83), quality 0.546 (0.80).
+  - S0b fd ceiling FAIL: a per-grain reader given the TRUE grain map reads fd_area at r 0.69 (bar 0.90; S0b' 0.79).
+  - S0d het PASS (marginal): the cpu het CNN reads het better on degrade_sim copies than on its own renders
+    (pc 0.423 vs 0.347, bar +0.05; bootstrap interval touches 0).
+  - Mechanical outcome: re-opened on the het branch. But gate G1 needs f7-level corr >= 0.86 on sim copies, and with fd
+    capped at 0.69 the best possible is 0.79 even with every other term exact (G/s0/s0_g1_bound.py). So the route is
+    closed at G1 without training; no GPU word or G1hi label exception is needed for it.
+- 10/11 slot 1: no file. Decision card to the user (20:05 KST): next focus on the 1/N low-grain-count error
+  (recommended), a het-only GPU retrain in the degrade_sim world (needs GPU word + one G1hi label exception; about
+  -0.03 if it passes, inferred), or both.
 
 
 ## 2026-10-10 15:00 KST: blend_v27u 10.1041 (best); two files for the last 10/10 slots - read this first
