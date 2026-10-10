@@ -1,10 +1,20 @@
-# Resume guide (updated 2026-10-11 ~06:00 KST)
+# Resume guide (updated 2026-10-11 ~08:45 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-11 08:45 KST: blend_v29g public 10.0564 (best; inconclusive) and section 14 under way - read this first
+- blend_v29g scored 10.0564 public (user, 08:38 KST): -0.015 vs v28n 10.0712, new best (auto-final while best).
+  Pre-registered reading: inconclusive (9.90-10.24), v29g stays the base for every later file.
+- Size check (hardness-cache laptop-gpu-2026-10-11/RESULTS.txt): 580 test rows changed (about 174 public). Full-CV
+  hypothesis predicts public dMSE -7.9 (sd 3.3); observed -0.30 (z +2.3); no-signal predicts about +6.4 (z -2.0).
+  Likeliest: about half the CV gain is real (CV optimism from picking V4 among ~25 variants plus public noise).
+  No train/test shift in V4 on clean rows (quantiles equal, KS p 0.27, 0.6% of test outside the train range).
+- Section 14 (laptop GPU from 08:17 KST, hand-over tool; robot runner blocked until hardness_gpu_done): CTRL passed;
+  C1 AdaBN FAILED its bar (replace dMSE -0.34 vs -1.0, folds 2/5). A2 / A3 / GPU-B pending.
 
 ## 2026-10-11 05:30 KST: bold round -> blend_v29g for 10/11 slot 1 - read this first
 - User (10-10 24:00 KST): public top-10 8.8662 / 8.9139 / 9.1817 / 9.5134 / 9.7090 / 9.8001 / 9.8040 / 9.8362 / 10.0415 /
