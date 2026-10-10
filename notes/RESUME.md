@@ -1,9 +1,27 @@
-# Resume guide (updated 2026-10-10 ~22:45 KST)
+# Resume guide (updated 2026-10-11 ~05:30 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+
+## 2026-10-11 05:30 KST: bold round -> blend_v29g for 10/11 slot 1 - read this first
+- User (10-10 24:00 KST): public top-10 8.8662 / 8.9139 / 9.1817 / 9.5134 / 9.7090 / 9.8001 / 9.8040 / 9.8362 / 10.0415 /
+  10.0470; we are 12th. No methods posted on the boards. "Any idea, be bold." Read as relaxing our own bars (labels may
+  now score candidates, with proper nesting), never the competition rules. Evaluation.md: private 100%, top-10 code check.
+- Bold round (hardness-cache scripts/d1011/bold: 8 lenses, TRIAGE.txt, impl_C1-C5 with verify, PLAN_BOLD.txt):
+  - **blend_v29g** (= U1/C4; md5 496f5cc9...; OOF 10.618 vs v28n 10.991): het re-measured as the mean over 6 segmentation
+    maps of the exact 4x4-grid statistic (V4); clean 9.10 -> 8.36. Details in experiments/LEADERBOARD.md and
+    hardness-cache submissions/blend_v29g.json. Expected public about 9.80 (9.60-9.95). Lines: <= 9.90 carried,
+    9.90-10.24 inconclusive (still the base), >= 10.24 refuted (close the grid-het re-measurement family).
+  - The other 4 slots of 10/11 stay empty (C1/C2 are near-copies of U1; C3 T-CP rides inside U1; C5 found nothing).
+  - GPU plan (PLAN_BOLD section 4): GPU-A het session on G1 rows (AdaBN on train G1 images, degrade_sim 50% retrain,
+    route-K real preset), GPU-B y-CNN with 1/N row weights (--wN 1), GPU-C full-image grid4 y-CNN (optional). User OK'd
+    GPU use tonight on the card (00:05 KST); take it via the handover tool, never pause the robot job unless the user
+    says so. Code check before the laptop run: workflow gpu14-review.
+  - For the top-10 code check: port V4 / FD6t / f8_C2 / the T-CP gate into src/ by 10/16 so the repo rebuilds v29g.
+- Laptop CPU checks 10-11 00:05 KST: per-grain mixture law null (9.53-9.90 vs 9.52); no train/test duplicates.
 
 
 ## 2026-10-10 22:30 KST: design round H toward 9 - no candidate; 10/11 default is no submission - read this first
