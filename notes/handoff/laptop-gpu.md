@@ -811,7 +811,7 @@ a. [CPU] Pull and checks (about 5 min)
    python -W ignore tools\fsim\het_fsim.py --p-fsim 0.5 --device cpu --smoke --folds 0 --epochs 1 --renders 1 --batch 8 --threads 2 --workers 2 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --overwrite --out smoke_fsim
    python -W ignore tools\fsim\het_fsim.py --eval-fsim smoke_fsim --eval-smoke --device cpu
    ```
-   - `git status` must not list `tools\` as untracked; the log line is the commit named in the thread (or later).
+   - `git status` must not list `tools\` as untracked; the log line is 678f0d3 or a later commit.
    - Blob ids, in order (prefixes): bc683a52 14826b37 60d93eac 5f13a8ac 6c3d26b5 8366f904 fbcb1826.
    - Test-Path True x7; counts 10 and 5; the RAM line decides `--workers` (keep 4; never more than 4 below 32 GB).
    - The fingerprint must print `logN sums [2722.08, 2729.81] nan 0 N 41.3 698.2`. Otherwise skip GPU-B (steps g-i)
