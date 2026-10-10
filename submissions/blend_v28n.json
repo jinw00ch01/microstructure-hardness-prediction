@@ -1,0 +1,127 @@
+{
+ "name": "blend_v28n",
+ "base": "blend_v27u",
+ "rule": "G1hi = raw features_v3 ic_noise >= 12 and ic_ridge_snr < 0.5; file rows = G1hi and ic_noise < m (m = median train G1hi ic_noise); new = c + k (p - c) on the file rows, c = mean blend_v27u nested OOF and b = OLS slope of y on it over the train file rows, k = 1 + 0.5 (b / rho - 1); other rows = blend_v27u bit-identical",
+ "prereg": "scripts/d1010/D/A/PREREG.txt",
+ "prereg_sha256": "123b281da8a2359999e89d42278d44e366cdea68341446afa590c3043a5c9b88",
+ "a_test_sha256": "be3d25d3f72108347f11a3fed2a79dea915387b7f57401133042cefba16c3abf",
+ "a_test_verdict": "PASS",
+ "a_test_bar_items": {
+  "a_all500_dmse": true,
+  "b_folds_better": true,
+  "c_signflip": true,
+  "d_droptop3": true,
+  "e_resplits": true
+ },
+ "bar": {
+  "a_max_all500_dmse": -1.0,
+  "b_min_folds_better": 3,
+  "c_max_signflip_p": 0.2,
+  "d_n_drop": 3,
+  "d_max_all500_dmse_after_drop": 0.0,
+  "e_max_resplit_mean": -0.5,
+  "e_max_resplit_P_ge0": 0.1
+ },
+ "counts": {
+  "G1hi_train": 161,
+  "G1hi_test": 320,
+  "file_train": 80,
+  "file_test": 167,
+  "other_train": 420,
+  "other_test": 833
+ },
+ "factor": {
+  "m": 16.28070373209019,
+  "c": 192.91545834054398,
+  "b": 1.4922077141293129,
+  "rho": 0.9795141681843882,
+  "k": 1.261708080698437,
+  "k_full_step": 1.5234161613968742,
+  "n_fit": 80
+ },
+ "report_only_factors": {
+  "k_loo_eb": 1.2566502767404466,
+  "k_b_lo_eb": 1.3548829299705214
+ },
+ "nested_all500_dmse": -3.0656315464281723,
+ "nested_changed_rows": 82,
+ "nested_folds_better": 4,
+ "nested_signflip_p": 0.03769811509424529,
+ "nested_droptop3_all500_dmse": -1.4283925431368822,
+ "nested_per_fold": [
+  {
+   "fold": 0,
+   "m_f": 16.12282546316325,
+   "c_f": 192.0068513204856,
+   "b_f": 1.4478872463846995,
+   "k_f": 1.239084381529917,
+   "n_changed": 11,
+   "dsse": -634.8213881041083,
+   "better": true
+  },
+  {
+   "fold": 1,
+   "m_f": 16.246787334312245,
+   "c_f": 193.04194831131045,
+   "b_f": 1.3809902347364134,
+   "k_f": 1.2049363243495472,
+   "n_changed": 10,
+   "dsse": -529.9088060919353,
+   "better": true
+  },
+  {
+   "fold": 2,
+   "m_f": 16.49964353533451,
+   "c_f": 194.40187344900986,
+   "b_f": 1.5308272299959174,
+   "k_f": 1.2814216882811578,
+   "n_changed": 23,
+   "dsse": 161.99622421133654,
+   "better": false
+  },
+  {
+   "fold": 3,
+   "m_f": 16.28070373209019,
+   "c_f": 192.80570235687176,
+   "b_f": 1.5798301901837422,
+   "k_f": 1.3064355991461003,
+   "n_changed": 18,
+   "dsse": -204.2221323941617,
+   "better": true
+  },
+  {
+   "fold": 4,
+   "m_f": 16.2839748352172,
+   "c_f": 193.28506826630803,
+   "b_f": 1.4958403514601137,
+   "k_f": 1.2635623863577081,
+   "n_changed": 20,
+   "dsse": -325.8596708352179,
+   "better": true
+  }
+ ],
+ "resplits": {
+  "n": 300,
+  "mean_all500_dmse": -3.000437059569524,
+  "sd": 0.4492268906216205,
+  "P_ge0": 0.0
+ },
+ "insample_all500_dmse": -3.7204052656558133,
+ "nested_cv_all": 10.991311049864239,
+ "nested_cv_all_v27u": 11.129894435316801,
+ "fold_rmse": [
+  10.853827688842472,
+  11.421687677683408,
+  10.907171487985448,
+  11.229335835766715,
+  10.522342652088119
+ ],
+ "fold_rmse_v27u": [
+  11.14243193293657,
+  11.651353460755722,
+  10.832655612831477,
+  11.319903031226731,
+  10.676061614486168
+ ],
+ "notes": "PREREG d1010/D/A: half-step slope stretch (k = 1 + 0.5 (b / rho - 1), rho fixed from train-only inner CV) on the low-noise half of G1hi; form found post hoc in the D design stage; one registered nested bar (a_test.py) passed all five items. Test images are used only through label-free per-image gate features; nothing fitted on test; no test statistic in any factor."
+}

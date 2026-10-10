@@ -1,0 +1,96 @@
+{
+ "name": "blend_v28p",
+ "base": "blend_v27u",
+ "rule": "G1hi rows (raw features_v3 ic_noise >= 12 and ic_ridge_snr < 0.5): new = c + k (p - c), p = blend_v27u; c = mean of the blend_v27u nested OOF over the train G1hi rows, b = OLS slope (with intercept) of y on it, rho = 0.9795141681843882 fixed (train-only inner CV), k = 1 + 0.5 (b / rho - 1); other rows = blend_v27u bit-identical",
+ "prereg": "scripts/d1010/D/B/PREREG.txt",
+ "prereg_sha256": "968657eaefef39a879215d9e5331335e78b5f4ba33d7523bc90f213b72f1fd76",
+ "b_test_sha256": "4ae392936bc1ffda766883185da10d564319abd49fdf5427506eb8ec76daf4c8",
+ "b_test_verdict": "PASS",
+ "b_test_bar_items": {
+  "a_all500_dmse": true,
+  "b_folds_better": true,
+  "c_resplit": true
+ },
+ "bar": {
+  "a_max_all500_dmse": -0.25,
+  "b_min_folds_better": 3,
+  "c_max_resplit_mean": 0.0,
+  "c_max_resplit_p_ge0": 0.15
+ },
+ "bar_values": {
+  "a_all500_dmse": -0.8018933648642286,
+  "b_folds_better": 3,
+  "c_resplit_mean": -0.5557722865246775,
+  "c_resplit_p_ge0": 0.08666666666666667
+ },
+ "n_train_G1hi": 161,
+ "n_test_G1hi": 320,
+ "n_train_other": 339,
+ "n_test_other": 680,
+ "G1hi_rows_per_fold": [
+  32,
+  21,
+  35,
+  36,
+  37
+ ],
+ "rho": 0.9795141681843882,
+ "c": 193.72795852437747,
+ "b": 1.175499668315153,
+ "k": 1.1000421977019692,
+ "fold_factors": [
+  {
+   "fold": 0,
+   "c_f": 193.65760369947435,
+   "b_f": 1.116609825943952,
+   "k_f": 1.069981457243075
+  },
+  {
+   "fold": 1,
+   "c_f": 193.4814663852268,
+   "b_f": 1.1814167882302538,
+   "k_f": 1.1030626338055471
+  },
+  {
+   "fold": 2,
+   "c_f": 193.8914096248027,
+   "b_f": 1.2096161008821777,
+   "k_f": 1.1174571742664545
+  },
+  {
+   "fold": 3,
+   "c_f": 193.7478577843769,
+   "b_f": 1.2274450128773604,
+   "k_f": 1.1265580696767934
+  },
+  {
+   "fold": 4,
+   "c_f": 193.89330066744265,
+   "b_f": 1.1499137428818584,
+   "k_f": 1.0869816794040459
+  }
+ ],
+ "nested_dmse_all500": -0.8018933648642286,
+ "nested_cv_all": 11.093811643273545,
+ "nested_cv_all_v27u": 11.129894435316801,
+ "fold_rmse": [
+  11.045336450078493,
+  11.632199646535518,
+  10.841291631079951,
+  11.339886247263342,
+  10.579656593617218
+ ],
+ "fold_rmse_v27u": [
+  11.14243193293657,
+  11.651353460755722,
+  10.832655612831477,
+  11.319903031226731,
+  10.676061614486168
+ ],
+ "G1hi_rmse_new": 14.027777920137712,
+ "G1hi_rmse_v27u": 14.11626386270457,
+ "resplit_mean_dmse": -0.5557722865246775,
+ "resplit_p_ge0": 0.08666666666666667,
+ "signflip_p_report_only": 0.2039898005099745,
+ "notes": "PREREG d1010/D/B: pooled half-step slope stretch of the G1hi rows of blend_v27u (the pooled control for File A, blend_v28n). One fixed train-only rule, no split search; the single nested train bar (b_test.py) passed all three items. Test images are used only through label-free per-image features; each test row is transformed on its own with train-side constants; nothing is fitted on test rows."
+}

@@ -1,6 +1,21 @@
-# Resume guide (updated 2026-10-10 ~09:40 KST)
+# Resume guide (updated 2026-10-10 ~15:00 KST)
 
 Goal: public LB RMSE <= 10.
+
+## 2026-10-10 15:00 KST: blend_v27u 10.1041 (best); two files for the last 10/10 slots - read this first
+- Public (user, 12:08 KST): blend_v27u **10.1041**, exactly the value predicted from the v26L and v26r readings (build
+  check passed). Finals v26L + v27u (user's choice 12:06 KST). User: the last two 10/10 submissions only after careful
+  review.
+- Design (hardness-cache scripts/d1010/D): the idea that fold averaging flattens test predictions on G1hi was refuted
+  (train-only inner-CV ratio 0.98; the test flatness is composition). What survives: inside G1hi the OOF slope depends on
+  noise (low-noise half 1.49, high half 0.94), found post hoc.
+- **blend_v28n** (submit first; md5 396a52f2...): half-step stretch of the low-noise half of G1hi (167 test rows),
+  k 1.262. Registered bar PASS (all-500 -3.07, 4/5); independent rebuild. Expected public about -0.03 (null +0.07),
+  reading sd 0.08. Lines: <= 10.0641 carried, > 10.1441 refuted (close the G1hi stretch family), > 10.3541 build check.
+- **blend_v28p** (submit second, whatever A reads; md5 d35dfd6b...): pooled stretch of all 320 G1hi rows, k 1.100.
+  Bar PASS (-0.80, 3/5 at the line). Lines: <= 10.0741 carried, > 10.1241 refuted. Joint reading table in D/B/PREREG.txt.
+- Finals rule for v28n: decision card to the user (always include v27u + v28n, or only if carried); recorded in
+  D/A/PREREG.txt before any reading.
 
 ## 2026-10-10 09:30 KST: blend_v26L 10.1302 (best, carried); v26r inconclusive - read this first
 - Public (user, 09:23 KST): **blend_v26L 10.1302** (-0.109 vs v25; pre-set carried line 10.2094; expected -0.03, as
