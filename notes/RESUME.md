@@ -11,6 +11,14 @@ Goal: public LB RMSE <= 10.
 - Finals: v26L first, v25 second. New base for further files: blend_v26L. To reach 10: public MSE -2.62 more.
 - 10/10 slots 3-5: only files that pass a new single-shot pre-registered label test plus an independent review.
   Next-round design (gate extension, G1 rows, formula form, fresh angles): hardness-cache scripts/d1010/N/.
+- Next-round design (11:20 KST, scripts/d1010/N/PLAN_NEXT.md): 6 proposals, 3 judges, no pick, no label look. E-narrow G1
+  dark fraction (corr 0.97 with the d1009/A null estimator), reliability-gated formula7 on noisy rows, unstable-clean
+  fallback, FGLS formula7 and a G1 plug-in formula were dropped; the midLF RC-f7 near-miss has expected effect about 0.
+  10/10 slots 3-5 stay empty unless the user swaps the second final.
+- Open decision (card to the user 11:30 KST): second final v25 -> blend_v27u (v26L + ringall on clean rows; must be
+  submitted to be selectable; its public must read 10.1041 or it is a build error). Rationale: if the better of the two
+  finals counts, v25 is almost surely worse than v26L, while ringall's honest train gain (clean MSE -1.1 per row) matches
+  its public reading (-1.0), so v27u is at least as likely to beat v26L on private (expected about -0.02).
 
 ## 2026-10-10 01:30 KST: two files for 10/10 (blend_v26L, blend_v26r) - read this first
 - d1010 C clean-row search (128 candidates, one nested harness, fixed bar): no survivor; new clean terms are exhausted at
