@@ -1,9 +1,29 @@
-# Resume guide (updated 2026-10-10 ~20:10 KST)
+# Resume guide (updated 2026-10-10 ~22:45 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+
+## 2026-10-10 22:30 KST: design round H toward 9 - no candidate; 10/11 default is no submission - read this first
+- User chose on the card (20:38 KST): focus next on the 1/N low-grain-count error.
+- Round H (hardness-cache scripts/d1011/H/PLAN_H.txt; 4 lenses, 8 proposals, 3 independent judges each):
+  7 proposals dropped 0/3 (per-grain set learner, clean size-block re-measurement, booking 1/N as irreducible,
+  pixel-fd-matched degrade_sim_v3, a term reader in it, realistic-noise y-CNN swap, ev2m y-CNN). Only A-P1 kept:
+  ask the user (optional) for the public top-10 and any method posted on the competition's boards; ideas only,
+  nothing copied, nothing that uses test images.
+- Facts recorded:
+  - The leaders' edge is real (z 2.9-3.4), about 9-17 public MSE (central 14). G1hi at exact clean level alone gives
+    8.91, so the most consistent story is less 1/N error on coarse rows. Our 1/N slope b already fell 23.6k -> 15.1k
+    (v18 -> v28n); all eight of our model families share v28n's coarse-row error (a common blind spot, not a proven floor).
+  - Our public reading is lucky by about 2 sd (101.43 vs an expected 120-123 MSE). Expected private for v28n about
+    10.98-11.10 (sd about 0.3; inferred from nested OOF).
+  - Labels follow the realized grain map (nominal-only labels refuted for het4 and bd_frac); residuals are Gaussian at
+    every N; error variance follows the grain count, not het4^2. No stop rule on the 1/N share.
+  - Stage 0's fd ceiling (r 0.69) is a degrade_sim property; real G1hi keeps more fd signal, but v28n already uses it
+    (scope correction appended to G/PLAN_G.txt). Never train a G1hi reader in the degrade_sim world.
+- Outlook: P(public <= 9 by 10/19) below 0.01; P(<= 10) about 0.01-0.02. Only a new lever changes that.
 
 
 ## 2026-10-10 20:00 KST: no file for 10/11 slot 1; G1hi term-reader route closed - read this first
