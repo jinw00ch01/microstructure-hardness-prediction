@@ -1,10 +1,34 @@
-# Resume guide (updated 2026-10-11 ~18:30 KST)
+# Resume guide (updated 2026-10-11 ~20:00 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-11 20:00 KST: N5 round (new directions) -> blend_v31s and blend_v31f for the last 2 slots of 10-11 - read this first
+- User (18:26 KST): plenty of time left; new directions, many plans including bold ones, new CSVs. User (project chat
+  18:58 KST): this project owns the laptop GPU unconditionally until 10-19 10:00 KST (no per-run grant, no hand-back;
+  never touch the robot project's files or jobs). See notes/handoff/laptop-gpu.md.
+- Shared harness hardness-cache scripts/d1011/N5/n5lib.py (load30, honest nested vs v30b, 40 re-splits, N4 verdict).
+  Every candidate has a frozen options.txt (sha in result.json) and an exact rebuild check of v30b.
+- FAIL: g1cell_a3 (G1 cell boundary by the A3 reader) +0.89; g1cpu2nd (CPU localized reader as a second term) +1.26;
+  np_route (clean-preset noisy route) never picked; g1_fgls (FGLS beta) +0.43 but re-splits -1.07 (P 0.00).
+- New finding: v30b's OLS G beta over-fits. Shrinking it (lambda about 0.7, picked by inner CV) helps on honest nesting and
+  re-splits; mechanism = winner's curse of the best-of-18 pick plus stacking leakage, which also fits public having
+  carried only about a third of G's CV gain. Found post hoc in g1_fgls diagnostics, so labelled BOLD.
+- Files (hardness-cache submissions/, independently rebuilt in N5/*_verify, exact):
+  - blend_v31s = v30b with G beta x lambda (g1_shrink): honest -0.56, 4/5, re-splits 39/40 (mean -1.25), md5 c50a5e8b...;
+    expected public 10.035. Reading: <= 9.99 shrink carried, >= 10.06 dropped, between = hold.
+  - blend_v31f = v31s with the B1 reader (ev2s_locK_fsim) in the A3 slot (g1_shrink_b1): honest -0.11, 3/5, re-splits
+    38/40 (mean -2.07), md5 d4c1babf...; expected 10.049. Reading vs v31s: -0.03 or better = switch to B1, +0.03 or worse
+    = keep A3.
+- Laptop readers ingested in data/het_cnn/ (cloud): ev2s_locK_real5_s2, ev2s_locK_fsim (B1), ev2s_locK_real5_s3.
+  Seed 4 exists only on the laptop. B4 (ev2m_locK_real5, effnetv2-m backbone) pending: score it with
+  `python3 hardness-cache/scripts/d1011/N5/rswap/rswap.py ev2m_locK_real5 b4` after ingesting the chunks.
+- Later GPU ideas from the N5 judge (N5/PLAN_N5.txt): re-dump A3 blocks b00..b15, other-architecture reader on real5,
+  multi-task reader (bd|logN, dark fraction), beta-NLL y-CNN, Noise2Self denoiser then the clean pipeline, preset-aware
+  reader, D4-TTA plus full-data A3 refit.
 
 ## 2026-10-11 18:30 KST: v30b public 10.0207 (best), v30a 10.0312; no file for slots 4-5 - read this first
 - User (17:20 KST): blend_v30b 10.0206885658 (new best, auto-final while best), blend_v30a 10.0312450482. Reading:
