@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-11 ~09:40 KST)
+# Resume guide (updated 2026-10-11 ~10:20 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-11 08:45 KST: blend_v29g public 10.0564 (best; inconclusive) and section 14 under way - read this first
+## 2026-10-11 10:20 KST: blend_v29g public 10.0564 (best; inconclusive); section 14 all FAIL - read this first
 - blend_v29g scored 10.0564 public (user, 08:38 KST): -0.015 vs v28n 10.0712, new best (auto-final while best).
   Pre-registered reading: inconclusive (9.90-10.24), v29g stays the base for every later file.
 - Size check (hardness-cache laptop-gpu-2026-10-11/RESULTS.txt): 580 test rows changed (about 174 public). Full-CV
@@ -20,8 +20,10 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   - Post hoc A2+A3 replace -2.20 (3/5, p 0.05), but selection-honest nesting over the 13 options gives -0.58 (3/5,
     p 0.39; 40 re-splits -0.19). GPU-A family closed, no file.
   - GPU-B 1/N-weighted y-CNN (--wN 1): stage 1 all 13.174 vs bar 13.12, 3/5 folds, cell 11.41 vs 11.20; swap +0.50.
-  - GPU-C (full-image grid4 y-CNN, optional) started 09:33 KST; bar in bold/gpu14_review_B.txt section 6.
-    If it fails, the remaining 4 slots of 10-11 stay empty. Laptop returns the GPU at section 14 step j.
+  - GPU-C (full-image grid4 y-CNN, 09:33-10:09 KST): cv 13.426, fails all three bars (clean het4 +0.52 vs <= +0.35,
+    G1hi het_cnn +0.28 vs <= +0.20, all 13.426 vs <= 13.274); swap into v28n +0.39.
+  - Section 14 is finished with no new file; the remaining 4 slots of 10-11 stay empty. The laptop wrote
+    hardness_gpu_done at 10:09 KST (GPU back with the robot project).
 
 ## 2026-10-11 05:30 KST: bold round -> blend_v29g for 10/11 slot 1 - read this first
 - User (10-10 24:00 KST): public top-10 8.8662 / 8.9139 / 9.1817 / 9.5134 / 9.7090 / 9.8001 / 9.8040 / 9.8362 / 10.0415 /
