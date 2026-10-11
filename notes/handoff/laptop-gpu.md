@@ -909,3 +909,21 @@ Later, only when the thread says a candidate passed (a new user line is needed t
 | h (CPU) | a few minutes |
 | i (GPU, optional) | 40-105 min |
 | total GPU | about 2-2.8 h without i; up to about 4.5 h with i |
+
+## 15. CPU only: send the test half of the section-14 het readers (prepared 2026-10-11 13:35 KST)
+
+No GPU. The cloud needs the test-image het of A2 (ev2s_loc_fsim) and A3 (ev2s_locK_real5) to build the G1-row
+candidate of the 10-11 afternoon plan (new submission criterion N4). Both runs already wrote
+data\het_cnn\<run>\het_cnn_test.parquet in section 14; these lines only print them (seconds, no training).
+
+```powershell
+Set-Location C:\Daker\microstructure-hardness-prediction
+Test-Path data\het_cnn\ev2s_loc_fsim\het_cnn_test.parquet, data\het_cnn\ev2s_locK_real5\het_cnn_test.parquet   # True x2
+python -W ignore -m src.het_cnn --dump ev2s_loc_fsim --chunk 1 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_fsim\c1.txt
+python -W ignore -m src.het_cnn --dump ev2s_loc_fsim --chunk 2 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_fsim\c2.txt
+python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --chunk 1 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\c1.txt
+python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --chunk 2 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\c2.txt
+```
+- If a Test-Path prints False, send that line and stop (the run's test half is missing).
+- SEND, one message each, the full text of the four files in this order: fsim c1, fsim c2, real5 c1, real5 c2.
+  Each starts with `# het_cnn <run> chunk <k> (500 rows)` and ends with a `# sums chunk <k>:` line.
