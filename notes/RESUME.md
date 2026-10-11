@@ -1,10 +1,26 @@
-# Resume guide (updated 2026-10-11 ~20:05 KST)
+# Resume guide (updated 2026-10-11 ~23:15 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-11 23:15 KST: N6 round -> blend_v32m (BOLD) for 10-12; laptop section 17 running - read this first
+- N6 design (hardness-cache scripts/d1011/N6/PLAN_N6.txt; 4 lenses, 2 judges): picks P1 g1_sizesub (CPU), P2 = N6-G1 y-CNN
+  started from the A3 reader (GPU section 17 + a cloud N4 look), P3 a label-free gate for strength-only G1 files (adopt when
+  a strength option appears; it removes nothing this round). Everything else dropped (list in PLAN_N6 section 4).
+- P1 result (N6/run/g1_sizesub): honest -0.154, 2/5, drop-top-3 +0.095, re-splits -0.32: FAIL under SAFE. Handed over as
+  BOLD anyway (user wants bold files; change rms 0.36 on 433 G1 rows): submissions/blend_v32m.csv md5 0a6a4190...,
+  independent rebuild exact (N6/run/g1_sizesub_verify). Expected public 10.0154; <= 9.986 carried, >= 10.056 dropped.
+- Section 17 (commit fa733c1): train_cnn --init-het/--head hetfpn/--anchor/--nlm-zero-stem, het_cnn --dump-blocks,
+  tools/n6/gate17.py. User's run line 21:33 KST ("섹션17 올라오면 바로 실행") covers 17-0..17-3. The laptop cannot read
+  thread replies, so the cloud writes verdict lines to notes/handoff/gate17_verdicts.txt and pushes; the laptop polls git.
+  Cloud jobs per step: 17-1 message 1 -> `python3 hardness-cache/scripts/d1011/N6/run/gate17/gate17_bc.py <msg>` for gate
+  (c) (the 200 y-hat values are never scored against labels); messages 2-3 -> `python -m src.het_cnn --ingest
+  ev2s_locK_real5 c0 c1 --dump-blocks` (for N6-G2's pre-check). 17-2 -> stage-1 bars with
+  hardness-cache scripts/d1011/bold/L6_leaders/l6_cnn_gate.py <oof> --ref s3. 17-3 -> PLAN_N6 P2 (options C0/C1 frozen
+  before the 17-2 bars are read: N6/run/cnn_a3init/options.txt).
 
 ## 2026-10-11 20:05 KST: v31s 10.1953, v31f 10.1705 (both worse than v30b 10.0207) - read this first
 - User (20:00 KST): blend_v31f 10.1704996257, blend_v31s 10.1953136309. All 5 slots of 10-11 used. v30b stays the best
