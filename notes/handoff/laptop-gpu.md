@@ -910,20 +910,22 @@ Later, only when the thread says a candidate passed (a new user line is needed t
 | i (GPU, optional) | 40-105 min |
 | total GPU | about 2-2.8 h without i; up to about 4.5 h with i |
 
-## 15. CPU only: send the test half of the section-14 het readers (prepared 2026-10-11 13:35 KST)
+## 15. CPU only: send the test half of the A3 het reader (prepared 2026-10-11 13:35 KST, trimmed 14:35 KST)
 
-No GPU. The cloud needs the test-image het of A2 (ev2s_loc_fsim) and A3 (ev2s_locK_real5) to build the G1-row
-candidate of the 10-11 afternoon plan (new submission criterion N4). Both runs already wrote
-data\het_cnn\<run>\het_cnn_test.parquet in section 14; these lines only print them (seconds, no training).
+No GPU. The cloud needs the test-image het of A3 (ev2s_locK_real5) to build the G1-row files of the 10-11 afternoon
+plan (criterion N4, hardness-cache scripts/d1011/N4/slate/PLAN_N4.txt). The run already wrote
+data\het_cnn\ev2s_locK_real5\het_cnn_test.parquet in section 14; these lines only print it (seconds, no training).
+Chunk 0 (train) is dumped again so the cloud can check that the test half comes from the same fold models.
 
 ```powershell
 Set-Location C:\Daker\microstructure-hardness-prediction
-Test-Path data\het_cnn\ev2s_loc_fsim\het_cnn_test.parquet, data\het_cnn\ev2s_locK_real5\het_cnn_test.parquet   # True x2
-python -W ignore -m src.het_cnn --dump ev2s_loc_fsim --chunk 1 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_fsim\c1.txt
-python -W ignore -m src.het_cnn --dump ev2s_loc_fsim --chunk 2 | Out-File -Encoding utf8 data\het_cnn\ev2s_loc_fsim\c2.txt
+Test-Path data\het_cnn\ev2s_locK_real5\het_cnn_test.parquet   # True
+python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --chunk 0 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\c0_again.txt
 python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --chunk 1 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\c1.txt
 python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --chunk 2 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\c2.txt
+Select-String -Path data\het_cnn\ev2s_locK_real5\c0_again.txt -Pattern '# sums'
+#   must print: # sums chunk 0: het_cnn 85.3587 logN_cnn 2747.2417 bmean_cnn 2776.8410 nan 0   (else send that line and stop)
 ```
-- If a Test-Path prints False, send that line and stop (the run's test half is missing).
-- SEND, one message each, the full text of the four files in this order: fsim c1, fsim c2, real5 c1, real5 c2.
-  Each starts with `# het_cnn <run> chunk <k> (500 rows)` and ends with a `# sums chunk <k>:` line.
+- If Test-Path prints False, send that line and stop (the run's test half is missing).
+- SEND, one message each: the '# sums' line of c0_again.txt; then the full text of c1.txt; then the full text of c2.txt.
+  Each chunk starts with `# het_cnn ev2s_locK_real5 chunk <k> (500 rows)` and ends with a `# sums chunk <k>:` line.
