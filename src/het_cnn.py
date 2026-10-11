@@ -131,6 +131,23 @@ Option added 2026-10-11, candidate A4 (default off: no code path changes without
   a checkpoint was trained with other targets; score_eval.json gains eval_target_md5). Not supported together with
   tools/fsim (its fsim items read the prep targets directly; train_fold refuses the combination).
 
+Option added 2026-10-11, N6 (inference only; default off: no code path changes without it; selftest check 15):
+--dump-blocks [train|all]: with --eval-only RUN, predict the real train images (all: also the 1000 test images; test
+  images are only predicted) with each fold checkpoint (--folds, default all present; --tta views) and keep, per image,
+  the 16 block b-hat b00..b15 and three statistics of the 16x16 cell map (FPNNet cell head, b units): c_ring0 = mean
+  over the 60 cells of the outer 16-px ring (min(row, col, 15-row, 15-col) == 0), c_inner = mean over the other 196
+  cells, c_sd = sd over all 256 cells (NaN for a grid4 run). Aggregation as aggregate(): a clean train image (prep id)
+  takes only the model of its own fold (NaN when that fold is not run; a fold{f}.npz train_ids list is checked when
+  present); every other image takes the mean over the folds run, b-hat and the cell map averaged per block / cell
+  first, then the statistics. Writes data/het_cnn/RUN/blocks_{train,test}.parquet (ID, b00..b15, c_ring0, c_inner,
+  c_sd, het_cnn, logN_cnn, bmean_cnn, src) and prints the max |diff| against the run's het_cnn_{train,test}.parquet
+  and fold{f}.npz cells where they exist. --eval-presets is optional with it (none: no render metrics, no
+  score_eval.json). --dump RUN --dump-blocks --chunk K prints block chunks of 250 rows (K 0-1 = train images 0-249 /
+  250-499 in train.csv order, K 2-5 = test images 0-249 ... 750-999 in sample_submission order; about 37 KB each,
+  under the 64 KiB message limit) with the b00..b15, c_ring0, c_inner, c_sd columns and a '# sums' line;
+  --ingest NAME c0.txt c1.txt [c2.txt .. c5.txt] --dump-blocks rebuilds blocks_{train,test}.parquet (those columns)
+  from that text, checking IDs and sums. --smoke with --eval-only --dump-blocks: the first 16 train images only.
+
 Training, per fold f of data/folds.csv restricted to the clean images: train on the clean images not in fold f; every
 epoch renders each of them --renders times with fresh random parameters (DataLoader workers), then one random D4 op
 (flips/rot90 map the 64-px grid onto itself: the image is transformed and the 16 targets are permuted, GRID_PERM).
@@ -1452,9 +1469,111 @@ def _eval_line(tag, m, presets):
     return f"{tag} eval presets: {s}"
 
 
+BLOCK_COLS = [f"b{k:02d}" for k in range(16)] + ["c_ring0", "c_inner", "c_sd"]  # --dump-blocks chunk columns
+_rr, _cc = np.mgrid[0:16, 0:16]
+CELL_DEPTH = np.minimum(np.minimum(_rr, _cc), np.minimum(15 - _rr, 15 - _cc))  # 0 = the outer ring of 16-px cells
+del _rr, _cc
+
+
+def cell_stats(C):
+    """(N, 16, 16) cell b-hat -> (ring-0 mean over the 60 outer cells, mean over the 196 inner cells, sd over all 256
+    cells); NaN rows stay NaN."""
+    C = np.asarray(C, np.float64).reshape(len(C), 256)
+    r0 = CELL_DEPTH.ravel() == 0
+    return C[:, r0].mean(1), C[:, ~r0].mean(1), C.std(1)
+
+
+def aggregate_blocks(ids, Bf, Nf, Cf, fold_of_clean, train_ids_of=None):
+    """--dump-blocks: per-fold predictions {f: b (N, 16)}, {f: logN (N,)}, {f: cells (N, 16, 16) or None} of the images
+    `ids` -> DataFrame (ID, b00..b15, c_ring0, c_inner, c_sd, het_cnn, logN_cnn, bmean_cnn, src) in the aggregate()
+    convention: a clean train image takes only its own fold's model (NaN, src 'none', when that fold was not run or
+    trained on it per train_ids_of[f]); every other image the mean over the folds run (per block / cell, then the
+    statistics)."""
+    done = sorted(Bf)
+    has_c = all(Cf.get(f) is not None for f in done)
+    tr_of = {f: set(map(str, train_ids_of[f])) for f in (train_ids_of or {})}
+    rb, rn, rc, src = [], [], [], []
+    for n, i in enumerate(ids):
+        if i in fold_of_clean:
+            fo = fold_of_clean[i]
+            if fo in Bf and i not in tr_of.get(fo, ()):
+                rb.append(Bf[fo][n]); rn.append(Nf[fo][n]); src.append(f"oof{fo}")
+                rc.append(Cf[fo][n] if has_c else np.full((16, 16), np.nan))
+            else:
+                rb.append(np.full(16, np.nan)); rn.append(np.nan); rc.append(np.full((16, 16), np.nan)); src.append("none")
+        else:
+            rb.append(np.mean([Bf[f][n] for f in done], 0)); rn.append(np.mean([Nf[f][n] for f in done]))
+            rc.append(np.mean([Cf[f][n] for f in done], 0) if has_c else np.full((16, 16), np.nan))
+            src.append(f"mean{len(done)}")
+    bb, cc = np.array(rb, np.float64), np.array(rc, np.float64)
+    D = pd.DataFrame({"ID": list(ids)})
+    for k in range(16):
+        D[f"b{k:02d}"] = bb[:, k]
+    D["c_ring0"], D["c_inner"], D["c_sd"] = cell_stats(cc)
+    D["het_cnn"], D["logN_cnn"], D["bmean_cnn"] = bb.std(1), np.array(rn, np.float64), bb.mean(1)
+    D["src"] = src
+    return D
+
+
+def run_dump_blocks_eval(a, out, folds, dev, amp_dtype, P, folds_of):
+    """--eval-only RUN --dump-blocks: inference of the fold checkpoints on the real images -> blocks_{split}.parquet
+    (see the module docstring); prints the comparison with the run's own parquets / fold npz where present."""
+    ids_tr = pd.read_csv(DATA_DIR / "train.csv", usecols=["ID"]).ID.tolist()  # IDs only; no label is read
+    ids_te = (pd.read_csv(DATA_DIR / "sample_submission.csv", usecols=["ID"]).ID.tolist()
+              if a.dump_blocks == "all" else [])
+    if a.smoke:
+        ids_tr, ids_te = ids_tr[:16], []
+    ids = ids_tr + ids_te
+    t0 = time.time()
+    X = np.stack([read_u8(i) for i in ids])
+    Bf, Nf, Cf, tr_ids = {}, {}, {}, {}
+    for f in folds:
+        ck = torch.load(out / f"fold{f}.pt", map_location="cpu", weights_only=False)
+        c = ck["consts"]
+        model = model_from_ckpt(ck).to(dev).to(memory_format=torch.channels_last)
+        pv = predict(model, X, torch.tensor(c["mu_px"], device=dev), torch.tensor(c["sd_px"], device=dev), dev,
+                     amp_dtype, tta=a.tta, bs=a.pred_batch)
+        Bf[f], Nf[f] = c["mu_b"] + c["s_b"] * pv[0], c["mu_n"] + c["s_n"] * pv[1]
+        Cf[f] = c["mu_b"] + c["s_b"] * pv[-1] if getattr(model, "has_cells", False) else None
+        if (out / f"fold{f}.npz").exists():
+            with np.load(out / f"fold{f}.npz") as z:
+                tr_ids[f] = z["train_ids"]
+                pos = {i: n for n, i in enumerate(z["pred_ids"].tolist())}
+                hv = [n for n, i in enumerate(ids) if i in pos]
+                if hv and "cells" in z.files and Cf[f] is not None:
+                    pr = [pos[ids[n]] for n in hv]
+                    print(f"fold {f}: vs its fold{f}.npz on {len(hv)} images: max |d b| "
+                          f"{np.abs(Bf[f][hv] - z['b'][pr]).max():.2e}, |d logN| {np.abs(Nf[f][hv] - z['logn'][pr]).max():.2e}"
+                          f", |d cell| {np.abs(Cf[f][hv] - z['cells'][pr]).max():.2e}", flush=True)
+        print(f"fold {f}: predicted {len(ids)} real images (tta {a.tta}) | {time.time() - t0:.0f}s", flush=True)
+        del model
+    fold_of_clean = dict(zip(P["ids"].tolist(), folds_of.tolist()))
+    D = aggregate_blocks(ids, Bf, Nf, Cf, fold_of_clean, tr_ids)
+    for split, pre in (("train", "TRAIN"), ("test", "TEST")):
+        d = D[D.ID.str.startswith(pre)].reset_index(drop=True)
+        if not len(d):
+            continue
+        d.to_parquet(out / f"blocks_{split}.parquet", index=False)
+        ref = out / f"het_cnn_{split}.parquet"
+        cmp = ""
+        if ref.exists():
+            r = pd.read_parquet(ref).set_index("ID").reindex(d.ID)
+            cols = [k for k in [f"b{k:02d}" for k in range(16)] + ["het_cnn", "logN_cnn"] if k in r.columns]
+            dd = np.abs(d.set_index("ID")[cols].values - r[cols].values)
+            cmp = (f"; vs {ref.name} ({len(cols)} columns {cols[0]}..{cols[-1]}): max |diff| "
+                   f"{np.nanmax(dd) if np.isfinite(dd).any() else float('nan'):.2e}, NaN pattern equal "
+                   f"{bool((np.isnan(d.set_index('ID')[cols].values) == r[cols].isna().values).all())}")
+        print(f"wrote {out / f'blocks_{split}.parquet'}: {len(d)} images, sources {d.src.value_counts().to_dict()}; "
+              f"sums b {np.nansum(d[[f'b{k:02d}' for k in range(16)]].values):.4f} c_ring0 {np.nansum(d.c_ring0):.4f} "
+              f"c_inner {np.nansum(d.c_inner):.4f} c_sd {np.nansum(d.c_sd):.4f} logN_cnn {np.nansum(d.logN_cnn):.4f}"
+              + cmp, flush=True)
+    print(f"--dump-blocks {a.eval_only}: folds {folds}, {len(ids)} images ({time.time() - t0:.0f}s)", flush=True)
+
+
 def run_eval_only(a):
     """--eval-only RUN: score RUN's fold checkpoints on the --eval-presets renders; writes score_eval.json and
-    score_eval_fold{f}.npz in data/het_cnn/RUN (score.json, fold json / npz and parquets are never written)."""
+    score_eval_fold{f}.npz in data/het_cnn/RUN (score.json, fold json / npz and parquets are never written).
+    --dump-blocks: also (or, without --eval-presets, only) the block / cell dump of run_dump_blocks_eval."""
     out = OUT_ROOT / a.eval_only
     folds = a.folds if a.folds is not None else [f for f in range(5) if (out / f"fold{f}.pt").exists()]
     miss = [f for f in folds if not (out / f"fold{f}.pt").exists()]
@@ -1474,6 +1593,10 @@ def run_eval_only(a):
         apply_target_file(P, a.target_file)
     fo = pd.read_csv(DATA_DIR / "folds.csv").set_index("ID")
     folds_of = fo.loc[P["ids"], "fold"].values.astype(int)
+    if getattr(a, "dump_blocks", None):  # N6: block / cell dump of the real images (inference only)
+        run_dump_blocks_eval(a, out, folds, dev, amp_dtype, P, folds_of)
+        if not a.eval_presets:
+            return
     K = 2 if a.smoke else a.k_val
     g1 = g1_train_ids()
     g1 = g1[:8] if a.smoke else g1
@@ -1940,7 +2063,7 @@ def _write_score(a, out, P, Z, done, xnames):
     print(f"wrote {out / 'score.json'} (folds {done})")
 
 
-K_ARGS = ("eval_presets", "eval_only", "target_file")  # options added from 2026-10-09 (night) on: left out of
+K_ARGS = ("eval_presets", "eval_only", "target_file", "dump_blocks")  # options added from 2026-10-09 (night) on: left out of
 # score.json 'args' when unset
 
 
@@ -2000,8 +2123,85 @@ def chunk_frame(out, chunk):
     return d.loc[ids, cols].reset_index()
 
 
+def block_chunk_ids(chunk):
+    """--dump-blocks chunks of 250 rows: 0, 1 = train images 0-249, 250-499 (train.csv order); 2-5 = test images
+    0-249 ... 750-999 (sample_submission order). -> (IDs, split)."""
+    if not 0 <= chunk <= 5:
+        raise SystemExit(f"--dump-blocks: chunk {chunk} is not in 0-5")
+    if chunk < 2:
+        return pd.read_csv(DATA_DIR / "train.csv", usecols=["ID"]).ID.tolist()[250 * chunk:250 * (chunk + 1)], "train"
+    k = chunk - 2
+    return pd.read_csv(DATA_DIR / "sample_submission.csv", usecols=["ID"]).ID.tolist()[250 * k:250 * (k + 1)], "test"
+
+
+def run_dump_blocks(a):
+    """--dump RUN --dump-blocks: print block chunk(s) (block_chunk_ids) of blocks_{split}.parquet as CSV text with
+    4 decimals plus per-column sums of the printed (rounded) values (the --dump convention)."""
+    out = OUT_ROOT / a.dump
+    for c in (a.chunk if a.chunk is not None else [0, 1]):
+        ids, split = block_chunk_ids(c)
+        fp = out / f"blocks_{split}.parquet"
+        if not fp.exists():
+            raise SystemExit(f"{fp} missing: run --eval-only {a.dump} --dump-blocks{' all' if split == 'test' else ''} "
+                             f"first")
+        d = pd.read_parquet(fp).set_index("ID")
+        miss = [i for i in ids if i not in d.index]
+        if miss:
+            raise SystemExit(f"{a.dump}: {len(miss)} of the {len(ids)} block-chunk-{c} images are not in {fp.name} "
+                             f"(a --smoke dump?)")
+        d = d.loc[ids, BLOCK_COLS].reset_index()
+        print(f"# het_cnn blocks {a.dump} chunk {c} ({len(d)} rows)")
+        print("ID," + ",".join(BLOCK_COLS))
+        for r in d.itertuples(index=False):
+            print(r.ID + "," + ",".join("nan" if not np.isfinite(v) else f"{v:.4f}" for v in r[1:]))
+        sums = {k: float(np.nansum(np.round(d[k].values, 4))) for k in BLOCK_COLS}
+        print(f"# sums chunk {c}: " + " ".join(f"{k} {v:.4f}" for k, v in sums.items())
+              + f" nan {int(d[BLOCK_COLS].isna().sum().sum())}")
+
+
+def run_ingest_blocks(a):
+    """Cloud side of --dump-blocks: --ingest NAME c0.txt c1.txt [c2.txt .. c5.txt] --dump-blocks rebuilds
+    data/het_cnn/<NAME>/blocks_train.parquet (and blocks_test.parquet from chunks 2-5) with the BLOCK_COLS columns,
+    checking each chunk's header, IDs and '# sums' line."""
+    import io
+    name, files = a.ingest[0], a.ingest[1:]
+    if len(files) not in (2, 6):
+        raise SystemExit("--ingest NAME --dump-blocks needs the 2 train chunks (0, 1) or all 6 chunks (0-5)")
+    parts = []
+    for c, fp in enumerate(files):
+        # tolerates a BOM (PowerShell Out-File -Encoding utf8), CRLF, and text pasted before the header or after the
+        # '# sums' line (17-1 message 2 is blocks_log.txt followed by chunk 0): only the lines in between are read
+        lines = [ln.strip() for ln in Path(fp).read_text(encoding="utf-8-sig").splitlines()]
+        h = [j for j, ln in enumerate(lines) if ln.startswith("# het_cnn blocks")]
+        assert len(h) == 1 and lines[h[0]].split()[4:6] == ["chunk", str(c)], \
+            f"{fp}: not exactly one block chunk {c} ({[lines[j] for j in h][:2]})"
+        e = next((j for j in range(h[0] + 1, len(lines)) if lines[j].startswith("# sums")), None)
+        assert e is not None, f"{fp}: no '# sums' line"
+        rows = [ln for ln in lines[h[0] + 1:e] if ln and not ln.startswith("#")]
+        d = pd.read_csv(io.StringIO("\n".join(rows)))
+        assert list(d.columns) == ["ID"] + BLOCK_COLS, f"{fp}: unexpected columns {list(d.columns)}"
+        tok = lines[e].split(":", 1)[1].split()
+        ref = {tok[i]: float(tok[i + 1]) for i in range(0, len(tok) - 1, 2)}
+        for k in BLOCK_COLS:
+            assert k in ref, f"{fp}: no sum for {k}"
+            assert abs(np.nansum(d[k].values) - ref[k]) < 5e-3, f"{fp}: {k} sum {np.nansum(d[k].values)} != {ref[k]}"
+        assert int(d[BLOCK_COLS].isna().sum().sum()) == int(ref.get("nan", -1)), f"{fp}: NaN count differs"
+        ids, _ = block_chunk_ids(c)
+        assert list(d.ID) == ids, f"{fp}: IDs are not block chunk {c} in ID order"
+        parts.append(d)
+    out = OUT_ROOT / name
+    out.mkdir(parents=True, exist_ok=True)
+    pd.concat(parts[:2], ignore_index=True).to_parquet(out / "blocks_train.parquet", index=False)
+    if len(parts) == 6:
+        pd.concat(parts[2:], ignore_index=True).to_parquet(out / "blocks_test.parquet", index=False)
+    print(f"ingested {len(parts)} block chunks -> {out}")
+
+
 def run_dump(a):
     """Print chunk(s) as CSV text with 4 decimals plus per-column sums of the printed (rounded) values."""
+    if getattr(a, "dump_blocks", None):
+        run_dump_blocks(a)
+        return
     out = OUT_ROOT / a.dump
     for c in (a.chunk if a.chunk is not None else [0, 1, 2]):
         d = chunk_frame(out, c)
@@ -2018,6 +2218,9 @@ def run_ingest(a):
     """Cloud side: rebuild data/het_cnn/<name>/het_cnn_{train,test}.parquet (the 3 aggregate columns, plus any extra
     columns the dump has) from the pasted chunk texts of --dump (files in chunk order 0, 1, 2), checking each chunk's
     IDs and '# sums' line (every column)."""
+    if getattr(a, "dump_blocks", None):
+        run_ingest_blocks(a)
+        return
     import io
     name, files = a.ingest[0], a.ingest[1:]
     parts = []
@@ -2288,6 +2491,7 @@ def selftest(n_img=6):
     selftest_aug(P, rows)
     selftest_k(P, rows)
     selftest_target(P, rows)
+    selftest_blocks(P, rows)
     print("selftest passed")
 
 
@@ -2663,6 +2867,110 @@ def selftest_target(P, rows):
           f"het4 == sd(valid b); {len(bad)} bad files refused; options record name + md5")
 
 
+def selftest_blocks(P, rows):
+    """Check 15, --dump-blocks (N6): cell_stats == the ring definition by hand (60 outer / 196 inner cells) and
+    D4-invariant; through predict() with an exact block / cell-mean model, c_ring0 / c_inner == the pixel means of the
+    outer 16-px frame / the interior (TTA 8 un-transformed); aggregate_blocks follows aggregate()'s convention (own
+    fold for clean ids, NaN when that fold is missing or trained on the image, fold mean otherwise); the 6 block
+    chunks print under 64 KiB and --ingest --dump-blocks rebuilds the parquets (4-decimal values, IDs, sums, NaN)."""
+    import contextlib
+    import io
+    import tempfile
+    rng = np.random.default_rng(15)
+    C = rng.normal(5.5, 0.4, (7, 16, 16))
+    ring = np.array([[r in (0, 15) or c in (0, 15) for c in range(16)] for r in range(16)])
+    r0, inn, sd = cell_stats(C)
+    assert ring.sum() == 60 and np.allclose(r0, C[:, ring].mean(1), atol=1e-12) and \
+        np.allclose(inn, C[:, ~ring].mean(1), atol=1e-12) and np.allclose(sd, C.reshape(7, -1).std(1), atol=1e-12)
+    for k in range(8):
+        assert all(np.allclose(u, w, atol=1e-12) for u, w in zip(cell_stats(d4_np(C, k)), (r0, inn, sd)))
+
+    class CellMean(nn.Module):
+        has_cells = True
+
+        def forward(self, x):
+            return F.avg_pool2d(x, 64).flatten(1), x.mean((1, 2, 3)), F.avg_pool2d(x, 16)[:, 0]
+
+    X8 = np.stack([P["im8"][j] for j in rows[:4]])
+    pv = predict(CellMean(), X8, torch.tensor(0.0), torch.tensor(1.0), torch.device("cpu"), None, tta=8)
+    xr, xi, _ = cell_stats(pv[-1])
+    px = X8.astype(np.float64) / 255.0
+    pr = np.minimum(np.minimum(*np.mgrid[0:256, 0:256]), np.minimum(*(255 - np.mgrid[0:256, 0:256]))) < 16
+    assert np.allclose(xr, px[:, pr].mean(1), atol=1e-6) and np.allclose(xi, px[:, ~pr].mean(1), atol=1e-6)
+    # aggregate_blocks convention
+    ids = ["TRAIN_A", "TRAIN_B", "TRAIN_C", "TRAIN_D", "TEST_E"]
+    foc = {"TRAIN_A": 0, "TRAIN_B": 1, "TRAIN_C": 2}  # TRAIN_D: noisy (not a prep id)
+    Bf = {f: rng.normal(5.5, 0.5, (5, 16)) for f in (0, 1)}
+    Nf = {f: rng.normal(5.5, 0.5, 5) for f in (0, 1)}
+    Cf = {f: rng.normal(5.5, 0.5, (5, 16, 16)) for f in (0, 1)}
+    D = aggregate_blocks(ids, Bf, Nf, Cf, foc, {0: np.array([]), 1: np.array(["TRAIN_B"])}).set_index("ID")
+    bcols = [f"b{k:02d}" for k in range(16)]
+    assert np.allclose(D.loc["TRAIN_A", bcols].values.astype(float), Bf[0][0]) and D.loc["TRAIN_A", "src"] == "oof0"
+    assert D.loc["TRAIN_B", "src"] == "none" and D.loc[["TRAIN_B", "TRAIN_C"], bcols].isna().all().all()
+    m = np.mean([Cf[0][3], Cf[1][3]], 0)
+    assert np.allclose(D.loc["TRAIN_D", ["c_ring0", "c_inner", "c_sd"]].values.astype(float),
+                       np.array(cell_stats(m[None])).ravel()) and D.loc["TEST_E", "src"] == "mean2"
+    assert np.isclose(D.loc["TRAIN_D", "het_cnn"], np.mean([Bf[0][3], Bf[1][3]], 0).std())
+    # chunk round trip and sizes
+    tr = pd.read_csv(DATA_DIR / "train.csv", usecols=["ID"]).ID.tolist()
+    te = pd.read_csv(DATA_DIR / "sample_submission.csv", usecols=["ID"]).ID.tolist()
+    sizes = []
+    with tempfile.TemporaryDirectory(prefix="het_blocks_") as td:
+        src_d, dst_d = Path(td) / "src", Path(td) / "dst"
+        src_d.mkdir()
+        for split, sid in (("train", tr), ("test", te)):
+            n = len(sid)
+            d = pd.DataFrame({"ID": sid})
+            for k in range(16):
+                d[f"b{k:02d}"] = rng.normal(5.6, 0.7, n)
+            d["c_ring0"], d["c_inner"], d["c_sd"] = rng.normal(5.4, 0.7, n), rng.normal(5.6, 0.7, n), rng.uniform(.1, .6, n)
+            if split == "train":
+                d.loc[3, "b05"] = np.nan  # a NaN survives the round trip
+            d.to_parquet(src_d / f"blocks_{split}.parquet", index=False)
+        files = []
+        for c in range(6):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                run_dump(parse(["--dump", str(src_d), "--dump-blocks", "--chunk", str(c)]))
+            txt = buf.getvalue().replace("\n", "\r\n")  # as PowerShell Out-File writes it (plus a BOM)
+            fp = Path(td) / f"c{c}.txt"
+            fp.write_bytes(("\ufeff" + txt).encode("utf-8"))
+            sizes.append(fp.stat().st_size)
+            files.append(str(fp))
+        assert max(sizes) < 64 * 1024, sizes
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_ingest(parse(["--ingest", str(dst_d)] + files + ["--dump-blocks"]))
+        for split in ("train", "test"):
+            a_ = pd.read_parquet(src_d / f"blocks_{split}.parquet")
+            b_ = pd.read_parquet(dst_d / f"blocks_{split}.parquet")
+            assert list(b_.ID) == list(a_.ID) and list(b_.columns) == ["ID"] + BLOCK_COLS
+            dd = np.abs(a_[BLOCK_COLS].values - b_[BLOCK_COLS].values)
+            assert np.nanmax(dd) <= 5.1e-5 and (np.isnan(a_[BLOCK_COLS].values) == np.isnan(b_[BLOCK_COLS].values)).all()
+        # 17-1 message 2: blocks_log.txt text pasted before chunk 0 (and a stray line after its '# sums' line)
+        msg2 = Path(td) / "msg2.txt"
+        msg2.write_bytes(("﻿fold 0: vs its fold0.npz on 500 images: max |d b| 1.2e-03, |d logN| 4.0e-04\r\n"
+                          "wrote data/het_cnn/X/blocks_train.parquet: 500 images, sources {'mean5': 233}; sums b 1.0\r\n"
+                          + Path(files[0]).read_text(encoding="utf-8-sig") + "total wall 12s\r\n").encode("utf-8"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_ingest(parse(["--ingest", str(Path(td) / "dst3"), str(msg2), files[1], "--dump-blocks"]))
+        assert pd.read_parquet(Path(td) / "dst3" / "blocks_train.parquet").equals(
+            pd.read_parquet(dst_d / "blocks_train.parquet")), "a log-prefixed chunk 0 ingests differently"
+        bad = Path(td) / "bad.txt"
+        bad.write_text(Path(files[1]).read_text(encoding="utf-8-sig").replace("# het_cnn blocks", "# het_cnn blocks", 1)
+                       .replace(",5.", ",6.", 1), encoding="utf-8")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_ingest(parse(["--ingest", str(Path(td) / "dst2"), files[0], str(bad), "--dump-blocks"]))
+            raise RuntimeError("a chunk with a changed value was ingested")
+        except AssertionError:
+            pass
+    print(f"ok 15: --dump-blocks: cell_stats == ring-0 (60) / inner (196) / sd by hand, D4-invariant; exact cell-mean "
+          f"model through predict (TTA 8): ring / inner == pixel means of the 16-px frame / interior; aggregate_blocks "
+          f"convention (own fold, missing / trained fold -> NaN, fold mean); 6 chunks {min(sizes)}-{max(sizes)} bytes "
+          f"(< 65536, CRLF + BOM) round-trip through --ingest (|d| <= 5e-5, NaN kept; also with log text pasted "
+          f"around chunk 0); a changed value is refused")
+
+
 def ds_plain_item(idx):
     """Item idx of the default RenderSet(PREP_FP, [0, 1], 2, 0, 0) (selftest helper)."""
     return RenderSet(PREP_FP, [0, 1], 2, 0, 0)[idx]
@@ -2907,6 +3215,11 @@ def parse(argv=None):
     ap.add_argument("--eval-only", default=None, metavar="RUN",
                     help="no training: score data/het_cnn/RUN/fold{f}.pt (--folds, default all present) on "
                          "--eval-presets -> data/het_cnn/RUN/score_eval.json (score.json / parquets untouched)")
+    ap.add_argument("--dump-blocks", nargs="?", const="train", default=None, choices=["train", "all"],
+                    help="N6: with --eval-only RUN, dump the 16 block b-hat + ring-0 / inner / sd of the 16x16 cell map "
+                         "of the real train images (all: + test, prediction only) -> blocks_{train,test}.parquet; with "
+                         "--dump RUN / --ingest NAME: print / rebuild those block chunks (0-1 train, 2-5 test); "
+                         "default off")
     ap.add_argument("--target-file", default=None, metavar="NPZ",
                     help="A4: replace the block targets of the clean prep images by this file's (ids, b, b_ref), e.g. "
                          "data/het_cnn/a4_v4_block_targets.npz (tools/a4/v4_block_targets.py); het4 recomputed, the "
@@ -2967,8 +3280,10 @@ def parse(argv=None):
         ap.error("--mosaic-dlogn D needs --mosaic P > 0 and D >= 0")
     if a.eval_presets is not None:  # dedupe, keep the given order
         a.eval_presets = list(dict.fromkeys(a.eval_presets))
-    if a.eval_only is not None and not a.eval_presets:
-        ap.error("--eval-only RUN needs --eval-presets PRESET [PRESET ...]")
+    if a.eval_only is not None and not a.eval_presets and not a.dump_blocks:
+        ap.error("--eval-only RUN needs --eval-presets PRESET [PRESET ...] (or --dump-blocks)")
+    if a.dump_blocks and not (a.eval_only or a.dump or a.ingest):
+        ap.error("--dump-blocks goes with --eval-only RUN, --dump RUN or --ingest NAME ...")
     if a.target_file is not None and not Path(a.target_file).exists():
         ap.error(f"--target-file {a.target_file}: no such file")
     a.prep_only = a.prep == "__BUILD__"

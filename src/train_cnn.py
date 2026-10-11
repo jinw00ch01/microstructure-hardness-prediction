@@ -36,6 +36,26 @@ map is average-pooled onto a fixed 4x4 grid of 64-px cells (F.adaptive_avg_pool2
 map splits exactly into 2x2 blocks) and the head sees concat(mean over the 16 cells, sd over the 16 cells) -- avgstd
 on the aligned cell map, so it can represent a grid-aligned spread such as het4 (sd of block log grain size over the
 same 4x4 grid, src/het_blocks.py). D4 flips/rot90 map the aligned grid onto itself, so D4 aug and TTA stay.
+Options added 2026-10-11 (N6-G1, A3-anchored y-CNN; all off by default, and without them every code path, cache file
+and args.json is bit-identical to before: --selftest-het compares the old recipe with the file before these options):
+--init-het RUN [RUN ...] --head hetfpn: the y-CNN starts from a label-free het_cnn reader instead of ImageNet weights.
+  Fold model f of seed s loads data/het_cnn/<RUN[s mod len(RUN)]>/fold{f}.pt (a --full model s takes that run's fold
+  s mod 5 checkpoint) and rebuilds its FPNNet (src.het_cnn.model_from_ckpt: backbone, FPN, block / cell / logN heads,
+  no download). The y head is fc = Linear(C + 3 -> 1) on concat(GAP of the stride-32 map, mean b-hat, sd b-hat,
+  logN-hat) (b-hat / logN-hat in the checkpoint's z-units; normal(0.01) init). The raw channel is normalised with the
+  checkpoint's constants (consts mu_px / sd_px), so with 0 training steps b-hat / logN-hat / cells equal
+  src.het_cnn.predict of the checkpoint. Needs --crop 256 (the 4x4 block grid stays aligned; D4 aug and TTA map it
+  onto itself), --input raw or raw+nlm, --pool avg (unused), --norm global, --scale 1. The fold-seed caches gain
+  val_b / val_logn / test_b / test_logn (b-hat in the checkpoint's b units, un-permuted D4 TTA mean; logN-hat) for the
+  label-free gates (tools/n6/gate17.py).
+--nlm-zero-stem (with --init-het and --input raw+nlm): the checkpoint's 1-channel stem conv gets a second input
+  channel (nlm, normalised with the training fold's nlm pixel mean / sd as before) with zero weights, so the incumbent
+  raw+nlm input is kept and the 0-step equality still holds.
+--anchor LAMBDA (with --init-het): a frozen copy of the same checkpoint (eval mode) reads the raw channel of every
+  training crop (originals and degraded twins, identical augmentation) and the loss adds LAMBDA * (mean over blocks of
+  (b-hat - b_teacher)^2 + (logN-hat - logN_teacher)^2) in the checkpoint's z-units (= ((b-hat - b_t) / s_b)^2 and
+  ((logN-hat - logN_t) / s_N)^2): label-free self-distillation that keeps the block and logN outputs.
+  python -m src.train_cnn --selftest-het [RUN] [--folds F]   # 0-step checks (synthetic checkpoint without RUN)
 CPU-friendly: bf16 autocast + channels_last (uses AMX on Sapphire/Emerald Rapids), threads capped
 at 2 on CPU, no DataLoader workers. --device auto|cpu|cuda: on a GPU, autocast uses bf16 when the card
 supports it, else fp16 with a GradScaler. Per-fold predictions are cached in data/cnn_cache/<name>/ so a run
@@ -341,6 +361,122 @@ class Net(nn.Module):
             return self.fc(self.drop(f)).squeeze(-1)
 
 
+# -------------------------------------------------------------------- --init-het / --head hetfpn / --anchor (N6-G1)
+def het_ckpt_path(a, f, s):
+    """--init-het: checkpoint of run RUN[s mod len(RUN)], fold f; a --full model (f == FULL_F) takes fold s mod 5."""
+    run = a.init_het[s % len(a.init_het)]
+    return DATA_DIR / "het_cnn" / run / f"fold{s % 5 if f == FULL_F else f}.pt"
+
+
+def expand_stem(body, n_in):
+    """--nlm-zero-stem: the backbone's first conv (the stem, 1 input channel in a het_cnn checkpoint) gets n_in - 1
+    extra input channels with zero weights (same module, so a timm Conv2dSame keeps its padding); the output depends on
+    channel 0 only until training moves the new weights."""
+    conv = next((m for m in body.modules() if isinstance(m, nn.Conv2d)), None)
+    if conv is None or conv.in_channels != 1 or conv.groups != 1:
+        raise SystemExit(f"--nlm-zero-stem: the first conv of the checkpoint backbone is {conv}, not a 1-channel stem")
+    w = conv.weight.data
+    nw = torch.zeros((w.shape[0], n_in) + tuple(w.shape[2:]), dtype=w.dtype, device=w.device)
+    nw[:, :1] = w
+    conv.weight = nn.Parameter(nw)
+    conv.in_channels = n_in
+    return conv
+
+
+class HetYNet(nn.Module):
+    """--head hetfpn: a src.het_cnn.FPNNet (rebuilt from an --init-het checkpoint) plus the y head
+    fc = Linear(C + 3 -> 1) on concat(GAP of the stride-32 map (C channels), mean b-hat, sd b-hat, logN-hat), b-hat /
+    logN-hat in the checkpoint's z-units. The FPNNet modules sit at the top level (body.*, lat.*, smooth.*, block.*,
+    cellh.*, glob.*) so param_groups() treats body.* as the backbone as for Net. forward(x) -> y (B,) (predict() works
+    unchanged); forward_all(x) -> (y, b (B, 16) in the input's grid order, logN (B,), cells (B, 16, 16)). The FPN part
+    is FPNNet.forward's computation verbatim (--selftest-het checks the outputs against the checkpoint's FPNNet)."""
+
+    def __init__(self, fpn, a):
+        super().__init__()
+        if getattr(fpn, "n_extra", 0):
+            raise SystemExit("--init-het: checkpoints with extra targets are not supported")
+        self.body, self.lat, self.smooth = fpn.body, fpn.lat, fpn.smooth
+        self.block, self.cellh, self.glob = fpn.block, fpn.cellh, fpn.glob
+        self.idx = list(fpn.idx)
+        self.drop = nn.Dropout(a.drop)
+        self.fc = nn.Linear(fpn.glob.in_features + 3, 1)
+        nn.init.normal_(self.fc.weight, std=0.01)
+        nn.init.zeros_(self.fc.bias)
+
+    def forward_all(self, x):
+        fs = self.body(x)
+        f8, f16, f32 = (fs[i] for i in self.idx)
+        m = (self.lat[1](f16) + F.interpolate(self.lat[2](f32), size=f16.shape[-2:], mode="nearest")
+             + F.avg_pool2d(self.lat[0](f8), 2))
+        m = self.smooth(m)
+        with torch.autocast(x.device.type, enabled=False):  # pooling + heads in fp32 (as FPNNet)
+            m = m.float()
+            assert m.shape[-1] % 4 == 0 and m.shape[-2] % 4 == 0, f"merged map {tuple(m.shape[-2:])} not divisible by 4"
+            b = self.block(F.adaptive_avg_pool2d(m, 4)).flatten(1)
+            c = self.cellh(m)[:, 0]
+            g = f32.float().mean((-2, -1))
+            n = self.glob(g).squeeze(-1)
+            z = torch.cat([g, b.mean(1, keepdim=True), b.std(1, unbiased=False, keepdim=True), n[:, None]], 1)
+            y = self.fc(self.drop(z)).squeeze(-1)
+        return y, b, n, c
+
+    def forward(self, x):
+        return self.forward_all(x)[0]
+
+
+def het_model(a, f, s):
+    """--init-het: (HetYNet, frozen teacher FPNNet or None (--anchor 0), checkpoint consts, log line) for fold f /
+    seed s (f == FULL_F: a --full model)."""
+    from .het_cnn import model_from_ckpt
+    fp = het_ckpt_path(a, f, s)
+    if not fp.exists():
+        raise SystemExit(f"--init-het: {fp} missing (the het_cnn run's fold checkpoints)")
+    raw = fp.read_bytes()
+    ck = torch.load(fp, map_location="cpu", weights_only=False)
+    if (ck.get("opts") or {}).get("head", "grid4") != "fpn" or ck.get("extra_targets"):
+        raise SystemExit(f"--init-het: {fp} is not an fpn-head checkpoint without extra targets (opts "
+                         f"{ck.get('opts')}, extra targets {ck.get('extra_targets')})")
+    fpn = model_from_ckpt(ck)
+    if a.nlm_zero_stem:
+        expand_stem(fpn.body, len(a.input.split("+")))
+    model = HetYNet(fpn, a).to(RT["dev"]).to(memory_format=torch.channels_last)
+    teacher = None
+    if a.anchor > 0:
+        teacher = model_from_ckpt(ck).to(RT["dev"]).to(memory_format=torch.channels_last).eval().requires_grad_(False)
+    c = dict(ck["consts"])
+    msg = (f"--init-het: {'full' if f == FULL_F else f'fold {f}'} seed {s} <- {fp.parent.name}/{fp.name} "
+           f"(sha256 {hashlib.sha256(raw).hexdigest()[:12]}, {ck['arch']}, fpn_ch {(ck.get('opts') or {}).get('fpn_ch')}"
+           f"); raw channel mu {c['mu_px']:.4f} sd {c['sd_px']:.4f} (checkpoint consts)"
+           + (f"; nlm stem channel zero-initialised" if a.nlm_zero_stem else "")
+           + (f"; anchor {a.anchor} to the frozen checkpoint" if teacher is not None else "; no anchor"))
+    return model, teacher, c, msg
+
+
+@torch.no_grad()
+def predict_het(model, X, mu, sd, tta=8, bs=32, bf16=True):
+    """--head hetfpn: -> (y views (tta, N) float64 as predict(views=True), b-hat (N, 16) z-units, logN-hat (N,)
+    z-units). b-hat / logN-hat: mean over the first `tta` D4 views, each view's 4x4 output un-permuted to the original
+    grid first (src.het_cnn.GRID_INV; the sum-then-divide order of src.het_cnn.predict)."""
+    from .het_cnn import GRID_INV
+    model.eval()
+    inv = [torch.as_tensor(GRID_INV[k], device=RT["dev"]) for k in range(8)]
+    ys, outb, outn = [], [], []
+    for i in range(0, len(X), bs):
+        x = to_input(X[i:i + bs].float() / 255.0, mu, sd).to(RT["dev"], non_blocking=True)
+        ps, sb, sn = [], 0, 0
+        for k in range(tta):
+            with amp(bf16):
+                y, b, n, _ = model.forward_all(d4(x, k).contiguous(memory_format=torch.channels_last))
+            ps.append(y.float())
+            sb = sb + b.float()[:, inv[k]]
+            sn = sn + n.float()
+        ys.append(torch.stack(ps).cpu())
+        outb.append((sb / tta).cpu())
+        outn.append((sn / tta).cpu())
+    return (torch.cat(ys, 1).numpy().astype(np.float64), torch.cat(outb).numpy().astype(np.float64),
+            torch.cat(outn).numpy().astype(np.float64))
+
+
 class Aug:
     """Label-preserving augmentation on a (C, H, W) float image in [0, 1] (before normalization).
     Geometry / brightness / contrast are shared by all channels; blur and noise touch only the
@@ -458,7 +594,14 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
     if a.norm == "image":
         mu = sd = None
 
-    model = Net(a).to(RT["dev"]).to(memory_format=torch.channels_last)
+    het = a.init_het is not None  # --init-het / --head hetfpn (N6-G1); False = the code path as before
+    teacher = hc = None
+    if het:
+        model, teacher, hc, msg = het_model(a, f, s)
+        mu[0, 0], sd[0, 0] = hc["mu_px"], hc["sd_px"]  # raw channel: the checkpoint's constants (nlm: this fold's)
+        print(msg, flush=True)
+    else:
+        model = Net(a).to(RT["dev"]).to(memory_format=torch.channels_last)
     scaler = torch.amp.GradScaler("cuda", enabled=RT["dev"].type == "cuda" and a.bf16 and RT["dtype"] == torch.float16)
     groups = param_groups(model, a)
     opt = torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.wd)
@@ -466,7 +609,8 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
     spe = n // a.bs
     total = a.epochs * spe
     sch = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[g["lr"] for g in groups], total_steps=total,
-                                              pct_start=a.warmup, div_factor=a.div, final_div_factor=a.final_div)
+                                              pct_start=a.warmup, div_factor=a.div,
+                                              final_div_factor=a.final_div) if total > 0 else None  # 0: selftest
     ema = None
     if a.ema > 0:
         from timm.utils import ModelEmaV3
@@ -481,6 +625,7 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
         model.train()
         perm = rng.permutation(n)
         tl = 0.0
+        ta = 0.0  # --anchor: mean anchor term of the epoch (log only)
         for b in range(spe):
             idx = perm[b * a.bs:(b + 1) * a.bs]
             xs, xd, di = [], [], []
@@ -500,7 +645,9 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
             x = torch.stack(xs + xd)
             x = upscale(to_input(x, mu, sd).to(RT["dev"], non_blocking=True), a.scale)
             with amp(a.bf16):
-                p = model(x)
+                p = model.forward_all(x) if het else model(x)
+            if het:
+                p, hb, hn = p[0], p[1].float(), p[2].float()
             p = p.float()
             tb = yt[torch.as_tensor(idx, device=RT["dev"])]
             wb = None if wt is None else wt[torch.as_tensor(idx, device=RT["dev"])]
@@ -510,6 +657,12 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
                 pdg = p[len(idx):]
                 lab_dg = loss_fn(pdg, tb[dj]) if wb is None else (wb[dj] * loss_el(pdg, tb[dj])).mean()
                 loss = loss + lab_dg + a.cons * F.mse_loss(pdg, p[:len(idx)][dj].detach())
+            if teacher is not None:  # --anchor: frozen checkpoint on the same crops (raw channel), z-units
+                with torch.no_grad(), amp(a.bf16):
+                    t_b, t_n = teacher(x[:, :1].contiguous(memory_format=torch.channels_last))[:2]
+                l_a = ((hb - t_b.float()) ** 2).mean() + ((hn - t_n.float()) ** 2).mean()
+                loss = loss + a.anchor * l_a
+                ta += l_a.item()
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             if a.clip > 0:
@@ -523,6 +676,8 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
                 ema.update(model, step=step)
             tl += loss.item()
         msg = f"{lab} seed {s} ep {ep + 1:3d}/{a.epochs} loss {tl / spe:.4f} lr {sch.get_last_lr()[0]:.2e}"
+        if teacher is not None:
+            msg += f" anchor {ta / spe:.4f}"
         if Xva is not None and ((a.monitor and (ep + 1) % a.monitor == 0) or ep + 1 == a.epochs):  # monitoring only
             r = rmse(predict(model, Xva, mu, sd, tta=1, bf16=a.bf16, scale=a.scale) * ysd + ymu, yva)
             msg += f" | val(tta1) {r:.3f}"
@@ -533,20 +688,30 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
 
     res = {}
     final_model = ema.module if (ema is not None and a.use == "ema") else model
+    if het:  # --head hetfpn: y as before plus b-hat (b units) / logN-hat of the checkpoint's heads, TTA-averaged
+        def ph(X, part):
+            yv, bz, nz = predict_het(final_model, X, mu, sd, tta=a.tta, bf16=a.bf16)
+            res[f"{part}_b"], res[f"{part}_logn"] = hc["mu_b"] + hc["s_b"] * bz, hc["mu_n"] + hc["s_n"] * nz
+            return yv * ysd + ymu
     if Xva is None:  # --full: final weights predict the test images only
-        res["test"] = predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
+        res["test"] = (ph(Xte, "test").mean(0) if het else
+                       predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu)
         print(f"full seed {s}: trained on {len(Xtr)} images ({total} steps), test predicted (tta{a.tta}) "
               f"| {time.time() - t0:.0f}s", flush=True)
         return res
-    pv = predict(final_model, Xva, mu, sd, tta=a.tta, bf16=a.bf16, views=True, scale=a.scale) * ysd + ymu
+    pv = (ph(Xva, "val") if het else
+          predict(final_model, Xva, mu, sd, tta=a.tta, bf16=a.bf16, views=True, scale=a.scale) * ysd + ymu)
     res["val"] = pv.mean(0)
     print(f"fold {f} seed {s} per-view val rmse {[round(rmse(v, yva), 2) for v in pv]} "
           f"view-pred sd {pv.std(0).mean():.2f}", flush=True)
     if ema is not None:  # diagnostics only: the other weights' val score (not used for OOF)
         other = model if a.use == "ema" else ema.module
         res["val_other"] = predict(other, Xva, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
-    res["test"] = (predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
-                   if Xte is not None else None)
+    if het:
+        res["test"] = ph(Xte, "test").mean(0) if Xte is not None else None
+    else:
+        res["test"] = (predict(final_model, Xte, mu, sd, tta=a.tta, bf16=a.bf16, scale=a.scale) * ysd + ymu
+                       if Xte is not None else None)
     print(f"fold {f} seed {s} final val(tta{a.tta}) {rmse(res['val'], yva):.3f}"
           + (f" | other {rmse(res['val_other'], yva):.3f}" if "val_other" in res else "")
           + f" | {time.time() - t0:.0f}s", flush=True)
@@ -554,6 +719,7 @@ def train_one(a, f, s, Xtr, ytr, Xva, yva, Xte, bank=None, bidx=None, wtr=None):
 
 
 FULL_F = 5  # seed offset of --full models (fold models use 0..4)
+HET_KEYS = ("val_b", "val_logn", "test_b", "test_logn")  # --head hetfpn: extra arrays of the fold-seed caches
 WN_SRC = ["het_cnn/ev2s_loc_e32r4", "het_cnn/ev2s_loc_e32r4_s1"]  # localized het CNN outputs (v24's offset input)
 
 
@@ -602,6 +768,13 @@ def recipe_notes(a, rest_dir=None, rest_sha=None):
         notes += f"; input x{a.scale} bilinear ({round(a.crop * a.scale)} px crops, {round(256 * a.scale)} px views)"
     if a.wN > 0:
         notes += f"; 1/N label-noise row weights (N/mean N)^{a.wN}, N = exp(logN_cnn) of {', '.join(WN_SRC)}"
+    if a.init_het is not None:
+        notes += (f"; init from het_cnn {'/'.join(a.init_het)} fold checkpoints (fold-matched, seed s -> run s mod "
+                  f"{len(a.init_het)}; full model s -> fold s mod 5), head hetfpn (y on [GAP s32, mean b-hat, sd b-hat, "
+                  f"logN-hat]), raw channel normalised by the checkpoint consts"
+                  + (f", anchor {a.anchor} to the frozen checkpoint (blocks + logN, z-units)" if a.anchor > 0 else
+                     ", no anchor")
+                  + ("; nlm = zero-initialised second stem channel" if a.nlm_zero_stem else ""))
     return notes
 
 
@@ -640,6 +813,268 @@ def assemble_full(a, te, cache, rest_dir=None, rest_sha=None):
           f"between-seed sd {sd:.2f}) -> {out / 'test.csv'}; no OOF", flush=True)
 
 
+def used_options(a, rest_dir):
+    """Options added after the first runs: recorded in args.json only when used (an unused one leaves the file as it
+    was before the option existed)."""
+    return {"rest_dir": rest_dir is not None, "full": a.full, "scale": a.scale != 1.0, "wN": a.wN > 0,
+            "init_het": a.init_het is not None, "head": a.head != "pool", "anchor": a.anchor > 0,
+            "nlm_zero_stem": a.nlm_zero_stem, "selftest_het": False}
+
+
+HET_ARGS = ("init_het", "head", "anchor", "nlm_zero_stem", "selftest_het")  # the N6-G1 options (parse() keys)
+
+
+def check_het_args(a):
+    """Validate the N6-G1 options; nothing to check (and nothing done) when they are all off."""
+    if a.init_het is None:
+        bad = [o for o, on in (("--head hetfpn", a.head != "pool"), ("--anchor", a.anchor != 0),
+                               ("--nlm-zero-stem", a.nlm_zero_stem)) if on]
+        if bad:
+            raise SystemExit(f"{', '.join(bad)}: needs --init-het RUN")
+        return
+    why = [w for w, bad in (
+        ("--head hetfpn", a.head != "hetfpn"), ("--crop 256 (the 4x4 block grid must stay aligned)", a.crop != 256),
+        ("--input raw or raw+nlm", a.input not in ("raw", "raw+nlm")),
+        ("--nlm-zero-stem exactly when --input raw+nlm (the checkpoint stem has 1 channel)",
+         (a.input == "raw+nlm") != a.nlm_zero_stem),
+        ("--pool avg (unused by hetfpn)", a.pool != "avg"), ("--scale 1", a.scale != 1.0),
+        ("--norm global", a.norm != "global"), ("no --scratch", a.scratch), ("--anchor >= 0", a.anchor < 0)) if bad]
+    if why:
+        raise SystemExit("--init-het needs " + "; ".join(why))
+
+
+def _ref_module(rel="src/train_cnn.py", marker="--init-het"):
+    """This file as it was before the N6-G1 options (git: parent of the first commit whose diff adds `marker`; HEAD
+    while uncommitted), loaded as a sibling module of src (relative imports work). -> (module, rev, cleanup)."""
+    import importlib.util
+    import subprocess
+    import sys
+    import tempfile
+    log = subprocess.run(["git", "log", "--format=%H", "--reverse", f"-S{marker}", "--", rel], cwd=ROOT,
+                         capture_output=True, text=True, check=True).stdout.split()
+    rev = f"{log[0]}^" if log else "HEAD"
+    sha = subprocess.run(["git", "rev-parse", "--short", rev], cwd=ROOT, capture_output=True, text=True,
+                         check=True).stdout.strip()
+    txt = subprocess.run(["git", "show", f"{rev}:{rel}"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                         check=True).stdout
+    assert marker not in txt, f"reference {rev} already has {marker}"
+    name = f"{__package__}._train_cnn_ref_{os.getpid()}"
+    tmp = tempfile.TemporaryDirectory(prefix="train_cnn_ref_")
+    fp = Path(tmp.name) / f"_train_cnn_ref_{os.getpid()}.py"
+    fp.write_text(txt, encoding="utf-8")
+    dwb = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location(name, fp)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    finally:
+        sys.dont_write_bytecode = dwb
+
+    def cleanup():
+        sys.modules.pop(name, None)
+        tmp.cleanup()
+    return mod, f"{rev} ({sha})", cleanup
+
+
+def selftest_het(a):
+    """--selftest-het [RUN]: 0-step checks of the N6-G1 path and the options-off path. No label is read (synthetic
+    targets), nothing is written outside a temp folder. RUN: data/het_cnn/RUN/fold{f}.pt for f in --folds (default 0);
+    no RUN: a synthetic FPNNet checkpoint (resnet18, random weights and BN statistics, fpn_ch 64). fp32, 8-view TTA.
+     1 HetYNet(checkpoint) per D4 view == the checkpoint's FPNNet (b, logN, cells); predict_het b-hat / logN-hat ==
+       src.het_cnn.predict (b / logN units, |d| <= 1e-5) on 8 real images of fold f (raw channel, checkpoint consts)
+     2 --nlm-zero-stem: stem weight (out, 2, k, k) with channel 1 == 0; the raw+nlm model == check 1 (1e-5)
+     3 train_one with 0 epochs through the real path (--input raw+nlm --nlm-zero-stem --anchor 0.5, ckpt consts for
+       the raw channel, fold-specific nlm constants): saved val_b / val_logn / test_b / test_logn == src.het_cnn.predict
+     4 y head input layout [GAP s32 (C), mean b, sd b, logN] (one-hot fc rows); anchor term 0 at step 0 (eval mode);
+       param_groups: body.* = backbone, fc.weight the only decayed head weight; checkpoint mapping (runs cycle over
+       seeds, a --full model s takes fold s mod 5)
+     5 options off == the file before these options (git): parse() of old recipes (+ the 5 new keys at defaults),
+       used_options() leaves args.json unchanged, recipe_notes equal, and train_one bit for bit (fold run with
+       raw+nlm, a degradation bank and --cons, and a --full run; resnet18 --scratch, 1 epoch, tta 2, bf16 autocast as
+       on the CPU)
+     6 one training epoch of the het path (anchor 0.5, cons 1.0, a degradation bank, 2 steps): finite, the anchor term
+       is logged, the student moves away from the teacher."""
+    import copy
+    import tempfile
+    import pandas as pd
+    from . import het_cnn as H
+    dev = RT["dev"]
+    t0 = time.time()
+    tmp = tempfile.TemporaryDirectory(prefix="selftest_het_")
+    td = Path(tmp.name)
+    run = a.selftest_het or None
+    folds = a.folds if a.folds else [0]
+    if run is None:  # synthetic checkpoint: random weights, non-trivial BN statistics and heads, realistic consts
+        torch.manual_seed(20261011)
+        m = H.FPNNet("resnet18", pretrained=False, n_extra=0, ch=64)
+        g = torch.Generator().manual_seed(1)
+        for mod in m.modules():
+            if isinstance(mod, nn.BatchNorm2d):
+                mod.running_mean.copy_(0.1 * torch.randn(mod.running_mean.shape, generator=g))
+                mod.running_var.copy_(0.5 + torch.rand(mod.running_var.shape, generator=g))
+                mod.weight.data.copy_(0.8 + 0.4 * torch.rand(mod.weight.shape, generator=g))
+                mod.bias.data.copy_(0.1 * torch.randn(mod.bias.shape, generator=g))
+        for h in (m.block, m.cellh, m.glob):
+            h.weight.data.normal_(0, 0.3, generator=g)
+            h.bias.data.normal_(0, 0.3, generator=g)
+        consts = dict(mu_b=5.58, s_b=0.63, s_het=0.067, mu_n=5.47, s_n=0.62, mu_px=0.5746, sd_px=0.0900)
+        (td / "synth").mkdir()
+        for f in folds:
+            torch.save({"state_dict": m.state_dict(), "consts": consts, "arch": "resnet18",
+                        "opts": dict(head="fpn", lambda_cell=1.0, fpn_ch=64)}, td / "synth" / f"fold{f}.pt")
+        run = str(td / "synth")  # absolute: DATA_DIR / "het_cnn" / run == run
+    fo = pd.read_csv(DATA_DIR / "folds.csv")  # IDs and folds only; no label is read
+    base = ["--init-het", run, "--head", "hetfpn", "--crop", "256", "--tta", "8", "--no-bf16", "--device",
+            RT["dev"].type, "--threads", str(a.threads), "--bs", "8"]
+    a_raw = parse(base + ["--input", "raw", "--anchor", "0.5"])
+    a_rn = parse(base + ["--input", "raw+nlm", "--nlm-zero-stem", "--anchor", "0.5"])
+    for a_ in (a_raw, a_rn):
+        check_het_args(a_)
+    tol = 1e-5
+    for f in folds:
+        ids = fo.ID[fo.fold == f].tolist()[:8]
+        others = fo.ID[fo.fold != f].tolist()[:16]
+        X = load_u8(ids, "raw+nlm")  # uint8 (8, 2, 256, 256)
+        ck = torch.load(het_ckpt_path(a_raw, f, 0), map_location="cpu", weights_only=False)
+        c = ck["consts"]
+        ref_m = H.model_from_ckpt(ck).to(dev).to(memory_format=torch.channels_last).eval()  # as het_cnn runs it
+        rb, rn, rc = H.predict(ref_m, X[:, 0].numpy(), torch.tensor(c["mu_px"], device=dev),
+                               torch.tensor(c["sd_px"], device=dev), dev, None, tta=8, bs=8)
+        rb, rn, rc = c["mu_b"] + c["s_b"] * rb, c["mu_n"] + c["s_n"] * rn, c["mu_b"] + c["s_b"] * rc
+        # 1 raw input
+        model, teacher, hc, msg = het_model(a_raw, f, 0)
+        print(msg, flush=True)
+        model.eval()
+        mu1 = torch.tensor([c["mu_px"]], dtype=torch.float32).view(1, 1, 1, 1)
+        sd1 = torch.tensor([c["sd_px"]], dtype=torch.float32).view(1, 1, 1, 1)
+        x1 = to_input(X[:, :1].float() / 255.0, mu1, sd1).to(dev)
+        dv = 0.0
+        with torch.no_grad():
+            for k in range(8):
+                xk = d4(x1, k).contiguous(memory_format=torch.channels_last)
+                o, r = model.forward_all(xk), ref_m(xk)
+                dv = max(dv, *(float((u - w).abs().max()) for u, w in zip(o[1:], r)))
+        assert dv <= tol, f"HetYNet views differ from the checkpoint FPNNet by {dv}"
+        _, bz, nz = predict_het(model, X[:, :1], mu1, sd1, tta=8, bs=8, bf16=False)
+        d1 = (np.abs(c["mu_b"] + c["s_b"] * bz - rb).max(), np.abs(c["mu_n"] + c["s_n"] * nz - rn).max())
+        assert max(d1) <= tol, f"check 1: b / logN differ from het_cnn.predict by {d1}"
+        print(f"ok 1 (fold {f}): HetYNet == checkpoint FPNNet on 8 views (max |d| {dv:.1e}); predict_het b-hat / logN-hat"
+              f" == het_cnn.predict (max |d| {d1[0]:.1e} / {d1[1]:.1e}; het-hat sd over images "
+              f"{rb.std(1).std():.3f}, logN-hat {rn.min():.2f}-{rn.max():.2f})", flush=True)
+        # 2 raw+nlm with the zero nlm stem channel
+        model2, _, _, _ = het_model(a_rn, f, 0)
+        model2.eval()
+        stem = next(mm for mm in model2.body.modules() if isinstance(mm, nn.Conv2d))
+        assert stem.weight.shape[1] == 2 and stem.in_channels == 2 and float(stem.weight[:, 1].abs().max()) == 0.0
+        nl = X[:, 1].float() / 255.0
+        mu2 = torch.tensor([c["mu_px"], float(nl.mean())], dtype=torch.float32).view(1, 2, 1, 1)
+        sd2 = torch.tensor([c["sd_px"], float(nl.std())], dtype=torch.float32).view(1, 2, 1, 1)
+        _, bz2, nz2 = predict_het(model2, X, mu2, sd2, tta=8, bs=8, bf16=False)
+        d2 = (np.abs(c["mu_b"] + c["s_b"] * bz2 - rb).max(), np.abs(c["mu_n"] + c["s_n"] * nz2 - rn).max())
+        assert max(d2) <= tol, f"check 2: raw+nlm b / logN differ from het_cnn.predict by {d2}"
+        print(f"ok 2 (fold {f}): --nlm-zero-stem stem {tuple(stem.weight.shape)} with channel 1 == 0; raw+nlm b-hat / "
+              f"logN-hat == het_cnn.predict (max |d| {d2[0]:.1e} / {d2[1]:.1e})", flush=True)
+        # 3 the real train_one path with 0 epochs
+        a0 = copy.deepcopy(a_rn)
+        a0.epochs, a0.cons, a0.deg_p = 0, 1.0, 0.5
+        Xtr, Xte = load_u8(others, "raw+nlm"), X[:4]
+        ytr, yva = np.linspace(100.0, 300.0, len(others)), np.linspace(150.0, 250.0, len(ids))  # synthetic targets
+        r = train_one(a0, f, 0, Xtr, ytr, X, yva, Xte)
+        d3 = max(np.abs(r["val_b"] - rb).max(), np.abs(r["val_logn"] - rn).max(), np.abs(r["test_b"] - rb[:4]).max(),
+                 np.abs(r["test_logn"] - rn[:4]).max())
+        assert d3 <= tol and np.isfinite(r["val"]).all() and np.isfinite(r["test"]).all(), f"check 3: {d3}"
+        print(f"ok 3 (fold {f}): train_one at 0 steps (raw+nlm, zero nlm stem, anchor 0.5, ckpt consts on the raw "
+              f"channel): val_b / val_logn / test_b / test_logn == het_cnn.predict (max |d| {d3:.1e})", flush=True)
+        # 4 y head layout, anchor at step 0, parameter groups
+        with torch.no_grad():
+            xk = x1[:4].contiguous(memory_format=torch.channels_last)
+            y0, b0, n0, _ = model.forward_all(xk)
+            C = model.fc.in_features - 3
+            f32 = model.body(xk)[model.idx[2]].float().mean((-2, -1))
+            want = {0: f32[:, 0], C: b0.mean(1), C + 1: b0.std(1, unbiased=False), C + 2: n0}
+            for j, v in want.items():
+                model.fc.weight.zero_()
+                model.fc.bias.zero_()
+                model.fc.weight[0, j] = 1.0
+                assert torch.allclose(model.forward_all(xk)[0], v, atol=1e-5), f"y head input {j}"
+            t_b, t_n = teacher(xk)[:2]
+            l_a = float(((b0 - t_b) ** 2).mean() + ((n0 - t_n) ** 2).mean())
+        assert l_a <= 1e-10, f"anchor at step 0 = {l_a}"
+        grp = param_groups(model, a_raw)
+        nb = sum(p.numel() for n_, p in model.named_parameters() if n_.startswith("body."))
+        assert sum(p.numel() for gr in grp for p in gr["params"]) == sum(p.numel() for p in model.parameters())
+        assert sum(p.numel() for gr in grp if gr["lr"] == a_raw.lr and gr["weight_decay"] > 0 for p in gr["params"]) > 0
+        dec_head = [n_ for n_, p in model.named_parameters() if not n_.startswith("body.") and n_.endswith("fc.weight")]
+        assert dec_head == ["fc.weight"], dec_head
+        mp = parse(["--init-het", "R0", "R1", "R2", "--head", "hetfpn", "--crop", "256"])
+        got = [(het_ckpt_path(mp, ff, ss).parent.name, het_ckpt_path(mp, ff, ss).name)
+               for ff, ss in ((0, 0), (1, 1), (4, 2), (3, 3), (FULL_F, 0), (FULL_F, 4), (FULL_F, 5), (FULL_F, 7))]
+        assert got == [("R0", "fold0.pt"), ("R1", "fold1.pt"), ("R2", "fold4.pt"), ("R0", "fold3.pt"),
+                       ("R0", "fold0.pt"), ("R1", "fold4.pt"), ("R2", "fold0.pt"), ("R1", "fold2.pt")], got
+        print(f"ok 4 (fold {f}): y head on [GAP s32 ({C}), mean b, sd b, logN]; anchor term at step 0 {l_a:.1e}; "
+              f"backbone {nb} params, fc.weight the only decayed head weight; checkpoint mapping {got[4:]}",
+              flush=True)
+    # 5 options off == the file before these options
+    ref, rev, cleanup = _ref_module()
+    try:
+        old = [[], ["--backbone", "tf_efficientnetv2_s.in21k_ft_in1k", "--input", "raw+nlm", "--deg-p", "0.5", "--cons",
+                    "1.0", "--pool", "avg", "--epochs", "30", "--lr", "1e-3", "--device", "cuda", "--seeds", "3",
+                    "--name", "cnn_ev2s_rawnlm_degcons_gpu_s3"],
+               ["--input", "raw+nlm", "--crop", "256", "--pool", "grid4", "--wN", "1", "--full", "--seeds", "6"]]
+        for argv in old:
+            vn, vr = vars(parse(argv)), vars(ref.parse(argv))
+            assert {k: v for k, v in vn.items() if k not in HET_ARGS} == vr, argv
+            assert [vn[k] for k in HET_ARGS] == [None, "pool", 0.0, False, None], argv
+            u = used_options(parse(argv), None)
+            assert {k: v for k, v in vn.items() if u.get(k, True)} == {k: v for k, v in vr.items() if
+                                                                         u.get(k, True)}, argv
+            assert recipe_notes(parse(argv)) == ref.recipe_notes(ref.parse(argv)), argv
+            check_het_args(parse(argv))
+        ref.RT.update(RT)
+        Xtr, Xva, Xte = load_u8(others, "raw+nlm"), X, X[:4]
+        ytr, yva = np.linspace(100.0, 300.0, len(others)), np.linspace(150.0, 250.0, len(ids))
+        bank = torch.stack([(Xtr[:6] // 2 + 20), (Xtr[:6] // 3 + 40)], 1)  # (6, 2, 2, 256, 256) fake degraded copies
+        bidx = np.array([0, 1, 2, 3, 4, 5] + [-1] * (len(others) - 6))
+        argv = ["--backbone", "resnet18.a1_in1k", "--scratch", "--input", "raw+nlm", "--deg-p", "0.5", "--cons", "1.0",
+                "--epochs", "1", "--bs", "8", "--tta", "2", "--device", RT["dev"].type, "--monitor", "1"]
+        nrun = 0
+        for extra, full in (([], False), (["--wN", "1"], False), ([], True)):
+            an, ar = parse(argv + extra), ref.parse(argv + extra)
+            w = None if not extra else np.linspace(0.5, 1.5, len(others)) / np.linspace(0.5, 1.5, len(others)).mean()
+            fa = FULL_F if full else folds[0]
+            rn_ = train_one(an, fa, 0, Xtr, ytr, None if full else Xva, None if full else yva, Xte, bank=bank,
+                            bidx=bidx, wtr=w)
+            rr_ = ref.train_one(ar, fa, 0, Xtr, ytr, None if full else Xva, None if full else yva, Xte, bank=bank,
+                                bidx=bidx, wtr=w)
+            assert sorted(rn_) == sorted(rr_), (sorted(rn_), sorted(rr_))
+            for k in rr_:
+                assert np.array_equal(rn_[k], rr_[k]), f"check 5: {k} differs ({'full' if full else 'fold'} {extra})"
+            nrun += 1
+        print(f"ok 5: options off == src/train_cnn.py at {rev}: parse / args.json keys / recipe notes of "
+              f"{len(old)} old recipes; train_one bit for bit in {nrun} runs (fold raw+nlm + bank + cons, + --wN, "
+              f"--full)", flush=True)
+    finally:
+        cleanup()
+    # 6 one epoch of the het path
+    a6 = copy.deepcopy(a_rn)
+    a6.epochs, a6.cons, a6.deg_p, a6.tta = 1, 1.0, 0.5, 2
+    f = folds[0]
+    Xtr = load_u8(fo.ID[fo.fold != f].tolist()[:16], "raw+nlm")
+    bank = torch.stack([(Xtr[:6] // 2 + 20), (Xtr[:6] // 3 + 40)], 1)
+    bidx = np.array([0, 1, 2, 3, 4, 5] + [-1] * 10)
+    r6 = train_one(a6, f, 0, Xtr, np.linspace(100.0, 300.0, 16), X, np.linspace(150.0, 250.0, 8), X[:4], bank=bank,
+                   bidx=bidx)
+    mv = float(np.abs(r6["val_b"] - rb).max())
+    assert all(np.isfinite(v).all() for v in r6.values()) and mv > 0, mv
+    print(f"ok 6: one epoch of the het path (2 steps, anchor 0.5, cons 1.0, bank): finite; b-hat moved by up to "
+          f"{mv:.3f} from the checkpoint", flush=True)
+    tmp.cleanup()
+    print(f"selftest-het passed ({'synthetic checkpoint' if not a.selftest_het else a.selftest_het}, folds {folds}, "
+          f"device {dev}, {time.time() - t0:.0f}s)", flush=True)
+
+
 def main(a):
     use_cuda = a.device == "cuda" or (a.device == "auto" and torch.cuda.is_available())
     RT["dev"] = torch.device("cuda" if use_cuda else "cpu")
@@ -650,7 +1085,11 @@ def main(a):
         a.threads = min(a.threads, 2)  # shared cloud machine: never more than 2 threads
     if a.pool == "grid4" and a.crop != 256:
         raise SystemExit("--pool grid4 needs --crop 256 (full images keep the 4x4 grid of 64-px cells aligned)")
+    check_het_args(a)
     torch.set_num_threads(a.threads)
+    if a.selftest_het is not None:
+        selftest_het(a)
+        return
     try:
         torch.set_num_interop_threads(1)
     except RuntimeError:
@@ -688,7 +1127,7 @@ def main(a):
         print(f"degradation bank: {len(bank_ids)} train sources x {bank_t.shape[1]} copies, p={a.deg_p}", flush=True)
     cache = CACHE / a.name
     cache.mkdir(parents=True, exist_ok=True)
-    used = {"rest_dir": rest_dir is not None, "full": a.full, "scale": a.scale != 1.0, "wN": a.wN > 0}  # new options only when used
+    used = used_options(a, rest_dir)  # new options only when used
     Nrow = grain_count(tr.ID) if a.wN > 0 else None  # label-free per-train-image grain count (--wN)
 
     def wts(rows):  # --wN weights of these training rows, normalised to mean 1 over them (None = unweighted)
@@ -713,7 +1152,7 @@ def main(a):
                 print(f"full seed {s}: cached", flush=True)
                 continue
             r = train_one(a, FULL_F, s, Xall, y, None, None, Xte, bank=bank_t, bidx=bidx, wtr=wts(np.arange(len(y))))
-            np.savez(fp, test=r["test"], n_train=len(y))
+            np.savez(fp, test=r["test"], n_train=len(y), **{k: r[k] for k in HET_KEYS if k in r})
         assemble_full(a, te, cache, rest_dir, rest_sha)
         print(f"total wall time {time.time() - t_all:.0f}s", flush=True)
         return
@@ -728,7 +1167,8 @@ def main(a):
             bidx = np.array([row.get(i, -1) for i in tr.ID.values[trn]]) if bank_t is not None else None
             r = train_one(a, f, s, Xall[trn], y[trn], Xall[val], y[val], Xte, bank=bank_t, bidx=bidx, wtr=wts(trn))
             np.savez(fp, val_idx=val, val=r["val"], val_other=r.get("val_other", np.full(len(val), np.nan)),
-                     test=r["test"] if r["test"] is not None else np.zeros(0))
+                     test=r["test"] if r["test"] is not None else np.zeros(0),
+                     **{k: r[k] for k in HET_KEYS if k in r})  # --head hetfpn only
 
     # assemble whatever is cached
     oof, oof_other, pred = np.full(len(tr), np.nan), np.full(len(tr), np.nan), np.zeros(len(te))
@@ -844,6 +1284,20 @@ def parse(argv=None):
     ap.add_argument("--no-test", action="store_true", help="skip test inference (sanity checks)")
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--name", default="cnn")
+    ap.add_argument("--init-het", nargs="+", default=None, metavar="RUN",
+                    help="N6-G1: start fold model f / seed s from data/het_cnn/RUN[s mod len]/fold{f}.pt (a src.het_cnn "
+                         "fpn run; --full model s: fold s mod 5); needs --head hetfpn --crop 256; default none = off")
+    ap.add_argument("--head", default="pool", choices=["pool", "hetfpn"],
+                    help="pool (default: Net with --pool, as before) | hetfpn (--init-het: the checkpoint's FPNNet + "
+                         "a y head on [GAP s32, mean b-hat, sd b-hat, logN-hat])")
+    ap.add_argument("--anchor", type=float, default=0.0,
+                    help="--init-het: weight of the label-free anchor to the frozen checkpoint (blocks + logN, "
+                         "z-units); 0 = off (default)")
+    ap.add_argument("--nlm-zero-stem", action="store_true",
+                    help="--init-het with --input raw+nlm: add nlm as a second stem input channel with zero weights")
+    ap.add_argument("--selftest-het", nargs="?", const="", default=None, metavar="RUN",
+                    help="0-step checks of the --init-het path (synthetic checkpoint, or RUN's fold{--folds, 0}.pt) and "
+                         "of the old recipe against the file before these options; then exit")
     return ap.parse_args(argv)
 
 

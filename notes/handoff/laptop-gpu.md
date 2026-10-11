@@ -972,3 +972,182 @@ New-Item C:\Dacon\WM_Runtime\hardness_gpu_done
   ends with its `# sums chunk <k>:` line. Send 16-1's chunks before starting 16-2 if the GPU is busy with 16-2.
 - The cloud decides everything from train labels only (pre-declared in N4/r3/options.txt); the laptop sends no numbers
   of its own beyond the sums and the stage-1 summary line of each score.json.
+
+## 17. Next GPU run: N6-G1, the y-CNN started from the A3 het reader (prepared 2026-10-11 21:30 KST)
+
+Runs on JINWOO's own run line in the main thread (10-11 21:33 KST: "섹션17 올라오면 바로 실행", which covers 17-0 to 17-3).
+The laptop session cannot see the cloud's thread replies, so every cloud verdict comes through git instead: the cloud
+commits one line per verdict to `notes/handoff/gate17_verdicts.txt` and pushes. After sending a step's messages, poll
+`git pull origin claude/lb-under-10-7080jr` every 2 minutes until the line that step waits for is there. Each later
+step (17-2, 17-3, and T0 after a cloud (c) FAIL) runs only on its verdict line. Verdict lines (exact text):
+  `17-1 c T1: PASS` / `17-1 c T1: FAIL` / `17-1 c T0: PASS` / `17-1 c T0: FAIL`
+  `17-1: PASS T1` / `17-1: PASS T0` / `17-1: CLOSED`
+  `17-2 stage-1: PASS` / `17-2 stage-1: CLOSED`
+  `17-3: received` (end of section)
+GPU rule (header of this file): this project owns the GPU until 2026-10-19 10:00 KST. Run with `--device cuda`
+directly: no gpu_turn.py wrapper, no hand-back file. Never touch the robot project's files or jobs.
+
+Why (hardness-cache scripts/d1011/N6/PLAN_N6.txt sections 1-2, pick N6-G1):
+- Every y-CNN so far starts from ImageNet weights. The A3 het reader (ev2s_locK_real5, section 14d) was trained
+  without labels on 'real'-preset renders and already reads logN and het. Here the y-CNN starts from A3's fold models
+  (trunk, FPN, block / cell / logN heads) and adds a y head on [GAP stride-32, mean b-hat, sd b-hat, logN-hat].
+- `--anchor 0.5` keeps the block and logN outputs close to a frozen copy of the same A3 fold model on every training
+  crop (label-free). The y labels, folds and augmentation are the incumbent s3 recipe's (raw+nlm, deg 0.5, cons 1.0,
+  30 epochs, bs 16, OneCycle, TTA 8). The other changes are `--lr 3e-4` (the incumbent used 1e-3; the trunk starts
+  from a trained reader, PLAN_N6) and `--crop 256`, forced by the 4x4 block head.
+- NLM stays as a second input channel: the A3 stem gets a zero-initialised nlm channel (`--nlm-zero-stem`), so with 0
+  training steps the model reads exactly what A3 reads.
+- Fold model f / seed s starts from `data\het_cnn\<RUN[s mod 3]>\fold<f>.pt` (A3 seeds 0, 1, 2). A `--full` model s
+  starts from fold s mod 5 of that run.
+
+Code (committed with this section; all new options default off; without them every path is bit-identical, which
+`--selftest-het` check 5 tests against the file before the options):
+- `src\train_cnn.py`: `--init-het RUN [RUN ...]`, `--head hetfpn`, `--anchor LAMBDA`, `--nlm-zero-stem`, and
+  `--selftest-het [RUN]`. Fold-seed caches of a hetfpn run also hold val_b / val_logn / test_b / test_logn.
+- `src\het_cnn.py --eval-only RUN --dump-blocks`: inference only. Per image it keeps b00..b15 plus the 16x16 cell map's
+  c_ring0 (outer 16-px ring), c_inner and c_sd. Clean train rows come from their own fold model, other rows from the
+  5-fold mean. The result is printed by `--dump RUN --dump-blocks --chunk 0 1` (250 rows per chunk). Selftest check 15.
+- `tools\n6\gate17.py`: the label-free gate lines. It reads no label (only the ID column of train.csv).
+
+Gates, fixed before any run:
+- (a) G1 train rows held out in the gate folds: corr(sd b-hat, het_A3) >= 0.85 and corr(logN-hat, logN_A3) >= 0.97.
+  het_A3 / logN_A3 come from `data\het_cnn\ev2s_locK_real5\het_cnn_train.parquet`. Computed on the laptop.
+- (b) partial corr(y-hat, het_A3 | logN_A3) on G1 train, folds 0-1. Report only. s3 reference -0.2799 (n 71).
+- (c) held-out real clean train, folds 0-1: partial corr(y-hat, V4 het | N_eff^0.25) >= s3 + 0.10. s3 reference
+  -0.0561 (n 120), so the bar is >= +0.0439. Computed on the cloud, because V4 exists only there. The laptop sends
+  the y-hat block.
+- (d) KS of y-hat, G1 test vs G1 train held-out, p > 0.01. Stop only. Computed on the laptop.
+- The (b)/(c) references come from the s3 OOF, computed 10-11 before any run. File:
+  hardness-cache `scripts/d1011/N6/run/gate17/ref_s3.json`, sha256
+  9eeded73c3a7a9696d0aefe92b794352e5e4ac7829e2b7ec3fb69516f0870471. The cloud checks a T1 / T0 message with
+  `gate17_bc.py` in that folder.
+
+Rules:
+- No commits or pushes. PowerShell at the repo root with the `.venv` active. Save every dump with
+  `| Out-File -Encoding utf8 <file>`.
+- Never send a line that holds a validation number. That is any training-log line with `val` or `rmse` in it:
+  `val(tta1)`, `final val`, `per-view val rmse`, `fold f: rmse`, `OOF rmse ...` (tercile / fine_noisy cell),
+  `partial run ... rmse on done folds`, and the `CV RMSE` line. Label-based numbers first reach the cloud in 17-2
+  (score.json and the chunk lines), and only after its gate17_2 PASS.
+- CUDA out of memory: rerun the IDENTICAL command once; finished fold-seeds are cached and resume. After a second OOM,
+  stop and send the traceback. Never change `--bs`, `--lr` or `--crop`: the stage-1 bars are paired with s3.
+- A cut, or a closed window: rerun the identical command. Fold-seeds are cached in `data\cnn_cache\<name>\`.
+
+17-0 [CPU] Pull and selftests (about 10 min)
+```powershell
+Set-Location C:\Daker\microstructure-hardness-prediction
+git status --short
+git pull origin claude/lb-under-10-7080jr
+git log -1 --format=%h
+(Get-ChildItem data\het_cnn\ev2s_locK_real5\fold?.pt, data\het_cnn\ev2s_locK_real5_s1\fold?.pt, data\het_cnn\ev2s_locK_real5_s2\fold?.pt).Count
+Test-Path data\het_cnn\ev2s_locK_real5\het_cnn_train.parquet, data\het_cnn\ev2s_locK_real5\fold0.npz, data\cnn_cache\_pre\nlm.npz, data\cnn_cache\_pre\deg2_k8_snr0.5.npz, data\features_v3.parquet
+python -W ignore -m src.train_cnn --selftest-het --device cpu
+python -W ignore -m src.train_cnn --selftest-het ev2s_locK_real5 --device cpu
+python -W ignore -m src.het_cnn --selftest
+```
+- If the pull refuses because of a local ` M experiments/LEADERBOARD.md` (lines appended by earlier GPU runs) or
+  untracked `experiments\cnn_*_gpu*` files, back them up and re-sync exactly as in section 8 a. If any other tracked
+  file shows as modified, stop and ask. The `git log -1` line is sent with the selftest message (the cloud checks it
+  against the section 17 commit).
+- The count must be 15 and Test-Path True x5. Otherwise send those lines and stop.
+- `--selftest-het` prints ok 1 .. ok 6 and ends `selftest-het passed (synthetic checkpoint, ...)`.
+- The second line is the real-checkpoint check. ok 1-3 show the max |d| of b-hat / logN-hat vs
+  `het_cnn.predict` of `ev2s_locK_real5\fold0.pt` (must be <= 1e-5; the code asserts it). It ends
+  `selftest-het passed (ev2s_locK_real5, folds [0], device cpu, ...)`. Check 5 compares the old recipe with the
+  file before these options (it needs the git history). It takes a few minutes on the CPU.
+- The het_cnn selftest must print `ok 15: --dump-blocks ...` and end with `selftest passed`.
+- SEND one message: the log line, the count / Test-Path lines, and every `ok` line plus the last line of the three
+  selftests. A Traceback: send it and stop.
+
+17-1 [GPU] T1 gate run (folds 0-1, 1 seed) and the A3 block re-dump (about 15-20 min)
+```powershell
+python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --init-het ev2s_locK_real5 ev2s_locK_real5_s1 ev2s_locK_real5_s2 --head hetfpn --anchor 0.5 --lr 3e-4 --input raw+nlm --nlm-zero-stem --crop 256 --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --bs 16 --tta 8 --device cuda --folds 0 1 --seeds 1 --no-save --name cnn_ev2s_A3init_anc05_s3
+python -W ignore tools\n6\gate17.py --name cnn_ev2s_A3init_anc05_s3 --folds 0 1 --yhat | Out-File -Encoding utf8 data\cnn_cache\cnn_ev2s_A3init_anc05_s3\gate17_1.txt
+python -W ignore -m src.het_cnn --eval-only ev2s_locK_real5 --dump-blocks --device cuda --threads 2 | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\blocks_log.txt
+foreach ($k in 0,1) { python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --dump-blocks --chunk $k | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5\blocks_c$k.txt }
+```
+- First training lines: `degradation bank: 263 train sources x 8 copies, p=0.5`, then per fold
+  `--init-het: fold 0 seed 0 <- ev2s_locK_real5/fold0.pt (sha256 ..., tf_efficientnetv2_s.in21k_ft_in1k, fpn_ch 128);
+  raw channel mu ... (checkpoint consts); nlm stem channel zero-initialised; anchor 0.5 to the frozen checkpoint`.
+  Every epoch line shows `anchor <value>` after the lr. The last line is `total wall time ...`. Because of --no-save, nothing is
+  written to experiments\.
+- gate17_1.txt holds the (a) and (d) lines (PASS / FAIL), a summary line, and a `# yhat` block with 200 values.
+  It is about 2 KB.
+- blocks_log.txt: 5 lines `fold f: vs its fold<f>.npz on 500 images: max |d b| ...` (bf16 autocast, so up to about
+  1e-2 is fine), then `wrote ...blocks_train.parquet: 500 images, sources {...}; sums ...; vs het_cnn_train.parquet
+  ...`. blocks_c0.txt / blocks_c1.txt start with `# het_cnn blocks ev2s_locK_real5 chunk <k> (250 rows)` and end with
+  their `# sums chunk <k>:` line. Each is about 37 KB, under the 64 KiB limit.
+- SEND, one message each:
+  1. gate17_1.txt in full, plus the `total wall time` line of the training.
+  2. The text of blocks_log.txt, then the full text of blocks_c0.txt.
+  3. The full text of blocks_c1.txt.
+  The cloud answers with the (b) and (c) lines from `gate17_bc.py`. It rebuilds the block dump with
+  `python -m src.het_cnn --ingest ev2s_locK_real5 blocks_c0.txt blocks_c1.txt --dump-blocks`, which checks the IDs
+  and sums (message 2 can be saved as one file: text before the chunk header and after its sums line is skipped).
+- The block dump (messages 2 and 3) does not depend on the gate: send it in every case (N6-G2 waits for it).
+- Stop rules:
+  - (d) FAIL closes the line: send messages 1-3 and stop. No T0, no 17-2.
+  - (a) FAIL, or the cloud's (c) FAIL (verdict line `17-1 c T1: FAIL`): run T0 once (below). Send gate17_1_T0.txt
+    plus its `total wall time` line as in message 1, then wait for `17-1 c T0: ...` and `17-1: ...`. Do not wait for
+    the cloud before T0 when (a) failed. The block dump is not repeated.
+    ```powershell
+    python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --init-het ev2s_locK_real5 ev2s_locK_real5_s1 ev2s_locK_real5_s2 --head hetfpn --anchor 0 --lr 3e-4 --input raw+nlm --nlm-zero-stem --crop 256 --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --bs 16 --tta 8 --device cuda --folds 0 1 --seeds 1 --no-save --name cnn_ev2s_A3init_anc0_s3
+    python -W ignore tools\n6\gate17.py --name cnn_ev2s_A3init_anc0_s3 --folds 0 1 --yhat | Out-File -Encoding utf8 data\cnn_cache\cnn_ev2s_A3init_anc0_s3\gate17_1_T0.txt
+    ```
+  - A T0 miss on (a), (c) or (d) closes the line.
+  - Arm M (ImageNet init plus aux heads) never runs.
+- 17-1 PASS = (a) PASS and (d) PASS here, and (c) PASS from the cloud, for T1, or else for T0. The cloud writes the
+  verdict line `17-1: PASS T1`, `17-1: PASS T0` or `17-1: CLOSED`.
+
+17-2 [GPU] Stage 1: 5 folds x 3 seeds of the arm that passed 17-1 (about 30-45 min). Run only on the verdict line
+`17-1: PASS T1` or `17-1: PASS T0`. The lines below are the T1 arm. If T0 passed instead, replace `--anchor 0.5` with `--anchor 0` and
+`anc05` with `anc0` in both lines (name `cnn_ev2s_A3init_anc0_s3`). The same name reuses the cached fold 0-1 seed-0
+models of the gate run.
+```powershell
+python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --init-het ev2s_locK_real5 ev2s_locK_real5_s1 ev2s_locK_real5_s2 --head hetfpn --anchor 0.5 --lr 3e-4 --input raw+nlm --nlm-zero-stem --crop 256 --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --bs 16 --tta 8 --device cuda --folds 0 1 2 3 4 --seeds 3 --name cnn_ev2s_A3init_anc05_s3
+python -W ignore tools\n6\gate17.py --name cnn_ev2s_A3init_anc05_s3 --folds 0 1 2 3 4 | Out-File -Encoding utf8 data\cnn_cache\cnn_ev2s_A3init_anc05_s3\gate17_2.txt
+```
+- 13 new fold-seeds; 2 are `cached`. It writes experiments\<name>\ (oof.csv, test.csv, score.json) and a
+  LEADERBOARD.md line. Keep those local and uncommitted.
+- gate17_2.txt holds (a) and (d) on the full OOF (208 G1 train rows), about 0.6 KB.
+- SEND gate17_2.txt first, as its own message.
+  - (a) or (d) FAIL: stop there and send nothing else. No label number ever leaves the laptop for this arm.
+  - Both PASS: send score.json, then the GPU-B chunk lines (section 14 h) with `n` = the arm's name, for f='oof'
+    k=0, 1 and f='test' k=0, 1, 2, 3. That is 7 messages of about 1-2 KB each.
+- The cloud then computes the stage-1 bars with hardness-cache `scripts/d1011/bold/L6_leaders/l6_cnn_gate.py <oof>
+  --ref s3`: all <= 13.12, >= 4/5 folds better than s3, fine-noisy cell <= 11.20. Any bar missed closes the line:
+  no 17-3 and no N4 look.
+
+17-3 [GPU] Stage 3: 6 seeds plus 6 full-data models of the same arm (about 1.5 h). Run only on the verdict line
+`17-2 stage-1: PASS`. Replace `anc05` with `anc0` and `--anchor 0.5` with `--anchor 0` if the arm is T0.
+```powershell
+python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --init-het ev2s_locK_real5 ev2s_locK_real5_s1 ev2s_locK_real5_s2 --head hetfpn --anchor 0.5 --lr 3e-4 --input raw+nlm --nlm-zero-stem --crop 256 --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --bs 16 --tta 8 --device cuda --seeds 6 --name cnn_ev2s_A3init_anc05_gpu_s6
+python -W ignore -m src.train_cnn --backbone tf_efficientnetv2_s.in21k_ft_in1k --init-het ev2s_locK_real5 ev2s_locK_real5_s1 ev2s_locK_real5_s2 --head hetfpn --anchor 0.5 --lr 3e-4 --input raw+nlm --nlm-zero-stem --crop 256 --deg-p 0.5 --cons 1.0 --pool avg --epochs 30 --bs 16 --tta 8 --device cuda --full --seeds 6 --name cnn_ev2s_A3init_anc05_gpu_full6
+python -W ignore tools\n6\gate17.py --stage3 cnn_ev2s_A3init_anc05_gpu_s6 cnn_ev2s_A3init_anc05_s3 cnn_ev2s_A3init_anc05_gpu_full6 | Out-File -Encoding utf8 data\cnn_cache\cnn_ev2s_A3init_anc05_gpu_s6\gate17_3.txt
+python -W ignore tools\n6\gate17.py --stage3 cnn_ev2s_A3init_anc05_gpu_s6 cnn_ev2s_A3init_anc05_s3 cnn_ev2s_A3init_anc05_gpu_full6 --kf-chunk 0 1 2 3 | Out-File -Encoding utf8 data\cnn_cache\cnn_ev2s_A3init_anc05_gpu_s6\kf_chunks.txt
+```
+- The fold run trains 30 fold-seeds (its own name: nothing is shared with the s3 cache). The `--full` run trains 6
+  models on all 500 images. Full model s starts from fold s mod 5 of run s mod 3. It writes test.csv + full.json only.
+- gate17_3.txt has three checks:
+  - corr(6-seed OOF, 3-seed OOF) >= 0.98.
+  - rms(full6 test - 5-fold-mean test) <= 1.5. The incumbent s6 vs full6 reads 1.298; the cloud checked the tool
+    against it.
+  - KS of the kf test predictions on the G1 test rows vs the G1 train OOF, p > 0.01. Stop only.
+  A sums line follows. kf = 0.5 x (5-fold mean + full6), the s6kf rule. kf_chunks.txt holds 4 chunks of 250 values,
+  each with a `# <name>kf test chunk k IDs ... sum ...` header, about 1.8 KB each.
+- SEND gate17_3.txt first.
+  - Any FAIL: stop, send nothing else. There is no N4 look.
+  - All PASS: send score.json of `..._gpu_s6`, then the GPU-B chunk lines of `..._gpu_s6` for f='oof' k=0, 1,
+    then the 4 chunks of kf_chunks.txt, one per message. That is 7 messages.
+- The cloud builds the kf member and runs P2 (the N4 look) on the cloud.
+
+PLAN_N6's 17-4 (N6-G3 DANN reader screen) is not part of this section: its code does not exist yet, and it will come
+as a section of its own. When the G1 line closes (at any step), stop and wait for the thread.
+
+| step | time | send back |
+|---|---|---|
+| 17-0 (CPU) | about 10 min | 1 message: log line, checks, selftest lines (< 3 KB) |
+| 17-1 (GPU) | 15-20 min (+ about 6 min if T0 runs) | gate17_1.txt (~2 KB); blocks_log + blocks_c0 (~38 KB); blocks_c1 (~37 KB); a T0 gate file if T0 runs |
+| 17-2 (GPU) | 30-45 min | gate17_2.txt (< 1 KB); if PASS: score.json + oof k=0,1 + test k=0..3 (7 x 1-2 KB) |
+| 17-3 (GPU) | about 1.5 h | gate17_3.txt (< 1 KB); if PASS: score.json + oof k=0,1 + kf chunks 0..3 (7 x 1-2 KB) |
+| total GPU | about 2.3 h (2.5 h with T0) | |

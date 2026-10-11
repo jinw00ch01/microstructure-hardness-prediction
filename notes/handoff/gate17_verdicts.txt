@@ -1,0 +1,1 @@
+# Section 17 cloud verdicts (one line each, written by the cloud; the laptop polls git for them). No numbers.
