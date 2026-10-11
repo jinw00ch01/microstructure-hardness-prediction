@@ -929,3 +929,40 @@ Select-String -Path data\het_cnn\ev2s_locK_real5\c0_again.txt -Pattern '# sums'
 - If Test-Path prints False, send that line and stop (the run's test half is missing).
 - SEND, one message each: the '# sums' line of c0_again.txt; then the full text of c1.txt; then the full text of c2.txt.
   Each chunk starts with `# het_cnn ev2s_locK_real5 chunk <k> (500 rows)` and ends with a `# sums chunk <k>:` line.
+
+## 16. Next GPU run: A3 reader on 6-map (V4) block targets, then A3 seed 2 (prepared 2026-10-11 18:00 KST)
+
+Runs only on JINWOO's own word in the main thread ("섹션 16 실행"); mode as JINWOO says, else the same hand-over as the
+17:22 KST seed-1 run; return the GPU with `New-Item C:\Dacon\WM_Runtime\hardness_gpu_done` when done or when stopping.
+Purpose: two more readers for the G1 rows of the 10-11 slots 4-5 (cloud: hardness-cache scripts/d1011/N4/r2seed, r3).
+- 16-1 = A3's recipe (route K, `--render-preset real`) trained on block targets averaged over the 6 segmentation maps
+  that blend_v29g uses on the clean rows (V4), via the A4 `--target-file` option (bold/A4, verified 10-11 09:00 KST;
+  code committed with this section). Renders are unchanged; only the clean images' block targets change.
+- 16-2 = A3 with `--seed 2` (third seed, for a 3-seed reader mean).
+
+```powershell
+Set-Location C:\Daker\microstructure-hardness-prediction
+git pull origin claude/lb-under-10-7080jr
+python -W ignore -m src.het_cnn --selftest
+#   must print "ok 14: --target-file ..." and end with "selftest passed" (else send the output and stop)
+python -W ignore tools\a4\v4_block_targets.py --jobs 4
+#   must print: reference map (1.0, 0.6) vs prep b: max |diff| 0.00e+00, NaN pattern equal True  (else it writes
+#   nothing: send the output and stop). Send its checksum line (cloud: sum 23191.471116 sumsq 127600.524605).
+python -W ignore -m src.het_cnn --device cpu --smoke --folds 0 --epochs 1 --renders 1 --batch 8 --threads 2 --workers 2 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --target-file data\het_cnn\a4_v4_block_targets.npz --out smoke_s16
+#   first line "--target-file ... block targets of the 267 clean images replaced; correction b_new - b_prep mean
+#   -0.1349 sd 0.1586 ..."; last line "total wall". Any error: send it and stop.
+
+# 16-1 [GPU] (about 25 min)
+python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --target-file data\het_cnn\a4_v4_block_targets.npz --out ev2s_locK_real5_v4t
+foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump ev2s_locK_real5_v4t --chunk $k | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5_v4t\c$k.txt }
+
+# 16-2 [GPU] (about 25 min)
+python -W ignore -m src.het_cnn --device cuda --arch tf_efficientnetv2_s.in21k_ft_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 2 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --out ev2s_locK_real5_s2
+foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump ev2s_locK_real5_s2 --chunk $k | Out-File -Encoding utf8 data\het_cnn\ev2s_locK_real5_s2\c$k.txt }
+New-Item C:\Dacon\WM_Runtime\hardness_gpu_done
+```
+- CUDA OOM: rerun the identical command once; after a second OOM use `--batch 8` with `_b8` appended to `--out` and say so.
+- SEND after each run, one message per chunk (c0, c1, c2), full text: each starts with `# het_cnn <run> chunk <k>` and
+  ends with its `# sums chunk <k>:` line. Send 16-1's chunks before starting 16-2 if the GPU is busy with 16-2.
+- The cloud decides everything from train labels only (pre-declared in N4/r3/options.txt); the laptop sends no numbers
+  of its own beyond the sums and the stage-1 summary line of each score.json.

@@ -114,6 +114,23 @@ compares the default flags with the file before these options, git: parent of th
   data/het_cnn/RUN/score_eval.json and score_eval_fold{f}.npz; never touches score.json, fold{f}.json/.npz or parquets.
   Example: python -m src.het_cnn --eval-only ev2s_loc_e32r4 --folds 0 1 --eval-presets noisy real --device cuda
 
+Option added 2026-10-11, candidate A4 (default off: no code path changes without it; selftest check 14):
+--target-file NPZ: replace the block targets b of the clean prep images by the file's (arrays ids, b (n, 16), b_ref),
+  e.g. data/het_cnn/a4_v4_block_targets.npz from tools/a4/v4_block_targets.py (the same block_targets definition
+  averaged per block over 6 segmentations, sigma 0.7/0.8/0.9 x Otsu factor 0.5/0.6; label-free). apply_target_file:
+  the file must list exactly the prep ids (any order, no duplicates), b must be finite, and b_ref (the prep's own
+  segmentation re-measured by the builder) must equal the prep's b (|diff| < 1e-9, same NaN blocks); else SystemExit.
+  het4 = sd of the new valid b. Every consumer of P['b'] / P['het4'] (plain renders, standardisation constants, s_w,
+  stage-1 and eval metrics) then uses the new values. The per-block corrections c = b_new - b_prep travel with the
+  pixels: pixel weights exp(-c_k / 2) of the pixel's source block (cw) multiply a^-1/2 in block_targets_fast and
+  cell_targets, carried through zoom (nearest neighbour, as the label map) and mosaic (by the mask), so the targets of
+  an unaugmented map are exactly b_prep + c = b_new, cells shift by their block's c, and augmented maps get the
+  pixel-weighted mix of the corrections of the source blocks they show. Renders, log N_eff and the extra targets are
+  unchanged. The file's name and md5 go into the options (fold caches, checkpoints, score.json). --eval-only RUN
+  --target-file NPZ scores RUN's models against the file's targets (cross-evaluation is allowed: a note is printed when
+  a checkpoint was trained with other targets; score_eval.json gains eval_target_md5). Not supported together with
+  tools/fsim (its fsim items read the prep targets directly; train_fold refuses the combination).
+
 Training, per fold f of data/folds.csv restricted to the clean images: train on the clean images not in fold f; every
 epoch renders each of them --renders times with fresh random parameters (DataLoader workers), then one random D4 op
 (flips/rot90 map the 64-px grid onto itself: the image is transformed and the 16 targets are permuted, GRID_PERM).
@@ -267,9 +284,10 @@ def n_eff_of(ws, is_pore):
     return n
 
 
-def block_targets_fast(ws, is_pore):
+def block_targets_fast(ws, is_pore, cw=None):
     """block_targets bit for bit (the same pixel values in the same row-major order reach the same np.mean), ~6x
-    faster: each block is a 64x64 slice instead of a full-image mask."""
+    faster: each block is a 64x64 slice instead of a full-image mask. cw (--target-file): optional (256, 256) pixel
+    weights (_corr_weights) multiplying a^-1/2 before the block mean."""
     a = np.maximum(np.bincount(ws.ravel()).astype(float)[ws], 1)
     m = ~is_pore[ws]
     b = np.full(16, np.nan)
@@ -277,7 +295,11 @@ def block_targets_fast(ws, is_pore):
         r, c = divmod(k, 4)
         mb = m[64 * r:64 * r + 64, 64 * c:64 * c + 64]
         if mb.sum() >= 50:
-            b[k] = -2 * np.log((a[64 * r:64 * r + 64, 64 * c:64 * c + 64][mb] ** -0.5).mean())
+            if cw is None:
+                b[k] = -2 * np.log((a[64 * r:64 * r + 64, 64 * c:64 * c + 64][mb] ** -0.5).mean())
+            else:
+                b[k] = -2 * np.log((a[64 * r:64 * r + 64, 64 * c:64 * c + 64][mb] ** -0.5
+                                    * cw[64 * r:64 * r + 64, 64 * c:64 * c + 64][mb]).mean())
     return b
 
 
@@ -294,15 +316,20 @@ def n_eff_fast(ws, is_pore):
 
 
 _CELL = (np.arange(256)[:, None] // 16 * 16 + np.arange(256)[None, :] // 16).ravel()  # 16-px cell id, row-major
+_GRID16 = np.add.outer(np.arange(256) // 64 * 4, np.arange(256) // 64)  # == src.het_blocks.GRID (64-px block id)
 
 
-def cell_targets(ws, is_pore, min_px=32):
+def cell_targets(ws, is_pore, min_px=32, cw=None):
     """(16, 16) b of the 16-px cells (-2 log mean over the cell's non-pore pixels of a^-1/2, a = grain area), NaN where
-    a cell has < min_px non-pore pixels. Row-major cells; block k = (cy // 4) * 4 + cx // 4."""
+    a cell has < min_px non-pore pixels. Row-major cells; block k = (cy // 4) * 4 + cx // 4. cw (--target-file):
+    optional (256, 256) pixel weights multiplying a^-1/2 (as block_targets_fast)."""
     a = np.maximum(np.bincount(ws.ravel()).astype(float)[ws.ravel()], 1)
     m = ~is_pore[ws.ravel()]
     cnt = np.bincount(_CELL[m], minlength=256)
-    s = np.bincount(_CELL[m], a[m] ** -0.5, minlength=256)
+    if cw is None:
+        s = np.bincount(_CELL[m], a[m] ** -0.5, minlength=256)
+    else:
+        s = np.bincount(_CELL[m], a[m] ** -0.5 * np.asarray(cw, np.float64).ravel()[m], minlength=256)
     with np.errstate(divide="ignore", invalid="ignore"):
         b = np.where(cnt >= min_px, -2 * np.log(s / np.maximum(cnt, 1)), np.nan)
     return b.reshape(16, 16)
@@ -498,6 +525,71 @@ def load_prep(fp=PREP_FP):
         return {k: z[k] for k in z.files}
 
 
+# ------------------------------------------------------------------------------------- --target-file (A4, 2026-10-11)
+def target_file_md5(fp):
+    import hashlib
+    return hashlib.md5(Path(fp).read_bytes()).hexdigest()
+
+
+def apply_target_file(P, fp):
+    """--target-file: replace P['b'] by the file's block targets (reordered to the prep ids) and P['het4'] by the sd of
+    the new valid b, in place; keep the prep's as P['b_prep'] / P['het4_prep']; P['bcorr'] = b_new - b_prep (0 where the
+    prep block is invalid; such blocks stay NaN) is what source_of / prep_cells carry. SystemExit when the arrays are
+    missing or misshaped, the ids are not exactly the prep ids (duplicates, missing, extra), b is not finite, or b_ref
+    differs from the prep's b (> 1e-9 or another NaN pattern). Returns a summary dict."""
+    fp = Path(fp)
+    if not fp.exists():
+        raise SystemExit(f"--target-file {fp}: no such file")
+    with np.load(fp, allow_pickle=False) as z:
+        miss = [k for k in ("ids", "b", "b_ref") if k not in z.files]
+        if miss:
+            raise SystemExit(f"--target-file {fp}: arrays {miss} missing (has {z.files})")
+        ids = [str(i) for i in z["ids"]]
+        b, b_ref = z["b"].astype(np.float64), z["b_ref"].astype(np.float64)
+    pid = [str(i) for i in P["ids"]]
+    if b.shape != (len(ids), 16) or b_ref.shape != b.shape:
+        raise SystemExit(f"--target-file {fp}: b {b.shape} / b_ref {b_ref.shape}, expected ({len(ids)}, 16)")
+    if len(set(ids)) != len(ids):
+        raise SystemExit(f"--target-file {fp}: {len(ids) - len(set(ids))} duplicate ids")
+    if set(ids) != set(pid):
+        lost, extra = sorted(set(pid) - set(ids)), sorted(set(ids) - set(pid))
+        raise SystemExit(f"--target-file {fp}: ids differ from the prep's {len(pid)} clean ids: {len(lost)} missing "
+                         f"{lost[:5]}, {len(extra)} extra {extra[:5]}")
+    if not np.isfinite(b).all():
+        raise SystemExit(f"--target-file {fp}: {int((~np.isfinite(b)).sum())} non-finite block values")
+    pos = {i: n for n, i in enumerate(ids)}
+    o = np.array([pos[i] for i in pid])
+    b, b_ref = b[o], b_ref[o]
+    old = P["b"].astype(np.float64)
+    if not np.array_equal(np.isnan(b_ref), np.isnan(old)) or np.nanmax(np.abs(b_ref - old)) >= 1e-9:
+        raise SystemExit(f"--target-file {fp}: b_ref does not reproduce this prep's b (max |diff| "
+                         f"{np.nanmax(np.abs(b_ref - old)):.2e}): the file was built on another prep / segmentation")
+    new = np.where(np.isnan(old), np.nan, b)
+    P["b_prep"], P["het4_prep"] = old, P["het4"]
+    P["b"] = new
+    P["het4"] = np.array([float(np.std(r[~np.isnan(r)])) for r in new])
+    P["bcorr"] = np.where(np.isnan(old), 0.0, new - old)
+    P["target_md5"] = target_file_md5(fp)
+    c = P["bcorr"]
+    return dict(n=len(pid), md5=P["target_md5"], corr_mean=float(c.mean()), corr_sd=float(c.std()),
+                corr_within_sd=float((c - c.mean(1, keepdims=True)).std()),
+                het4_prep_mean=float(np.mean(P["het4_prep"])), het4_mean=float(P["het4"].mean()),
+                corr_het4=float(np.corrcoef(P["het4_prep"], P["het4"])[0, 1]))
+
+
+def _corr_weights(c):
+    """(256, 256) pixel weights exp(-c_k / 2) of the per-block corrections c (16,): over a block with one c,
+    -2 log mean(a^-1/2 * w) = b + c."""
+    return np.exp(-0.5 * np.asarray(c, np.float64))[_GRID16]
+
+
+def prep_cells(P, j):
+    """cell_targets of prep image j (with --target-file: each cell shifted by its block's correction)."""
+    if "bcorr" not in P:
+        return cell_targets(P["ws"][j].astype(np.int64), P["pore"][j])
+    return cell_targets(P["ws"][j].astype(np.int64), P["pore"][j], cw=_corr_weights(P["bcorr"][j]))
+
+
 # --------------------------------------------------------------------------------------------------------- renderer
 def degrade_m(img8, rng, cd=(0.35, 0.7), ex=(1.0, 1.3), sb=(1.0, 2.8), sn=(12.0, 20.5), den=None, bg=None,
               sig0=None):
@@ -591,10 +683,14 @@ GRAIN_TABS = ("sn", "dark", "pore")  # per-grain tables carried through relabel(
 
 
 def source_of(P, j):
-    """The cartoon renderer's inputs for prep image j (+ the source grey 'im', used only for the mean-grey fix)."""
-    return dict(ws=P["ws"][j].astype(np.int64), S=shading_surface(P["beta"][j]), sn=P["sn_tab"][j],
-                dark=P["dark"][j], pore=P["pore"][j], resid=P["resid"][j].astype(np.float32), rpore=P["rpore"][j],
-                im=P["im8"][j].astype(np.float32))
+    """The cartoon renderer's inputs for prep image j (+ the source grey 'im', used only for the mean-grey fix; + the
+    --target-file pixel weights 'cw' of its block corrections, which zoom / mosaic carry like the label map)."""
+    src = dict(ws=P["ws"][j].astype(np.int64), S=shading_surface(P["beta"][j]), sn=P["sn_tab"][j],
+               dark=P["dark"][j], pore=P["pore"][j], resid=P["resid"][j].astype(np.float32), rpore=P["rpore"][j],
+               im=P["im8"][j].astype(np.float32))
+    if "bcorr" in P:
+        src["cw"] = _corr_weights(P["bcorr"][j])
+    return src
 
 
 def render_source(src, rng, R):
@@ -675,8 +771,11 @@ def zoom_source(src, s, oy, ox):
     cy, cx = oy + u, ox + u
     iy, ix = _reflect(np.floor(cy + 0.5).astype(np.int64)), _reflect(np.floor(cx + 0.5).astype(np.int64))
     ws, tabs = split_merge(src["ws"][iy[:, None], ix[None, :]], {k: src[k] for k in GRAIN_TABS})
-    return dict(ws=ws, S=src["S"], resid=_bilinear(src["resid"], cy, cx), rpore=src["rpore"][iy[:, None], ix[None, :]],
-                im=_bilinear(src["im"], cy, cx), **tabs)
+    out = dict(ws=ws, S=src["S"], resid=_bilinear(src["resid"], cy, cx), rpore=src["rpore"][iy[:, None], ix[None, :]],
+               im=_bilinear(src["im"], cy, cx), **tabs)
+    if "cw" in src:  # --target-file: nearest neighbour, as the label map
+        out["cw"] = src["cw"][iy[:, None], ix[None, :]]
+    return out
 
 
 def mosaic_source(s1, s2, mask):
@@ -687,8 +786,11 @@ def mosaic_source(s1, s2, mask):
     r = s1["S"] / s2["S"]
     tabs = {k: np.concatenate([s1[k][:off], s2[k]]) for k in GRAIN_TABS}
     ws, tabs = split_merge(np.where(mask, s1["ws"], s2["ws"] + off), tabs)
-    return dict(ws=ws, S=s1["S"], resid=np.where(mask, s1["resid"], s2["resid"] * r).astype(np.float32),
-                rpore=np.where(mask, s1["rpore"], s2["rpore"]), im=np.where(mask, s1["im"], s2["im"] * r), **tabs)
+    out = dict(ws=ws, S=s1["S"], resid=np.where(mask, s1["resid"], s2["resid"] * r).astype(np.float32),
+               rpore=np.where(mask, s1["rpore"], s2["rpore"]), im=np.where(mask, s1["im"], s2["im"] * r), **tabs)
+    if "cw" in s1:  # --target-file: each pixel keeps its source's weight
+        out["cw"] = np.where(mask, s1["cw"], s2["cw"])
+    return out
 
 
 def mosaic_mask(ra):
@@ -743,9 +845,10 @@ def augment_source(P, j, rows, ra, aug):
 
 def targets_of(src, xnames=(), cells=False):
     """Targets of a (possibly augmented) source with the definitions of the prep: b (block_targets), het4 = sd of the
-    valid b, n_eff (n_eff_of), extras (extra_target_values), cells (cell_targets)."""
-    ws, pore = src["ws"], src["pore"]
-    b = block_targets_fast(ws, pore)
+    valid b, n_eff (n_eff_of), extras (extra_target_values), cells (cell_targets); b and cells with the --target-file
+    pixel weights when the source carries them ('cw')."""
+    ws, pore, cw = src["ws"], src["pore"], src.get("cw")
+    b = block_targets_fast(ws, pore, cw)
     t = dict(b=b, het4=float(np.std(b[~np.isnan(b)])), n_eff=n_eff_fast(ws, pore))
     if xnames:
         x = []
@@ -764,7 +867,7 @@ def targets_of(src, xnames=(), cells=False):
                 raise ValueError(nm)
         t["x"] = np.array(x, np.float32)
     if cells:
-        t["cells"] = cell_targets(ws, pore)
+        t["cells"] = cell_targets(ws, pore, cw=cw)
     return t
 
 
@@ -908,10 +1011,12 @@ class RenderSet(torch.utils.data.Dataset):
     composited (augment_source, draws from default_rng([seed, fold, epoch, i, AUG_TAG])) and then carry targets
     recomputed on the transformed label map (targets_of); xnames: the extra-target names (needed to recompute xt).
     cells: append the (16, 16) cell targets (cell_targets, D4-transformed with the image, NaN -> 0) and their validity
-    mask as two more tensors."""
+    mask as two more tensors.
+    target_file: None (as before) or the --target-file npz, applied to the prep when a process loads it
+    (apply_target_file; renders unchanged, targets as described in the module docstring)."""
 
     def __init__(self, prep_fp, rows, renders, seed, fold, preset="noisy", xt=None, aug=None, cells=False,
-                 xnames=None):
+                 xnames=None, target_file=None):
         self.fp, self.rows, self.R, self.seed, self.fold = str(prep_fp), np.asarray(rows), renders, seed, fold
         self.n_items = len(self.rows) * renders
         self.preset = preset
@@ -919,6 +1024,7 @@ class RenderSet(torch.utils.data.Dataset):
         self.aug, self.cells, self.xnames = aug, cells, list(xnames or [])
         if aug is not None and self.xt is not None:
             assert len(self.xnames) == self.xt.shape[1], "aug with extra targets needs xnames"
+        self.target_file = None if target_file is None else str(target_file)
         self._P = None
 
     def __getstate__(self):
@@ -932,6 +1038,8 @@ class RenderSet(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         if self._P is None:
             self._P = load_prep(self.fp)
+            if getattr(self, "target_file", None) is not None:  # --target-file, in every worker process
+                apply_target_file(self._P, self.target_file)
         P = self._P
         ep, i = divmod(int(idx), self.n_items)
         j = int(self.rows[i % len(self.rows)])
@@ -970,7 +1078,7 @@ class RenderSet(torch.utils.data.Dataset):
             if self.xt is not None:
                 item = item + (torch.from_numpy(tg["x"]),)
         if self.cells:
-            c = tg["cells"] if tg is not None else cell_targets(P["ws"][j].astype(np.int64), P["pore"][j])
+            c = tg["cells"] if tg is not None else prep_cells(P, j)
             c = np.ascontiguousarray(d4_np(c, k))
             item = item + (torch.from_numpy(np.nan_to_num(c).astype(np.float32)),
                            torch.from_numpy((~np.isnan(c)).astype(np.float32)))
@@ -1246,7 +1354,7 @@ def eval_presets_fold(model, consts, P, va_rows, presets, K, dev, amp_dtype, tta
     b, het4, logn = P["b"], P["het4"], np.log(P["n_eff"])
     va_rows = np.asarray(va_rows, int)
     use_cells = getattr(model, "has_cells", False)
-    ct_of = {int(j): cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in va_rows} if use_cells else {}
+    ct_of = {int(j): prep_cells(P, j) for j in va_rows} if use_cells else {}
     sel = lambda v, m: None if v is None else v[m]  # noqa: E731
     met, arr = {}, {}
     for pr in presets:
@@ -1304,7 +1412,7 @@ def summarize_eval(met, arr, P, presets):
             ch = ct = None
             if all(f"{pr}_cells" in arr[f] for f in folds):
                 ch = np.concatenate([arr[f][f"{pr}_cells"] for f in folds]).astype(np.float64)
-                cto = {int(j): cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in np.unique(rows)}
+                cto = {int(j): prep_cells(P, j) for j in np.unique(rows)}
                 ct = np.stack([cto[int(j)] for j in rows])
             out["pooled"][pr] = stage1_metrics(bh, nh, P["b"][rows], P["het4"][rows], logn[rows], ch, ct)
     if folds and all("g1_b" in arr[f] for f in folds):
@@ -1362,6 +1470,8 @@ def run_eval_only(a):
     import cv2
     cv2.setNumThreads(1)
     P = load_prep(a.prep)
+    if getattr(a, "target_file", None):
+        apply_target_file(P, a.target_file)
     fo = pd.read_csv(DATA_DIR / "folds.csv").set_index("ID")
     folds_of = fo.loc[P["ids"], "fold"].values.astype(int)
     K = 2 if a.smoke else a.k_val
@@ -1373,6 +1483,9 @@ def run_eval_only(a):
     t0 = time.time()
     for f in folds:
         ck = torch.load(out / f"fold{f}.pt", map_location="cpu", weights_only=False)
+        if (ck.get("opts") or {}).get("target_md5") != P.get("target_md5"):  # allowed: cross-evaluation
+            print(f"note: fold {f} was trained with target file md5 {(ck.get('opts') or {}).get('target_md5')}; "
+                  f"evaluated against the targets of {P.get('target_md5') or 'the prep (no --target-file)'}", flush=True)
         va_rows = np.where(folds_of == f)[0]
         va_rows = va_rows[:8] if a.smoke else va_rows
         if (out / f"fold{f}.npz").exists():  # the run's own held-out rows (a --smoke run held out the first 8)
@@ -1399,6 +1512,8 @@ def run_eval_only(a):
              seed_form=f"default_rng([{EVAL_SEED}, k, j])", tta=a.tta, device=str(dev), amp=str(amp_dtype), ckpt=info,
              ranges={pr: dict(render=PRESETS[pr][0], m_ranges=PRESETS[pr][1]) for pr in a.eval_presets},
              command=cmd, t_s=round(time.time() - t0, 1), **S)
+    if getattr(a, "target_file", None):  # new key only: the targets the metrics are computed against
+        S.update(eval_target_file=str(a.target_file), eval_target_md5=P["target_md5"])
     (out / "score_eval.json").write_text(json.dumps(S, indent=1, default=str))
     for pr, v in S["mean_folds"].items():
         pl = S["pooled"].get(pr)
@@ -1460,8 +1575,11 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     if a.zoom is not None or a.mosaic > 0:
         aug = dict(zoom=tuple(a.zoom) if a.zoom is not None else None, p_zoom=a.p_zoom, mosaic=a.mosaic,
                    mosaic_dlogn=getattr(a, "mosaic_dlogn", None))
+    if getattr(a, "target_file", None) and M.RenderSet.__name__ != "RenderSet":
+        raise SystemExit(f"--target-file is not supported with {M.RenderSet.__name__} (tools/fsim items read the prep "
+                         f"targets directly)")
     ds = M.RenderSet(a.prep, tr_rows, a.renders, a.seed, f, preset=a.render_preset, xt=xt, aug=aug, cells=use_cells,
-                     xnames=xnames)
+                     xnames=xnames, target_file=getattr(a, "target_file", None))
     ci = 5 + (nx > 0)  # batch index of the cell targets (FPNNet)
     new_l = (["within"] if a.lambda_within > 0 else []) + (["cell"] if use_cells and a.lambda_cell > 0 else [])
     ep_log, h_all = [], []
@@ -1583,7 +1701,7 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     ch = ct = None
     if use_cells:  # raw cell b-hat and the cell targets of the held-out originals
         ch = mu_b + s_b * pv[-1]
-        ct_of = {int(j): cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in va_rows}
+        ct_of = {int(j): prep_cells(P, j) for j in va_rows}
         ct = np.stack([ct_of[int(j)] for j in rows])
     sel = lambda v, m: None if v is None else v[m]  # noqa: E731
     m_all = stage1_metrics(bh, nh, b[rows], P["het4"][rows], logn[rows], ch, ct)
@@ -1628,8 +1746,7 @@ def train_fold(a, f, P, folds_of, dev, amp_dtype, pred_ids, out, xt=None):
     if len(have) >= 5:
         pr = np.array([pos[ids[j]] for j in have])
         m_real = stage1_metrics(bR[pr], nR[pr], b[have], P["het4"][have], logn[have], sel(cR, pr),
-                                None if cR is None else np.stack([cell_targets(P["ws"][j].astype(np.int64),
-                                                                               P["pore"][j]) for j in have]))
+                                None if cR is None else np.stack([prep_cells(P, j) for j in have]))
         if nx:
             mx_real = stage1_extra(xR[pr], xt[have], xnames)
     res = dict(fold=f, n_train=int(len(tr_rows)), n_heldout=int(len(va_rows)), K=K, consts=consts,
@@ -1785,7 +1902,7 @@ def _write_score(a, out, P, Z, done, xnames):
     vc = vct = None
     if all("val_cells" in Z[f] for f in done):  # FPNNet runs: cell maps of the held-out renders
         vc = np.concatenate([Z[f]["val_cells"] for f in done]).astype(np.float64)
-        vct = np.stack([cell_targets(P["ws"][j].astype(np.int64), P["pore"][j]) for j in vr])
+        vct = np.stack([prep_cells(P, j) for j in vr])
     pooled = (stage1_metrics(vb, vn, P["b"][vr], P["het4"][vr], np.log(P["n_eff"][vr]), vc, vct) if len(done) > 1
               else None)
     pooled_x = None
@@ -1812,6 +1929,9 @@ def _write_score(a, out, P, Z, done, xnames):
         score.update(render_preset=a.render_preset, render_preset_note=PRESET_NOTES[a.render_preset])
     if new_opts(a):
         score.update(opts=new_opts(a))
+    if getattr(a, "target_file", None):  # new key only
+        score.update(notes_target="--target-file: block targets and het4 of the clean images from the file (opts "
+                                  "target_md5); stage-1 metrics are against those targets")
     if getattr(a, "screen", False):
         score.update(notes_screen="--screen: only each fold's held-out real clean images were predicted; no parquets")
     if getattr(a, "eval_presets", None):  # new key only; every key above is unchanged
@@ -1820,7 +1940,8 @@ def _write_score(a, out, P, Z, done, xnames):
     print(f"wrote {out / 'score.json'} (folds {done})")
 
 
-K_ARGS = ("eval_presets", "eval_only")  # 2026-10-09 (night) options: left out of score.json 'args' when unset
+K_ARGS = ("eval_presets", "eval_only", "target_file")  # options added from 2026-10-09 (night) on: left out of
+# score.json 'args' when unset
 
 
 def _stage1_eval_score(a, out, P, Z, done):
@@ -1942,6 +2063,8 @@ def new_opts(a):
         o.update(lambda_within=a.lambda_within)
     if getattr(a, "screen", False):
         o.update(screen=True)
+    if getattr(a, "target_file", None):  # A4 (2026-10-11)
+        o.update(target_file=Path(a.target_file).name, target_md5=target_file_md5(a.target_file))
     return o
 
 
@@ -1981,6 +2104,12 @@ def main(a):
     import cv2
     cv2.setNumThreads(1)
     P = load_prep(a.prep)
+    if a.target_file:
+        ts = apply_target_file(P, a.target_file)
+        print(f"--target-file {a.target_file} (md5 {ts['md5']}): block targets of the {ts['n']} clean images replaced; "
+              f"correction b_new - b_prep mean {ts['corr_mean']:+.4f} sd {ts['corr_sd']:.4f} (within-image sd "
+              f"{ts['corr_within_sd']:.4f}); het4 mean {ts['het4_prep_mean']:.4f} -> {ts['het4_mean']:.4f}, corr "
+              f"{ts['corr_het4']:.4f}", flush=True)
     fo = pd.read_csv(DATA_DIR / "folds.csv").set_index("ID")
     folds_of = fo.loc[P["ids"], "fold"].values.astype(int)
     xt = extra_target_values(P, a.extra_targets) if a.extra_targets else None
@@ -2158,6 +2287,7 @@ def selftest(n_img=6):
     print("ok 7: render preset 'noisy' == the default renderer bit for bit; 'mid' renders deterministic, in its ranges")
     selftest_aug(P, rows)
     selftest_k(P, rows)
+    selftest_target(P, rows)
     print("selftest passed")
 
 
@@ -2432,6 +2562,107 @@ def selftest_aug(P, rows):
         tmp.cleanup()
 
 
+def selftest_target(P, rows):
+    """Check 14, --target-file (A4): a synthetic file (prep b + per-block offsets, ids in reverse order) is applied
+    exactly (b, het4, corrections); plain maps, zoom s=1 and mosaic all-true reproduce the new b and cells shift by
+    their block's offset; a constant offset shifts the targets of augmented maps by exactly that constant; a half-plane
+    mosaic carries each side's offsets; dataset items keep the default renders, validity and logN bit for bit and carry
+    the new targets (plain items exactly, augmented items het4 == sd(valid b)); id / NaN / b_ref / shape / missing-array
+    errors exit; parse and new_opts record the file; without the option no prep key or option is added."""
+    import tempfile
+    n = len(P["ids"])
+    nan0 = np.isnan(P["b"])
+    off = np.random.default_rng(14).normal(0, 0.1, (n, 16))
+    bsyn = np.where(nan0, 5.0, P["b"] + off)
+    rev = np.arange(n)[::-1]
+    cb = np.arange(16)[:, None] // 4 * 4 + np.arange(16)[None, :] // 4  # block of each 16-px cell
+    with tempfile.TemporaryDirectory(prefix="het_cnn_tf_") as td:
+        fp = Path(td) / "t.npz"
+        np.savez(fp, ids=P["ids"][rev], b=bsyn[rev], b_ref=P["b"][rev])
+        Q = dict(P)
+        apply_target_file(Q, fp)
+        assert np.array_equal(Q["b"], P["b"] + off, equal_nan=True) and np.array_equal(Q["b_prep"], P["b"], equal_nan=True)
+        assert np.allclose(Q["bcorr"], np.where(nan0, 0, off), rtol=0, atol=1e-12)
+        assert all(Q["het4"][j] == float(np.std(Q["b"][j][~nan0[j]])) for j in range(n))
+        assert "bcorr" not in P and "cw" not in source_of(P, 0)
+        for j in rows[:3]:
+            src, other = source_of(Q, j), source_of(Q, (j + 1) % n)
+            c0 = cell_targets(src["ws"], src["pore"])
+            assert np.allclose(prep_cells(Q, j), c0 + off[j][cb], rtol=0, atol=1e-9, equal_nan=True)
+            for nm, s_ in (("plain", src), ("zoom s=1", zoom_source(src, 1.0, 0.0, 0.0)),
+                           ("mosaic all-true", mosaic_source(src, other, np.ones((256, 256), bool)))):
+                t = targets_of(s_, cells=True)
+                assert np.allclose(t["b"], Q["b"][j], rtol=0, atol=1e-9, equal_nan=True), nm
+                assert abs(t["het4"] - Q["het4"][j]) < 1e-9 and t["n_eff"] == P["n_eff"][j], nm
+                assert np.allclose(t["cells"], c0 + off[j][cb], rtol=0, atol=1e-9, equal_nan=True), nm
+            # half-plane mosaic, no zoom: blocks of columns 0-1 carry image j's offsets, columns 2-3 the other's
+            mos = mosaic_source(src, other, _XX < 128)
+            t, t0 = targets_of(mos), targets_of({k: v for k, v in mos.items() if k != "cw"})
+            want = t0["b"] + np.where(np.arange(16) % 4 < 2, off[j], off[(j + 1) % n])
+            assert np.allclose(t["b"], want, rtol=0, atol=1e-9, equal_nan=True)
+        # constant offset: augmented targets shift by exactly that constant
+        Qc = dict(P)
+        np.savez(Path(td) / "c.npz", ids=P["ids"], b=np.where(nan0, 5.0, P["b"] + 0.3), b_ref=P["b"])
+        apply_target_file(Qc, Path(td) / "c.npz")
+        aug = dict(zoom=(1.0, 1.4), p_zoom=0.5, mosaic=0.5, mosaic_dlogn=0.5)  # the ev2s_loc_e32r4 options
+        trows = np.arange(min(n, 40))
+        n_aug = 0
+        for i in range(24):
+            s_ = augment_source(Qc, int(trows[i % len(trows)]), trows, np.random.default_rng([0, 0, 0, i, AUG_TAG]), aug)
+            if s_ is None:
+                continue
+            t, t0 = targets_of(s_, cells=True), targets_of({k: v for k, v in s_.items() if k != "cw"}, cells=True)
+            assert np.allclose(t["b"], t0["b"] + 0.3, rtol=0, atol=1e-9, equal_nan=True)
+            assert np.allclose(t["cells"], t0["cells"] + 0.3, rtol=0, atol=1e-9, equal_nan=True)
+            n_aug += 1
+        # dataset items: renders / validity / logN unchanged, targets new
+        d0 = RenderSet(PREP_FP, trows, 1, 0, 0, aug=aug, cells=True)
+        d1 = RenderSet(PREP_FP, trows, 1, 0, 0, aug=aug, cells=True, target_file=fp)
+        n_plain = n_mod = 0
+        for idx in range(0, 2 * d0.n_items, 5):
+            u, w = d0[idx], d1[idx]
+            assert all(torch.equal(x_, y_) for x_, y_ in zip(w, d1[idx]))
+            assert torch.equal(u[0], w[0]) and torch.equal(u[2], w[2]) and torch.equal(u[4], w[4])
+            assert torch.equal(u[6], w[6])
+            j = int(trows[(idx % d0.n_items) % len(trows)])
+            ks = [k for k in range(8) if torch.equal(u[1], torch.from_numpy(
+                np.nan_to_num(P["b"][j][GRID_PERM[k]]).astype(np.float32)))]
+            if ks:  # a plain item: exactly the new prep targets
+                k = ks[0]
+                assert torch.equal(w[1], torch.from_numpy(np.nan_to_num(Q["b"][j][GRID_PERM[k]]).astype(np.float32)))
+                assert torch.equal(w[3], torch.tensor(float(Q["het4"][j])))
+                assert np.allclose(w[5].numpy(), np.nan_to_num(d4_np(prep_cells(Q, j), k)), rtol=0, atol=1e-5)
+                n_plain += 1
+            else:
+                bv = w[1][w[2] > 0].double().numpy()
+                assert abs(float(np.std(bv)) - float(w[3])) < 1e-5 and not torch.equal(u[1], w[1])
+                n_mod += 1
+        # errors
+        ids = P["ids"]
+        bad = {"missing id": dict(ids=ids[1:], b=bsyn[1:], b_ref=P["b"][1:]),
+               "extra id": dict(ids=np.array(list(ids[:-1]) + ["TRAIN_999999"]), b=bsyn, b_ref=P["b"]),
+               "duplicate id": dict(ids=np.array([ids[1]] + list(ids[1:])), b=bsyn, b_ref=P["b"]),
+               "NaN": dict(ids=ids, b=np.where(np.arange(16) == 3, np.nan, bsyn), b_ref=P["b"]),
+               "b_ref": dict(ids=ids, b=bsyn, b_ref=P["b"] + 1e-6), "shape": dict(ids=ids, b=bsyn[:, :15], b_ref=P["b"]),
+               "no b_ref": dict(ids=ids, b=bsyn)}
+        for nm, kw in bad.items():
+            np.savez(Path(td) / "bad.npz", **kw)
+            try:
+                apply_target_file(dict(P), Path(td) / "bad.npz")
+            except SystemExit:
+                continue
+            raise AssertionError(f"--target-file accepted a file with: {nm}")
+        a_ = parse(["--target-file", str(fp), "--out", "x"])
+        o = new_opts(a_)
+        assert o["target_md5"] == target_file_md5(fp) and o["target_file"] == "t.npz"
+        assert "target_md5" not in new_opts(parse(["--out", "x"])) and parse(["--out", "x"]).target_file is None
+    print(f"ok 14: --target-file applied exactly (reordered ids, b, het4, corrections); plain / zoom s=1 / mosaic "
+          f"all-true reproduce the new b and cells (+ block offset); half-plane mosaic carries each side's offsets; "
+          f"{n_aug} augmented sources shift by a constant offset exactly; dataset items: renders, validity, logN, "
+          f"cell masks unchanged, {n_plain} plain items carry the new targets exactly, {n_mod} augmented items "
+          f"het4 == sd(valid b); {len(bad)} bad files refused; options record name + md5")
+
+
 def ds_plain_item(idx):
     """Item idx of the default RenderSet(PREP_FP, [0, 1], 2, 0, 0) (selftest helper)."""
     return RenderSet(PREP_FP, [0, 1], 2, 0, 0)[idx]
@@ -2676,6 +2907,10 @@ def parse(argv=None):
     ap.add_argument("--eval-only", default=None, metavar="RUN",
                     help="no training: score data/het_cnn/RUN/fold{f}.pt (--folds, default all present) on "
                          "--eval-presets -> data/het_cnn/RUN/score_eval.json (score.json / parquets untouched)")
+    ap.add_argument("--target-file", default=None, metavar="NPZ",
+                    help="A4: replace the block targets of the clean prep images by this file's (ids, b, b_ref), e.g. "
+                         "data/het_cnn/a4_v4_block_targets.npz (tools/a4/v4_block_targets.py); het4 recomputed, the "
+                         "per-block corrections carried by zoom / mosaic / cells; renders unchanged; default none")
     ap.add_argument("--zoom", type=float, nargs=2, default=None, metavar=("LO", "HI"),
                     help="label-map zoom augmentation of cartoon renders, s ~ logUniform(LO, HI), e.g. 0.7 1.4 "
                          "(targets recomputed on the zoomed label map); default off")
@@ -2734,6 +2969,8 @@ def parse(argv=None):
         a.eval_presets = list(dict.fromkeys(a.eval_presets))
     if a.eval_only is not None and not a.eval_presets:
         ap.error("--eval-only RUN needs --eval-presets PRESET [PRESET ...]")
+    if a.target_file is not None and not Path(a.target_file).exists():
+        ap.error(f"--target-file {a.target_file}: no such file")
     a.prep_only = a.prep == "__BUILD__"
     if a.prep_only:
         a.prep = str(PREP_FP)
