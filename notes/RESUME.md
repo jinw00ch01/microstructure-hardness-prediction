@@ -1,10 +1,23 @@
-# Resume guide (updated 2026-10-11 ~16:40 KST)
+# Resume guide (updated 2026-10-11 ~18:30 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-11 18:30 KST: v30b public 10.0207 (best), v30a 10.0312; no file for slots 4-5 - read this first
+- User (17:20 KST): blend_v30b 10.0206885658 (new best, auto-final while best), blend_v30a 10.0312450482. Reading:
+  G (A3 reader on the 433 G1 test rows) carried about a third of its CV gain (public dMSE about -0.72 vs v29g; full-CV
+  hypothesis -2.34, calibrated -0.34); C (clean mix 0.75) read worse (+0.21 MSE) and is dropped. v30b is the new base.
+- User asked for 2 improved files for slots 4-5. Every candidate failed its pre-declared N4 rule vs v30b (hardness-cache
+  scripts/d1011/N4/<dir>/README.txt; honest nested dMSE vs v30b):
+  gscope (G only on G1hi / separate midLF fit) +0.60, 0/5; cleancnn (CNN het mixed into clean V4) picks V4 5/5 (CNN het
+  on clean images is worse than one segmentation map); r2seed (A3 seeds 0+1, laptop 17:22-17:46) +0.14, 2/5;
+  gnoise (noise-dependent offset slope) +2.64, 0/5; r3 (A3 on 6-map V4 block targets, laptop section 16-1) +0.93, 1/5.
+  The extra readers are near copies of A3 on G1 rows (het corr 0.998 seed 1, 0.993 V4 targets), so reader variants of
+  the A3 recipe are used up. Slots 4-5 of 10-11 stay empty; v30b stays the base.
+- Code: src/het_cnn.py gained --target-file (A4 patch, selftest ok 14) and tools/a4/v4_block_targets.py (58d880e).
 
 ## 2026-10-11 16:40 KST: new criterion N4 and the v30b / v30a files - read this first
 - User (13:02 KST): make a new criterion and a 4-submission plan for the goal. Criterion N4 (hardness-cache
