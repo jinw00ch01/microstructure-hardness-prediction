@@ -1,10 +1,25 @@
-# Resume guide (updated 2026-10-11 ~10:20 KST)
+# Resume guide (updated 2026-10-11 ~16:40 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-11 16:40 KST: new criterion N4 and the v30b / v30a files - read this first
+- User (13:02 KST): make a new criterion and a 4-submission plan for the goal. Criterion N4 (hardness-cache
+  scripts/d1011/N4/slate/PLAN_N4.txt + its 14:40 addendum): judge by expected value vs v29g instead of pre-registered
+  bars. SAFE = selection-honest nested dMSE < 0, >= 3/5 folds, 40-re-split mean < 0, drop-top-3 < 0. BOLD = CV cost
+  <= +0.5 MSE, at most 2 per day. Public readings only decide which pieces go in, never weights. Public expectation is
+  calibrated as null + 0.47 (cv - null) (v29g / v28n / v26r readings).
+- Screen (workflow n4): G = A3 het reader (ev2s_locK_real5) + stretch step 0.75 on G1 rows: honest -2.40 (strict -2.20),
+  4/5, re-split -0.52 -> SAFE. C = clean mix weight 0.75 (post hoc) -0.51, re-split +0.21 -> BOLD. CNN pooling FAIL
+  (+1.07). S (stretch only) and C alone have ~0 expected value: not submitted. User chose "2개만" on the card (14:07 KST).
+- A3 test het came from laptop section 15 (CPU dump, same-run sums check passed). Label-free gate D4 missed by one row
+  (9/433 test offsets beyond the train max vs < 2%); the 9 test offsets were clipped to the train range (N4/g1clip).
+- Files (hardness-cache submissions/, independently rebuilt, md5 match): blend_v30b = v29g + G_clip (md5 26291df0...,
+  433 rows, expected public 9.94 full / 10.04 calibrated, P(<=10) ~0.36); blend_v30a = v30b + C (md5 ad21ece3..., 952 rows,
+  9.91 / 10.06, ~0.33). Order: v30b then v30a; slots 4-5 of 10-11 empty. G family closes if v30b >= 10.1505.
 
 ## 2026-10-11 10:20 KST: blend_v29g public 10.0564 (best; inconclusive); section 14 all FAIL - read this first
 - blend_v29g scored 10.0564 public (user, 08:38 KST): -0.015 vs v28n 10.0712, new best (auto-final while best).
