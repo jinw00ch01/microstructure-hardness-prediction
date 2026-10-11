@@ -1,10 +1,20 @@
-# Resume guide (updated 2026-10-11 ~20:00 KST)
+# Resume guide (updated 2026-10-11 ~20:05 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-11 20:05 KST: v31s 10.1953, v31f 10.1705 (both worse than v30b 10.0207) - read this first
+- User (20:00 KST): blend_v31f 10.1704996257, blend_v31s 10.1953136309. All 5 slots of 10-11 used. v30b stays the best
+  and the automatic final.
+- Reading: v31s >= 10.06, so the G beta shrink is dropped (+3.53 public MSE vs v30b; expectation +0.29, sd about 1.5).
+  Decomposition (scratch, rebuild exact): 99% of the v31s test change is the offset shrink, the larger stretch k
+  (1.372 -> 1.463) is a small part. As a public slope this puts lambda near 1.35 +- 0.2 vs train inner-CV 0.7, i.e. public
+  values the A3 offset more than train does; not acted on (public never sets strengths). v31f vs v31s -0.025: hold,
+  A3 stays. Lesson: train-side shrinkage found by inner CV on 208 G1 rows did not transfer; treat G1-row CV gains under
+  about 1 MSE as noise.
 
 ## 2026-10-11 20:00 KST: N5 round (new directions) -> blend_v31s and blend_v31f for the last 2 slots of 10-11 - read this first
 - User (18:26 KST): plenty of time left; new directions, many plans including bold ones, new CSVs. User (project chat
