@@ -4,6 +4,12 @@ Folder: `C:\Daker\microstructure-hardness-prediction`, branch `claude/lb-under-1
 The repo is public (user's decision, 2026-10-06). Never commit or push test-set predictions (`experiments/*/test.csv`,
 git-ignored) or figures that show competition images. This session does not commit or push at all.
 
+**GPU rule from 2026-10-11 18:58 KST until the deadline 2026-10-19 10:00 KST (user, project chat):** this project owns the
+GPU unconditionally; the RobotWorldModel session is not working for now. Run GPU steps with `--device cuda` directly (no
+gpu_turn.py), no per-run GPU grant and no hand-back file (`hardness_gpu_done`) are needed. The older per-section mode
+lines below (shared / exclusive / return the GPU) are superseded for this period. Still never touch the robot project's
+files or jobs.
+
 ## 1. Pull
 `git pull origin claude/lb-under-10-7080jr`
 
