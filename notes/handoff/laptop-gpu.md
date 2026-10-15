@@ -1190,3 +1190,36 @@ foreach ($r in 'ev2s_locK_fsim_s1','ev2s_locK_fsim_s2') { foreach ($k in 0,1,2) 
 - CUDA OOM: rerun the identical command once; after a second OOM use `--batch 8` with `_b8` appended to `--out` and say so.
 - SEND after each run: its 3 chunks, one message each (full text).
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 19. More reader backbones for the G1 averages: B1 recipe on effnetv2-m, B4 seed 1, RegNetY and ResNet-D readers (prepared 2026-10-15 12:33 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션19 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: start after section 17 (17-3) has finished or closed. If 18-1 has not started by then, run 19-1 first, then 18-1,
+then 19-2 to 19-4; if 18-1 is already running, finish it first.
+Why: the 10-15 files average het readers on the 433 G1 test rows (hardness-cache scripts/d1015/g1mix2/README.txt). On
+train, the reader on another backbone (B4, effnetv2-m) and the reader with another recipe (B1, fsim) helped most. These
+runs add both kinds of pieces for the 10-16 files. All weights are Apache-2.0 timm weights with GitHub-release URLs; the
+cloud checked that each new backbone builds with `--head fpn` and gives the 16 blocks, logN and the 16x16 cell map.
+
+19-1 [GPU] B5 = the B1 recipe on effnetv2-m. Take B1's exact training command (as in 18-1: `data\het_cnn\ev2s_locK_fsim\
+  score.json`, keys `command` / `commands` / `args`) and change only `--arch tf_efficientnetv2_m.in21k_ft_in1k` and
+  `--out ev2m_locK_fsim`. If B4 (`data\het_cnn\ev2m_locK_real5\score.json`) was trained with another `--batch` than B1,
+  use B4's batch and say so.
+19-2 [GPU] B4 seed 1: B4's exact command with only `--seed 1 --out ev2m_locK_real5_s1`.
+19-3 [GPU] The A3 recipe on RegNetY-4GF:
+```powershell
+python -W ignore -m src.het_cnn --device cuda --arch regnety_040.ra3_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --out rgy4_locK_real5
+```
+19-4 [GPU] The A3 recipe on ResNet50-D:
+```powershell
+python -W ignore -m src.het_cnn --device cuda --arch resnet50d.ra2_in1k --epochs 32 --renders 4 --batch 12 --lr 1e-3 --workers 4 --threads 2 --seed 0 --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1 --render-preset real --out r50d_locK_real5
+```
+After each run, dump it (replace `<run>` by the run's `--out`):
+```powershell
+foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump <run> --chunk $k | Out-File -Encoding utf8 data\het_cnn\<run>\c$k.txt }
+```
+- Before 19-1 and before 19-2, send the command line you are going to use (one message each), so the cloud can check it.
+- CUDA OOM: rerun the identical command once; after a second OOM use `--batch 8` with `_b8` appended to `--out` and say so.
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
