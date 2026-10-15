@@ -14,8 +14,9 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   100 re-splits -0.12/-0.50). Feasibility (L4): public < 9.0 needs a single lever of >= 15 public MSE; P(< 9.0 by 10-19) about
   0.2%; realistic landing 9.83-9.95 with the reader pipeline.
 - Next, in order: (1) section 19 readers -> g1mix3 (pre-registered) -> files that beat v33xb on the fixed-XB4 comparison and
-  kriging16; 17-3 C0/C1 via cnn_swap.py. (2) E1 = full-menu nested test of the post hoc G1 elongation offset (PLAN_N7 2b), running
-  as a cloud workflow into scripts/d1016/N7E1 (options frozen there first; file blend_v34e1 only on PASS). (3) Port the final
+  kriging16; 17-3 C0/C1 via cnn_swap.py. (2) E1 = full-menu nested test of the post hoc G1 elongation offset (PLAN_N7 2b): FAIL, verified
+  (scripts/d1016/N7E1/RESULT.txt, VERIFY.txt: 113 options frozen 14:21 KST, +2.03 all-500, 2/5, re-splits +1.62, P 0.62); no file,
+  G1 elongation family closed. (3) Port the final
   file's recipe into the repo for the top-10 code check (Evaluation.md).
 
 ## 2026-10-15 13:03 KST: v33xb 9.9868 (first below 10, new best); target now the 8s; round N7 running - read this first
