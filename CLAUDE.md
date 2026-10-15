@@ -1,6 +1,6 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-15 13:03 KST):** best public blend_v33xb 9.9868 (first file below 10; automatic final while it stays best); target now public in the 8s (user, 10-15 12:56 KST); laptop running 17-3 then section 19 readers; design round N7 (big levers for 8.x) running in the cache (scripts/d1016/N7). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-15 14:19 KST):** best public blend_v33xb 9.9868 (first file below 10; automatic final while it stays best); target now public in the 8s (user, 10-15 12:56 KST); laptop running 17-3 then section 19 readers; design round N7 found no lever for the 8s (scripts/d1016/N7/PLAN_N7.txt; P(<9.0) about 0.2%). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.

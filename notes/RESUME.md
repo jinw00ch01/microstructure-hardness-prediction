@@ -1,10 +1,22 @@
-# Resume guide (updated 2026-10-15 13:03 KST)
+# Resume guide (updated 2026-10-15 14:19 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-15 14:19 KST: round N7 found no lever for the 8s; reader pipeline continues; E1 test running - read this first
+- PLAN_N7 (hardness-cache scripts/d1016/N7/PLAN_N7.txt, written 14:15 KST before a container restart; lens reports in
+  N7/L1..L4, L3 verified): all four lenses null. Per-phase / per-grain functionals (L1) and kernel mean-embedding distribution
+  regression (L2) on clean rows are worse than the base; a power test rules out a simple additive per-grain functional of >= 10
+  HV^2. Denoise-then-segment on G1 rows (L3) recovers geometry the base already has; its nested -1.70 was refuted (2 rows carry it,
+  100 re-splits -0.12/-0.50). Feasibility (L4): public < 9.0 needs a single lever of >= 15 public MSE; P(< 9.0 by 10-19) about
+  0.2%; realistic landing 9.83-9.95 with the reader pipeline.
+- Next, in order: (1) section 19 readers -> g1mix3 (pre-registered) -> files that beat v33xb on the fixed-XB4 comparison and
+  kriging16; 17-3 C0/C1 via cnn_swap.py. (2) E1 = full-menu nested test of the post hoc G1 elongation offset (PLAN_N7 2b), running
+  as a cloud workflow into scripts/d1016/N7E1 (options frozen there first; file blend_v34e1 only on PASS). (3) Port the final
+  file's recipe into the repo for the top-10 code check (Evaluation.md).
 
 ## 2026-10-15 13:03 KST: v33xb 9.9868 (first below 10, new best); target now the 8s; round N7 running - read this first
 - User (12:56 KST): blend_v33xb 9.9868332159, v33t3 9.9921641853, v33b4 9.9960660597, v33s5 10.0031466453; then "앞으로의
