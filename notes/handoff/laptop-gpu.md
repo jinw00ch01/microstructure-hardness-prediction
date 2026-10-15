@@ -1228,3 +1228,24 @@ foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump <run> --chunk $k 
 - CUDA OOM: rerun the identical command once; after a second OOM use `--batch 8` with `_b8` appended to `--out` and say so.
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 20. Bigger and different readers after section 19: effnetv2-l and EfficientNet-B5 Noisy Student (prepared 2026-10-15 15:20 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션20 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: start after section 19 (19-4) has finished; if the run line arrives earlier, queue it behind 19-4.
+Why: on train the bigger backbone helped most (B4 on effnetv2-m beat A3 on effnetv2-s; the B1 recipe on effnetv2-m, B5, did
+not add to B1 + B4: hardness-cache scripts/d1016/g1mix3/RESULT_B5.txt). These two runs test one step bigger on the same
+recipe and one strong backbone from another pretraining. Both weights are Apache-2.0 timm weights with GitHub-release URLs;
+the cloud built both with `--head fpn` (16 blocks, logN and the 16x16 cell map at 256 input): effnetv2-l 116.7M parameters,
+B5-NS 27.5M (effnetv2-m 52.4M).
+
+20-1 [GPU] B6 = B4's exact command (`data\het_cnn\ev2m_locK_real5\score.json`, keys `command` / `commands` / `args`) with
+  only `--arch tf_efficientnetv2_l.in21k_ft_in1k --batch 6 --out ev2l_locK_real5` changed.
+20-2 [GPU] NS = B4's exact command with only `--arch tf_efficientnet_b5.ns_jft_in1k --out b5ns_locK_real5` changed (B4's batch).
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before each run, send the command line you are going to use (one message), so the cloud can check it.
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 (20-1: 6 -> 4) with `_b<batch>`
+  appended to `--out`, and say so.
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
