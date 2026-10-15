@@ -1098,7 +1098,7 @@ foreach ($k in 0,1) { python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --d
   - Arm M (ImageNet init plus aux heads) never runs.
 - 17-1 PASS = (a) PASS and (d) PASS here, and (c) PASS from the cloud, for T1, or else for T0. The cloud writes the
   verdict line `17-1: PASS T1`, `17-1: PASS T0` or `17-1: CLOSED`.
-- Amendment 2026-10-15 12:30 KST (cloud, before the T1 (c) number was computed): (c) is report only. 17-1 PASS = (a) PASS
+- Amendment 2026-10-15 11:31 KST (cloud, before the T1 (c) number was computed): (c) is report only. 17-1 PASS = (a) PASS
   and (d) PASS for T1. If the cloud writes `17-1 c T1: FAIL` and then `17-1: PASS T1`, go to 17-2 with the T1 arm (a T0
   run already started may finish; its result is report only).
 
@@ -1120,7 +1120,7 @@ python -W ignore tools\n6\gate17.py --name cnn_ev2s_A3init_anc05_s3 --folds 0 1 
 - The cloud then computes the stage-1 bars with hardness-cache `scripts/d1011/bold/L6_leaders/l6_cnn_gate.py <oof>
   --ref s3`: all <= 13.12, >= 4/5 folds better than s3, fine-noisy cell <= 11.20. Any bar missed closes the line:
   no 17-3 and no N4 look.
-- Amendment 2026-10-15 12:55 KST (cloud, before any 17-2 number): the cloud also writes `17-2 stage-1: PASS` on the
+- Amendment 2026-10-15 11:35 KST (cloud, before any 17-2 number): the cloud also writes `17-2 stage-1: PASS` on the
   diversity route (all-500 OOF RMSE <= 13.30 and OOF-residual corr with s3 <= 0.97). Nothing changes on the laptop side.
 
 17-3 [GPU] Stage 3: 6 seeds plus 6 full-data models of the same arm (about 1.5 h). Run only on the verdict line
@@ -1157,7 +1157,7 @@ as a section of its own. When the G1 line closes (at any step), stop and wait fo
 | 17-3 (GPU) | about 1.5 h | gate17_3.txt (< 1 KB); if PASS: score.json + oof k=0,1 + kf chunks 0..3 (7 x 1-2 KB) |
 | total GPU | about 2.3 h (2.5 h with T0) | |
 
-## 18. More G1 readers: send B4 and A3 seed 4, then train B1 seeds 1-2 (prepared 2026-10-15 13:05 KST)
+## 18. More G1 readers: send B4 and A3 seed 4, then train B1 seeds 1-2 (prepared 2026-10-15 11:36 KST)
 
 Runs on JINWOO's own run line in the main thread ("섹션18 실행"). GPU rule as in the header (this project owns the GPU until
 2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
