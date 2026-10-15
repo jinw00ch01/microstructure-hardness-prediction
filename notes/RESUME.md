@@ -1,10 +1,21 @@
-# Resume guide (updated 2026-10-15 21:00 KST)
+# Resume guide (updated 2026-10-15 21:07 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-15 21:07 KST: PAUSED (JINWOO moved location, main thread 21:04 KST) - read this first
+- Laptop: all jobs stopped 21:05 KST, GPU idle. 21-3 (ev2l_locK_fsim) stopped at fold 2 epoch 6; folds 0-1 kept on the laptop;
+  on "재개" the laptop reruns the identical 21-3 command (finished folds are skipped; laptop-gpu.md section 21, pause note).
+- Cloud: nothing running. All records committed and pushed; reader tables (data/het_cnn/*/*.parquet, *.json) backed up to
+  hardness-cache het_cnn-tables.tar (restore: tar -xf /mnt/project-files/work/hardness-cache/het_cnn-tables.tar from the repo
+  root; the laptop dumps are also in scripts/d1016/s19/ for re-ingest).
+- Open for JINWOO: slot 5 of 10-15 (until 00:00 KST 10-16) = submissions/blend_v34l2.csv (BOLD, expected about 9.999).
+- After "재개": ingest ev2l_locK_fsim (s19_extract.py RUN 0 1 2, src.het_cnn --ingest), run g1mix5/build_g1mix5.py, apply the
+  g1mix4 SAFE/BOLD rules and ADDENDUM_order.txt, then plan the 10-16 slate (XN is the next BOLD file). Add any score the user
+  reports to forensics16 PUB/BUILT_ON and re-krige first.
 
 ## 2026-10-15 21:00 KST: sections 20-21 (effnetv2-l, B5-NS); slot 5 of 10-15 = blend_v34l2 (BOLD) - read this first
 - Section 20: B6 = ev2l_locK_real5 (A3 recipe on effnetv2-l) and NS = b5ns_locK_real5 (EfficientNet-B5 Noisy Student).
@@ -733,6 +744,7 @@ tar -xf data/data_restored.tar && rm data/data_restored.tar  # restored images -
 tar -xf /mnt/project-files/work/hardness-cache/experiments-test.tar   # experiments/*/test.csv (git-ignored)
 tar -xf /mnt/project-files/work/hardness-cache/figures-local.tar      # optional: figures that show competition images
 mkdir -p submissions && cp /mnt/project-files/work/hardness-cache/submissions/* submissions/
+tar -xf /mnt/project-files/work/hardness-cache/het_cnn-tables.tar   # G1 het reader tables data/het_cnn/<run>/*.parquet (laptop readers)
 ```
 Pretrained weights download from GitHub releases on first use (`src.common.create_timm`).
 huggingface.co is blocked in the cloud sandbox.

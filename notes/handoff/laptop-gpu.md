@@ -1270,3 +1270,6 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   `--out`, and say so.
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+- Pause 2026-10-15 21:05 KST (JINWOO moved location): 21-1 and 21-2 are done and ingested in the cloud. 21-3 (ev2l_locK_fsim)
+  was stopped at fold 2 epoch 6; folds 0-1 are kept in data\het_cnn\ev2l_locK_fsim. On "재개": git pull, then rerun the
+  IDENTICAL 21-3 command (a rerun skips finished folds), dump it, and send the 3 chunks plus the wall time as above.
