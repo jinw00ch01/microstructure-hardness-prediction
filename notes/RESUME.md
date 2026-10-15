@@ -1,10 +1,29 @@
-# Resume guide (updated 2026-10-15 12:27 KST)
+# Resume guide (updated 2026-10-15 13:03 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-15 13:03 KST: v33xb 9.9868 (first below 10, new best); target now the 8s; round N7 running - read this first
+- User (12:56 KST): blend_v33xb 9.9868332159, v33t3 9.9921641853, v33b4 9.9960660597, v33s5 10.0031466453; then "앞으로의
+  목표지향점수를 8점대로 변경": the target is now public below 9.0 (about -19 public MSE from 99.74). 4 of the 5 slots of 10-15 used;
+  16 submissions left. All four read 0.02-0.29 MSE better than their kriging predictions (z -0.1 to -0.2). Public order matches
+  train: B4/B1 readers best, the A3-family file worst. Re-kriged (scripts/d1016/pub/forensics16.py + kriging16.py + read16.py):
+  A3B4 9.9994 and S4X2B4 9.9908 cannot beat v33xb, so blend_v33ab is dropped.
+- The 10-18 public-tuned fallback (s110/test_a3x110.csv) was only for "still >= 10.0 on 10-18"; that condition is gone.
+- Laptop (user's "색션 19 실행", 12:56 KST): 17-3 started 12:58 KST, then 19-1 (B5 = ev2m_locK_fsim, batch 8 like B4), 18-1 (B1 seeds
+  1-2), 19-2 (B4 seed 1), 19-3 (RegNetY-4GF), 19-4 (ResNet50-D); dumps c0-c2 after each run. The laptop's git pull had been blocked
+  by the cloud-committed experiments/cnn_ev2s_A3init_anc05_s3 files (it moved its local copies aside): do not commit experiment
+  files the laptop also writes locally without telling it. When B5 arrives: ingest, run d1016/g1mix3/build_g1mix3.py (options
+  pre-registered 12:33 KST; self-test reproduces the 10-15 files), krige with kriging16, slot 5 of 10-15 if an option beats v33xb.
+- Error budget of the current best (train OOF, MSE 109.6): clean 69.9 (34% of SSE; ~110 for N 100-200, ~47 for N >= 270), G1hi 180
+  (53%; 233 in the lowest-N quintile), midLF 106, LV 90. Round H (d1011/H/PLAN_H.txt) put the leaders' true edge at ~14 public MSE,
+  most likely the 1/N share on coarse rows.
+- Design round N7 (workflow, started 13:02 KST; scripts/d1016/N7/<lens>/REPORT.txt, VERIFY.txt, PLAN_N7.txt): L1 per-phase /
+  per-grain label functionals on clean rows, L2 distribution regression on per-grain sets, L3 denoise-then-segment on G1 rows, L4
+  honest feasibility table for 8.x.
 
 ## 2026-10-15 12:27 KST: resumed after an 88 h pause; 4-file structural slate for 10-15; section 17-3 running - read this first
 - User (11:03 KST): blend_v32m 10.0298 (hold; v30b 10.0207 stays best). Next target: public below 10.0, i.e. public dMSE

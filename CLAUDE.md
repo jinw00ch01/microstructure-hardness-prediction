@@ -1,10 +1,10 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-15 12:27 KST):** best public blend_v30b 10.0207 (automatic final while it stays best); next target public below 10.0 (user, 10-15); 10-15 slate blend_v33xb/v33t3/v33s5/v33b4 delivered (G1 reader averages with the new B4 reader, BOLD); laptop section 17-3 running; 10-18 fallback test_a3x110 only if still >= 10.0. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-15 13:03 KST):** best public blend_v33xb 9.9868 (first file below 10; automatic final while it stays best); target now public in the 8s (user, 10-15 12:56 KST); laptop running 17-3 then section 19 readers; design round N7 (big levers for 8.x) running in the cache (scripts/d1016/N7). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
-Goal: **public LB ≤ 9** (raised from 10 by the user, 2026-10-10 16:11 KST). Final = the submission with the best
+Goal: **public LB in the 8s (below 9.0)** (user, 2026-10-15 12:56 KST, after blend_v33xb read 9.9868; earlier goals: ≤ 10, then ≤ 9 on 2026-10-10). Final = the submission with the best
 public score, picked automatically at the deadline **2026-10-19 10:00 KST** (user, 2026-10-10). Train 500 images, test 1,000 images. Rules: no external data, test images
 must never be used for training (no pseudo-labels, no test-time fitting of scalers), only openly
 licensed pretrained weights (MIT/Apache/CC BY/CC BY-NC), no remote APIs, max 5 submissions/day.
