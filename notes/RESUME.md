@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-15 14:39 KST)
+# Resume guide (updated 2026-10-15 15:08 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -16,7 +16,9 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
 - Next, in order: (1) section 19 readers -> g1mix3 (pre-registered) -> files that beat v33xb on the fixed-XB4 comparison and
   kriging16. 17-3 closed 14:39 KST: its gate failed rms(full6 test - 5-fold-mean test) 1.630 > 1.5 (corr 0.9960 and KS p 0.683
   passed); per the section rule no kf member and no P2 (C0/C1) look; y-CNN line closed. 19-1 (B5) died at fold 2 epoch 9
-  (Windows service install, 14:27 KST) and resumes from fold 2. (2) E1 = full-menu nested test of the post hoc G1 elongation offset (PLAN_N7 2b): FAIL, verified
+  (Windows service install, 14:27 KST), resumed and finished 15:00 KST. B5 ingested; g1mix3 rebuilt with kriging16
+  (scripts/d1016/g1mix3/RESULT_B5.txt): every B5 option is worse than XB4 on train (M2 +0.009, X3 +0.039, ALL6 +0.080, B5 +0.200
+  MSE) and on kriging (X3 9.9889, M2 9.9918 vs v33xb 9.9868), so slot 5 of 10-15 stays unused. Laptop now on 18-1 (B1 s1). (2) E1 = full-menu nested test of the post hoc G1 elongation offset (PLAN_N7 2b): FAIL, verified
   (scripts/d1016/N7E1/RESULT.txt, VERIFY.txt: 113 options frozen 14:21 KST, +2.03 all-500, 2/5, re-splits +1.62, P 0.62); no file,
   G1 elongation family closed. (3) Port the final
   file's recipe into the repo for the top-10 code check (Evaluation.md).
