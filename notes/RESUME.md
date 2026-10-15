@@ -1,10 +1,41 @@
-# Resume guide (updated 2026-10-11 ~23:15 KST)
+# Resume guide (updated 2026-10-15 12:27 KST)
 
 Goal: public LB RMSE <= 9 (user, 2026-10-10 16:11 KST; was <= 10). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-15 12:27 KST: resumed after an 88 h pause; 4-file structural slate for 10-15; section 17-3 running - read this first
+- User (11:03 KST): blend_v32m 10.0298 (hold; v30b 10.0207 stays best). Next target: public below 10.0, i.e. public dMSE
+  below -0.414 vs v30b. Exactly 20 submissions left (5 a day, 10-15 to 10-18); deadline 10-19 10:00 KST.
+- User's card (11:11 KST), "last-day insurance": the honest route until 10-18 (structural pieces at their honest-CV strengths;
+  public readings only pick pieces, never weights, strengths or seeds). If public is still >= 10.0 on 10-18, submit
+  hardness-cache scripts/d1015/s110/test_a3x110.csv (A3 offset x1.10, public-fitted, expected 9.9945, md5 ceae9744...). That is
+  the one sanctioned exception to "never set a strength from public".
+- 10-15 slate (hardness-cache scripts/d1015/g1mix2/README.txt), delivered 12:22 KST: submissions/blend_v33xb (B1 + B4 readers),
+  blend_v33t3 (A3 5 seeds + B1 + B4), blend_v33s5 (A3 5 seeds + B1), blend_v33b4 (B4 alone); each changes only the 433 G1 test
+  rows of v30b. Held: blend_v33ab (A3 + B4) as a slot-5 fallback. All BOLD: vs the fixed A3 rule -0.21 to -0.51 MSE, 4/5 folds,
+  re-splits P>=0 <= 0.03, but no gain left without the top 3 rows. Joint public model: P(at least one < 10.0) 0.695.
+- Withdrawn before delivery: the d1015/g1mix seed slate (S4X2, A3X, P1-P3): single-seed draws of one reader, so a public pick
+  among them is a seed lottery. Rule: never submit single-seed variants side by side or together with their own average.
+- Fair train comparison for a fixed option is the FIXED replace_A3/0.75 option (v30b's real test rule), not the v30b honest OOF
+  (p30), which carries a -0.271 selection penalty that flatters every fixed option.
+- Builder bug fixed: `from g1core import *` rebinds HERE to N4/g1, so build_g1mix*.py re-set HERE after the import (stray
+  outputs deleted 12:21 KST; README in d1015/g1mix).
+- Section 18 (user, 11:47 KST "섹션 18 실행"): readers B4 = ev2m_locK_real5 (A3 recipe, effnetv2-m) and A3 seed 4 =
+  ev2s_locK_real5_s4 sent as text dumps (d1015/s18/, helper s18_extract.py) and ingested into data/het_cnn/ bit-identical.
+  18-1 (B1 seeds 1-2) trains after 17-3. Open question for 10-16: a B1 seed average would be a seed variant of the B1 files
+  already submitted, so it can only replace them, not run beside them.
+- Section 17 (laptop back online 11:10 KST): 17-0 self-test and 17-1 gate passed; 17-2 stage-1 PASS on the diversity route
+  (cnn_ev2s_A3init_anc05_s3 OOF 12.260 vs s3 13.25; fine-noisy cell 11.60 vs 11.26 missed); verdict pushed 12:08 KST and 17-3
+  (6 seeds + full-data kf) started. Cloud steps when gate17_3 arrives: extract chunks (d1015/s17/s17_extract.py checks n and
+  sum), write experiments/cnn_ev2s_A3init_anc05_gpu_s6 and _gpu_s6kf (kf oof = s6 oof, test = kf), run hardness-cache
+  scripts/d1011/N6/run/cnn_a3init/cnn_swap.py (options C0/C1 frozen 12:10 KST, sha 8cfa7cff...), verify independently; a
+  slot-5 file only if C1 is picked, else blend_v33ab tonight.
+- Public-history model: d1015/g1mix/forensics15.py (PUB, BUILT_ON) + kriging.py; joint slate model d1015/g1mix2/joint/. When
+  the 10-15 scores come in, add them to PUB with BUILT_ON 'v30b', re-run both, then plan 10-16 (pieces only). Keep at least one
+  10-18 slot for the fallback while public is >= 10.0.
 
 ## 2026-10-11 23:15 KST: N6 round -> blend_v32m (BOLD) for 10-12; laptop section 17 running - read this first
 - N6 design (hardness-cache scripts/d1011/N6/PLAN_N6.txt; 4 lenses, 2 judges): picks P1 g1_sizesub (CPU), P2 = N6-G1 y-CNN

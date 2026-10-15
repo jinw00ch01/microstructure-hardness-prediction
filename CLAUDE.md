@@ -1,6 +1,6 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-11 23:15 KST):** best public blend_v30b 10.0207 (automatic final while it stays best); blend_v32m (BOLD) ready for 10-12; laptop section 17 (A3-initialised y-CNN) running. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-15 12:27 KST):** best public blend_v30b 10.0207 (automatic final while it stays best); next target public below 10.0 (user, 10-15); 10-15 slate blend_v33xb/v33t3/v33s5/v33b4 delivered (G1 reader averages with the new B4 reader, BOLD); laptop section 17-3 running; 10-18 fallback test_a3x110 only if still >= 10.0. Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
