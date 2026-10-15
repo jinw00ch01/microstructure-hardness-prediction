@@ -1,10 +1,26 @@
-# Resume guide (updated 2026-10-15 16:54 KST)
+# Resume guide (updated 2026-10-15 21:00 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-15 21:00 KST: sections 20-21 (effnetv2-l, B5-NS); slot 5 of 10-15 = blend_v34l2 (BOLD) - read this first
+- Section 20: B6 = ev2l_locK_real5 (A3 recipe on effnetv2-l) and NS = b5ns_locK_real5 (EfficientNet-B5 Noisy Student).
+  Section 21: B6 seeds 1-2 (ev2l_locK_real5_s1, _s2; laptop 3870 s / 3878 s each, batch 6), then 21-3 = ev2l_locK_fsim (B1 recipe
+  on effnetv2-l), training on the laptop since 20:37 KST. Health corr with A3f 0.993 for every new reader.
+- g1mix4 official 3-seed build (hardness-cache scripts/d1016/g1mix4/B6x3, log build_log_B6x3.txt, notes in RESULT_B6.txt):
+  vs the fixed XB4 option XL -0.236 (3/5), XN -0.120 (3/5), XLN -0.280 (3/5), L2 [B4f+B6] -0.269 (3/5), B6 alone -0.601 MSE;
+  drop-top-3 positive for all, gain mostly fold 3 (0-based). kriging16: XL 9.9886, XLN 9.9939, XN 9.9978, L2 9.9989, B6 10.0089.
+  No SAFE file; BOLD = XN and L2 (XL and XLN miss rms vs v33xb >= 0.5). ADDENDUM_order.txt (18:33 KST, before the seeds):
+  XN and L2 within 0.002 kriging, so the better OOF first -> L2.
+- Delivered 21:00 KST for slot 5 of 10-15: submissions/blend_v34l2.csv (md5 698f5eb67d2f6af5e646cbd878ee767f, OOF
+  blend_v34l2_oof.csv). Independent verification (3 checkers, scripts/d1016/g1mix4_verify/): byte-identical rebuild, dumps =
+  ingested parquets, 1000 rows, IDs in order, only the 433 G1 rows change vs v30b, rules and compliance PASS.
+- Next: XN is the next BOLD file (10-16). 21-3: extract/ingest ev2l_locK_fsim, then run scripts/d1016/g1mix5/build_g1mix5.py
+  (options LL, XLL, XL7, ALLL; same SAFE/BOLD rules and order, pre-registered 18:34 KST). When the user reports the v34l2
+  score, add it to forensics16 PUB/BUILT_ON and re-krige before choosing the 10-16 files.
 
 ## 2026-10-15 16:54 KST: section 19 done, no 10-16 file from it; section 20 (effnetv2-l, B5-NS) training - read this first
 - All section 18/19 readers are in (B1 s1/s2, B4 s1, B5, RG = rgy4_locK_real5, RN = r50d_locK_real5; health corr 0.986-0.996).
