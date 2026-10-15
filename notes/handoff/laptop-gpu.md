@@ -1249,3 +1249,24 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   appended to `--out`, and say so.
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 21. Two more seeds of the effnetv2-l reader, then the B1 recipe on effnetv2-l (prepared 2026-10-15 17:59 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션21 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: start after section 20 (20-2) has finished; if the run line arrives earlier, queue it behind 20-2. Run 21-1, 21-2, 21-3.
+Why: B6 (20-1, ev2l_locK_real5) is the first new reader since B4 that is better than the v33xb readers on train (alone -0.82 MSE
+vs the fixed XB4 option, with B1 + B4 -0.32; hardness-cache scripts/d1016/g1mix4/build_log_B6.txt), but the gain sits mostly on
+one fold and three rows, and one seed of B4 earlier looked better than its 2-seed mean. Two more seeds tell whether the gain is
+the backbone or the seed. g1mix4 averages seeds per family (options.txt), so no new pre-registration is needed for 21-1/21-2.
+
+21-1 [GPU] B6 seed 1: 20-1's exact command with only `--seed 1 --out ev2l_locK_real5_s1`.
+21-2 [GPU] B6 seed 2: 20-1's exact command with only `--seed 2 --out ev2l_locK_real5_s2`.
+21-3 [GPU] B1 recipe on effnetv2-l: B1's exact command (`data\het_cnn\ev2s_locK_fsim\score.json`, as in 19-1) with only
+  `--arch tf_efficientnetv2_l.in21k_ft_in1k --batch 6 --out ev2l_locK_fsim` changed.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before each run, send the command line you are going to use (one message), so the cloud can check it.
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 (6 -> 4) with `_b<batch>` appended to
+  `--out`, and say so.
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
