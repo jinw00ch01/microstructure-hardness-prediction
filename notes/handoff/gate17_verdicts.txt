@@ -4,3 +4,5 @@
 # section 17). The verdict lines keep their exact text; '17-1 c T1: FAIL' followed by '17-1: PASS T1' means: (c) missed
 # its bar, the T1 arm goes on to 17-2. Stage-1 bars (17-2) stay as declared; an extra pass route for 17-3, if any, is
 # committed here before 17-2's numbers arrive.
+17-1 c T1: PASS
+17-1: PASS T1
