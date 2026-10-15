@@ -1098,6 +1098,9 @@ foreach ($k in 0,1) { python -W ignore -m src.het_cnn --dump ev2s_locK_real5 --d
   - Arm M (ImageNet init plus aux heads) never runs.
 - 17-1 PASS = (a) PASS and (d) PASS here, and (c) PASS from the cloud, for T1, or else for T0. The cloud writes the
   verdict line `17-1: PASS T1`, `17-1: PASS T0` or `17-1: CLOSED`.
+- Amendment 2026-10-15 12:30 KST (cloud, before the T1 (c) number was computed): (c) is report only. 17-1 PASS = (a) PASS
+  and (d) PASS for T1. If the cloud writes `17-1 c T1: FAIL` and then `17-1: PASS T1`, go to 17-2 with the T1 arm (a T0
+  run already started may finish; its result is report only).
 
 17-2 [GPU] Stage 1: 5 folds x 3 seeds of the arm that passed 17-1 (about 30-45 min). Run only on the verdict line
 `17-1: PASS T1` or `17-1: PASS T0`. The lines below are the T1 arm. If T0 passed instead, replace `--anchor 0.5` with `--anchor 0` and

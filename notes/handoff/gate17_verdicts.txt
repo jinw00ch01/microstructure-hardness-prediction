@@ -1,1 +1,6 @@
 # Section 17 cloud verdicts (one line each, written by the cloud; the laptop polls git for them). No numbers.
+# Amendment 2026-10-15 12:30 KST (written before the T1 (c) number was computed): under the user's 10-15 plan the y-CNN is
+# wanted as a fresh blend piece, so gate (c) is report only. 17-1 PASS = (a) PASS and (d) PASS for T1 (else T0 as in
+# section 17). The verdict lines keep their exact text; '17-1 c T1: FAIL' followed by '17-1: PASS T1' means: (c) missed
+# its bar, the T1 arm goes on to 17-2. Stage-1 bars (17-2) stay as declared; an extra pass route for 17-3, if any, is
+# committed here before 17-2's numbers arrive.
