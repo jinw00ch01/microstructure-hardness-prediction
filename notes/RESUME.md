@@ -1,10 +1,21 @@
-# Resume guide (updated 2026-10-15 15:08 KST)
+# Resume guide (updated 2026-10-15 16:54 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-15 16:54 KST: section 19 done, no 10-16 file from it; section 20 (effnetv2-l, B5-NS) training - read this first
+- All section 18/19 readers are in (B1 s1/s2, B4 s1, B5, RG = rgy4_locK_real5, RN = r50d_locK_real5; health corr 0.986-0.996).
+  Final g1mix3 build (hardness-cache scripts/d1016/g1mix3/RESULT_S19.txt): no option beats v33xb. vs the fixed XB4 option:
+  X3 +0.052, M2 +0.121, ALL6 +0.466, DIV4 +0.661 MSE; kriging16 best X3 9.9898 vs v33xb 9.9868. RegNetY and ResNet50-D are weak
+  G1 het readers (alone +1.77 / +1.61 MSE), so non-EfficientNet backbones are closed. Seed averaging also gave nothing:
+  XB4f with 3+2 seeds +0.024 vs the seed-0 XB4 file.
+- g1mix4 (section 20 options XL, XN, XLN, L2, B6; SAFE and BOLD slate rules) pre-registered 16:40 KST before 20-1 started:
+  scripts/d1016/g1mix4/options.txt (sha a46f9a87...), builder build_g1mix4.py, self-test SELFTEST.txt (reproduces g1mix3 and
+  v33xb). Ingest each section 20 reader with scripts/d1016/s19/s19_extract.py RUN 0 1 2 and python -m src.het_cnn --ingest,
+  then run build_g1mix4.py. Slot 5 of 10-15 is still open until 00:00 KST if a SAFE file appears before then.
 
 ## 2026-10-15 14:19 KST: round N7 found no lever for the 8s; reader pipeline continues; E1 test running - read this first
 - PLAN_N7 (hardness-cache scripts/d1016/N7/PLAN_N7.txt, written 14:15 KST before a container restart; lens reports in
