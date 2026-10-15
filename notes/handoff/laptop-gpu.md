@@ -1120,6 +1120,8 @@ python -W ignore tools\n6\gate17.py --name cnn_ev2s_A3init_anc05_s3 --folds 0 1 
 - The cloud then computes the stage-1 bars with hardness-cache `scripts/d1011/bold/L6_leaders/l6_cnn_gate.py <oof>
   --ref s3`: all <= 13.12, >= 4/5 folds better than s3, fine-noisy cell <= 11.20. Any bar missed closes the line:
   no 17-3 and no N4 look.
+- Amendment 2026-10-15 12:55 KST (cloud, before any 17-2 number): the cloud also writes `17-2 stage-1: PASS` on the
+  diversity route (all-500 OOF RMSE <= 13.30 and OOF-residual corr with s3 <= 0.97). Nothing changes on the laptop side.
 
 17-3 [GPU] Stage 3: 6 seeds plus 6 full-data models of the same arm (about 1.5 h). Run only on the verdict line
 `17-2 stage-1: PASS`. Replace `anc05` with `anc0` and `--anchor 0.5` with `--anchor 0` if the arm is T0.

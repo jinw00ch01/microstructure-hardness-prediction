@@ -6,3 +6,7 @@
 # committed here before 17-2's numbers arrive.
 17-1 c T1: PASS
 17-1: PASS T1
+# Amendment 2026-10-15 12:55 KST (before any 17-2 number): '17-2 stage-1: PASS' = the declared bars (all <= 13.12, >= 4/5
+# folds better than s3, fine-noisy cell <= 11.20) OR the diversity route: all-500 OOF RMSE <= 13.30 and corr of its OOF
+# residual with the s3 OOF residual (experiments/cnn_ev2s_rawnlm_degcons_gpu_s3/oof.csv) <= 0.97. Reason: under the 10-15
+# plan a comparable but different y-CNN is a fresh blend piece; its use is decided later by the honest blend test (P2).
