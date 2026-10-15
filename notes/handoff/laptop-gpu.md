@@ -1156,3 +1156,37 @@ as a section of its own. When the G1 line closes (at any step), stop and wait fo
 | 17-2 (GPU) | 30-45 min | gate17_2.txt (< 1 KB); if PASS: score.json + oof k=0,1 + test k=0..3 (7 x 1-2 KB) |
 | 17-3 (GPU) | about 1.5 h | gate17_3.txt (< 1 KB); if PASS: score.json + oof k=0,1 + kf chunks 0..3 (7 x 1-2 KB) |
 | total GPU | about 2.3 h (2.5 h with T0) | |
+
+## 18. More G1 readers: send B4 and A3 seed 4, then train B1 seeds 1-2 (prepared 2026-10-15 13:05 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션18 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Why: the 10-15 files (hardness-cache scripts/d1015/g1mix) average het readers on the 433 G1 test rows: the A3 seeds
+(ev2s_locK_real5, _s1, _s2, _s3) and B1 (ev2s_locK_fsim). More readers give more such pieces: B4 (A3 recipe on the
+effnetv2-m backbone, ev2m_locK_real5) and A3 seed 4 already exist on the laptop only; B1 has one seed.
+
+18-0 [CPU, about 1 min; may run while section 17 uses the GPU]
+```powershell
+Set-Location C:\Daker\microstructure-hardness-prediction
+foreach ($r in 'ev2m_locK_real5','ev2s_locK_real5_s4') {
+  if (Test-Path data\het_cnn\$r\het_cnn_test.parquet) {
+    foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump $r --chunk $k | Out-File -Encoding utf8 data\het_cnn\$r\c$k.txt }
+  } else { "missing data\het_cnn\$r\het_cnn_test.parquet" }
+}
+```
+- If a run folder has another name (for example the B4 run was saved under a different `--out`), use that name and say so.
+  If a test parquet is missing, send the `missing` line and the folder listing (`Get-ChildItem data\het_cnn -Directory`).
+- SEND, one message per chunk, full text (c0, c1, c2 of each run; 6 messages). Each starts with
+  `# het_cnn <run> chunk <k>` and ends with its `# sums chunk <k>:` line.
+
+18-1 [GPU, about 25 min each; only after section 17 has finished or closed]
+- B1 seeds 1 and 2: take the exact training command of B1 from `data\het_cnn\ev2s_locK_fsim\score.json` (keys `command`
+  / `commands` / `args`) and run it twice, changing only `--seed 1 --out ev2s_locK_fsim_s1`, then
+  `--seed 2 --out ev2s_locK_fsim_s2`. Then dump each:
+```powershell
+foreach ($r in 'ev2s_locK_fsim_s1','ev2s_locK_fsim_s2') { foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump $r --chunk $k | Out-File -Encoding utf8 data\het_cnn\$r\c$k.txt } }
+```
+- Before the first run, send the B1 command line you are going to use (one message), so the cloud can check it.
+- CUDA OOM: rerun the identical command once; after a second OOM use `--batch 8` with `_b8` appended to `--out` and say so.
+- SEND after each run: its 3 chunks, one message each (full text).
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
