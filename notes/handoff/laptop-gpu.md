@@ -1197,7 +1197,7 @@ Runs on JINWOO's own run line in the main thread ("섹션19 실행"). GPU rule a
 2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
 Order: start after section 17 (17-3) has finished or closed. If 18-1 has not started by then, run 19-1 first, then 18-1,
 then 19-2 to 19-4; if 18-1 is already running, finish it first.
-Order amendment (cloud, 2026-10-15 13:00 KST, after the 10-15 public scores: the B4/B1 reader files read best, the A3-only
+Order amendment (cloud, 2026-10-15 12:58 KST, after the 10-15 public scores: the B4/B1 reader files read best, the A3-only
 file worst): if 17-3 has NOT started when you read this, run 19-1 and 19-2 first, then 18-1, then 19-3 and 19-4, and 17-3
 last. If 17-3 is already running, let it finish and continue with 19-1, 19-2, 18-1, 19-3, 19-4. The 17-2 verdict line
 `17-2 stage-1: PASS` has been in notes/handoff/gate17_verdicts.txt since commit 570e699 (12:08 KST); if a poll missed it,
