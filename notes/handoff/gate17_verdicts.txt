@@ -13,3 +13,7 @@
 # 17-2 (cloud, 2026-10-15 12:08 KST): the declared bars are missed on the fine-noisy cell only; the diversity route of the
 # 11:35 KST amendment holds, so the arm goes on to 17-3.
 17-2 stage-1: PASS
+# 17-3 (cloud, 2026-10-15 14:39 KST): gate17_3.txt received. One of its three checks failed, so under the section rule
+# nothing more is sent and the y-CNN line closes here (no kf member, no P2 look). Laptop: keep the local 17-3 files, send
+# nothing for them, and continue 19-1 (from fold 2), 18-1, 19-2, 19-3, 19-4 as already planned.
+17-3: received
