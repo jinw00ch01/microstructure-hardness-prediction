@@ -1229,7 +1229,7 @@ foreach ($k in 0,1,2) { python -W ignore -m src.het_cnn --dump <run> --chunk $k 
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
 
-## 20. Bigger and different readers after section 19: effnetv2-l and EfficientNet-B5 Noisy Student (prepared 2026-10-15 15:20 KST)
+## 20. Bigger and different readers after section 19: effnetv2-l and EfficientNet-B5 Noisy Student (prepared 2026-10-15 15:10 KST)
 
 Runs on JINWOO's own run line in the main thread ("섹션20 실행"). GPU rule as in the header (this project owns the GPU until
 2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
