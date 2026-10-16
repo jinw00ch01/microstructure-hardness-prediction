@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-16 14:57 KST)
+# Resume guide (updated 2026-10-16 15:50 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,10 +6,25 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
+## 2026-10-16 15:50 KST: B7 seed 0 in; g1mix5 judged by the g1mix6 bars; g1mix7 + laptop section 24 written - read this first
+- 21-3 done on the laptop (ev2l_locK_fsim, B1 recipe on effnetv2-l, batch 6, ~4041 s over two sittings, no OOM); dump verified
+  (chunk sums) and ingested; het_cnn-tables.tar refreshed. 22-1 (B7 seed 1) started 15:25 KST; 22-2, then section 23 follow.
+- Seed-0 scratch look (decides nothing; g1mix5/ADDENDUM_B7seeds.txt rule 1): g1mix6 XN7 [B1f+B4f+NS+B7] vs XNfixed -0.358 MSE
+  4/5, 40-split P 0.00, kriging18 9.9701 (SAFE flag); g1mix5 XL7 [B1f+B4f+B7] vs XNfixed -0.369 4/5, kriging18 9.9828 (BOLD
+  flag); B7 alone vs XNfixed -1.160. Official builds wait for all seeds: g1mix5 options need B7 seeds 1-2 (22-2), XN7 also
+  needs NS seeds 1-2 (23-3), the B8 options need 23-5.
+- g1mix6/judge_g5.py (sha e35706bc...) = build_g1mix6.py with the g1mix5 option lists: applies the g1mix6 bars (vs XNfixed,
+  kriging18, rms vs v35xn) to LL/XLL/XL7/ALLL, as g1mix6/options.txt requires for unsubmitted g1mix5 files. Its seed-0 md5s
+  equal build_g1mix5.py's (LL 1f924fac, XLL 8042b4e1, XL7 163586ea, ALLL 02ced768).
+- d1016/g1mix7 pre-registered 15:42 KST (options.txt sha 2a7f15a0...) before any section 24 run: new families NS6f (B6-NS),
+  APf (B5-AdvProp), NS6Bf (B1 recipe on B6-NS), NS4f (B4-NS), 3 seeds each; options BASE + one family, BASE + all, where BASE =
+  the best public file's families; bars = the g1mix6 rule re-based on the best file.
+- Laptop section 24 (notes/handoff/laptop-gpu.md) written for those 12 runs; needs JINWOO's "섹션24 실행"; runs after 23-5.
+
 ## 2026-10-16 14:57 KST: blend_v35xn 9.9722 = NEW BEST; g1mix6 (NS family) pre-registered; laptop sections 22 + 23 - read this first
 - User 14:51 KST 10-16: blend_v35xn (g1mix4 XN = B1f + B4f + NS reader b5ns_locK_real5) public 9.9721726754 = new best and
   automatic final while best (-0.29 public MSE vs v33xb; kriging17 had predicted 9.9992, z -0.93). 14 submissions left
-  (10-16: 3 more, 1 of them bold by the 2-per-day cap; 10-17 and 10-18: 5 each).
+  (10-16: 4 more, v34l2 counted on 10-15; 1 of them bold by the 2-per-day cap; 10-17 and 10-18: 5 each).
 - Public model now kriging18 (scripts/d1016/pub/forensics18.py, kriging18.py; read18_out.txt re-kriges every built option).
   No built option qualifies under the new bars (XLN: train -0.160 vs XN 4/5, kriging18 9.9794, rms vs v35xn 0.277).
 - d1016/g1mix6 (options.txt sha a585cfbd..., written 14:54 KST before any new reader): families B1f, B4f, NSf (NS + seeds 1-2),
