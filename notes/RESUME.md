@@ -1,10 +1,32 @@
-# Resume guide (updated 2026-10-16 21:33 KST)
+# Resume guide (updated 2026-10-16 21:38 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 21:38 KST: PAUSED (JINWOO moving location, main thread 21:35 KST) - read this first
+- Laptop: all jobs stopped 21:36 KST, GPU idle (0 MiB). Done and sent: sections 21-23 and 24-1 (b6ns_locK_real5). 24-2
+  (b6ns_locK_real5_s1) stopped at fold 3 epoch 2; folds 0-2 are kept on the laptop (data/het_cnn/b6ns_locK_real5_s1) and are
+  skipped on the rerun. The laptop wrote run24r.sh (24-2 to 24-12 in order; copy notes/run24r.local.sh, git-excluded) and
+  LAPTOP_RESUME.local.md (its resume order). It committed and pushed nothing. On "재개": 24-2 restarts at fold 3, then 24-3 ..
+  24-12 (about 7-8 h), with the 3 chunk messages and the wall time after each run.
+- Cloud: nothing running. Records committed and pushed; reader tables in hardness-cache het_cnn-tables.tar (101 members, incl.
+  b6ns_locK_real5); laptop dumps in scripts/d1016/s19/; verify-v37 report in scripts/d1016/g1mix6/verify_v37_output.txt; g1mix7
+  dry runs and seed-0 looks in scripts/d1016/g1mix7/scratch_1016/.
+- Section 25 design workflow stopped in its synthesis stage. Its 9 proposals (3 designers) and both critiques are saved in
+  scripts/d1016/s25design/journal_results_partial.json (workflow script beside it); its brief predates the N2 reading. Rules
+  critic: fix NS7Bf (B1 recipe on EfficientNet-B7 NS) and NS4Bf (B1 recipe on B4-NS), drop NS7f, APBf, NSM, B1M, NSLF, NSW4, FDx;
+  feasibility critic: keep 6, fix 3 (NS7Bf, B1M, FDx).
+- Slots: 10-16's last slot lapses (P6 needs NS6 seeds 1-2). 10 left: 5 on 10-17 (at most 2 bold), 5 on 10-18.
+- After "재개": (1) ingest each section 24 run as its chunks arrive (s19_extract.py RUN 0 1 2, src.het_cnn --ingest, refresh
+  het_cnn-tables.tar); (2) when the 3 NS6f seeds are in, run g1mix7 officially:
+  `cd /mnt/project-files/work/hardness-cache/scripts/d1016/g1mix7 && source run_env_1016.sh v37n2 9.9594601661 && python3
+  build_g1mix7.py` (BEST = the best public file at build time; bump KRIG_LATEST after any new reading), apply options.txt
+  SAFE/BOLD, verify, deliver; later families (APf, NS6Bf, NS4f) the same way as they complete; (3) re-run the section 25
+  synthesis with the N2 reading folded in, write section 25 into notes/handoff/laptop-gpu.md plus a pre-registered
+  g1mix8/options.txt, push, and ask JINWOO for "섹션 25 실행" so the GPU does not idle after section 24.
 
 ## 2026-10-16 21:33 KST: blend_v37n2 9.9595 = NEW BEST (automatic final while best); blend_v37x78 9.9599 - read this first
 - JINWOO 21:30 KST: blend_v37x78 = 9.9599001009, blend_v37n2 = 9.9594601661. Both beat v35xn (9.9722); N2 (NSf + B8f, the two
