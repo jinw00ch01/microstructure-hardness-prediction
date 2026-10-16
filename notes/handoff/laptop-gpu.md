@@ -1314,7 +1314,7 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
 
-## 24. More Noisy Student and AdvProp readers: B6-NS, B5-AP, the B1 recipe on B6-NS, B4-NS (3 seeds each) (prepared 2026-10-16 15:45 KST)
+## 24. More Noisy Student and AdvProp readers: B6-NS, B5-AP, the B1 recipe on B6-NS, B4-NS (3 seeds each) (prepared 2026-10-16 15:41 KST)
 
 Runs on JINWOO's own run line in the main thread ("섹션24 실행"). GPU rule as in the header (this project owns the GPU until
 2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).

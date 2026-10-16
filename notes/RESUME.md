@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-16 15:50 KST)
+# Resume guide (updated 2026-10-16 16:40 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,20 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-16 15:50 KST: B7 seed 0 in; g1mix5 judged by the g1mix6 bars; g1mix7 + laptop section 24 written - read this first
+## 2026-10-16 16:40 KST: B7 seed 1 in; g1mix7 builder ready - read this first
+- 22-1 (ev2l_locK_fsim_s1, 3880 s, batch 6) dumped, sums verified, ingested; het_cnn-tables.tar refreshed. 22-2 (B7 seed 2)
+  started 16:29 KST; then section 23 (23-1..23-5), then section 24 (JINWOO's "섹션 24 실행" 15:42 KST; queued behind 23-5).
+- Two-seed scratch look (decides nothing): XN7 vs XNfixed -0.291 4/5, kriging18 9.9719 (SAFE flag, at the bar); XL7 -0.279 4/5,
+  kriging18 9.9848 (BOLD flag, near the 9.9854 bar); B7 alone vs XNfixed -1.160 (seed 0) -> -0.879 (2 seeds): it shrinks with
+  seeds as B6 did.
+- Evening steps: after 22-2 ingest run g1mix5/build_g1mix5.py and g1mix6/judge_g5.py (official), then g1mix6/slate.py; after
+  23-3 (NS seed 2) run g1mix6/build_g1mix6.py (XN7 is then complete); after 23-5 rerun it (all options). Deliver a file when it
+  qualifies (g1mix6/ADDENDUM_g5judge.txt rule 3), each after an independent verification.
+- g1mix7/build_g1mix7.py (sha 2e22250a..., generator mk_g1mix7.py) self-tested (SELFTEST.txt): BESTfixed reproduces v35xn and,
+  with BEST_RUNS for v33xb, v33xb bit for bit. Env BASE / BEST_NAME / BEST_PUB / BEST_RUNS / SUBMITTED_EXTRA / KRIG_LATEST /
+  RENAME set the best file, the latest kriging and OOM renames at build time.
+
+## 2026-10-16 15:41 KST: B7 seed 0 in; g1mix5 judged by the g1mix6 bars; g1mix7 + laptop section 24 written - read this first
 - 21-3 done on the laptop (ev2l_locK_fsim, B1 recipe on effnetv2-l, batch 6, ~4041 s over two sittings, no OOM); dump verified
   (chunk sums) and ingested; het_cnn-tables.tar refreshed. 22-1 (B7 seed 1) started 15:25 KST; 22-2, then section 23 follow.
 - Seed-0 scratch look (decides nothing; g1mix5/ADDENDUM_B7seeds.txt rule 1): g1mix6 XN7 [B1f+B4f+NS+B7] vs XNfixed -0.358 MSE
