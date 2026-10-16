@@ -1273,3 +1273,20 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
 - Pause 2026-10-15 21:05 KST (JINWOO moved location): 21-1 and 21-2 are done and ingested in the cloud. 21-3 (ev2l_locK_fsim)
   was stopped at fold 2 epoch 6; folds 0-1 are kept in data\het_cnn\ev2l_locK_fsim. On "재개": git pull, then rerun the
   IDENTICAL 21-3 command (a rerun skips finished folds), dump it, and send the 3 chunks plus the wall time as above.
+
+## 22. Two more seeds of the B1-recipe effnetv2-l reader (prepared 2026-10-16 14:49 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션22 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: start right after 21-3 (ev2l_locK_fsim) has finished and been dumped; if the run line arrives earlier, queue it behind 21-3.
+Why: files with the B1-recipe effnetv2-l reader (B7) are built only from 3 seeds (hardness-cache
+scripts/d1016/g1mix5/ADDENDUM_B7seeds.txt), because the effnetv2-l A3-recipe reader's seed 0 overstated its 3-seed average.
+
+22-1 [GPU] B7 seed 1: 21-3's exact command with only `--seed 1 --out ev2l_locK_fsim_s1`.
+22-2 [GPU] B7 seed 2: 21-3's exact command with only `--seed 2 --out ev2l_locK_fsim_s2`.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before each run, send the full command line you are going to use (one message).
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 (6 -> 4) with `_b<batch>` appended to
+  `--out`, and say so.
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.

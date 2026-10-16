@@ -1,10 +1,23 @@
-# Resume guide (updated 2026-10-15 21:07 KST)
+# Resume guide (updated 2026-10-16 14:49 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 14:49 KST: resumed; v34l2 read 10.0055; 10-16 = XN now, B7 file after section 22 - read this first
+- User (14:43 KST 10-16): "재개", blend_v34l2 10.0054603343 (public dMSE vs v30b -0.305; kriging16 predicted -0.436, z +0.21).
+  B4f + effnetv2-l (A3 recipe) reads worse than B4 alone (v33b4 9.9961) and than v33xb (9.9868): the effnetv2-l A3-recipe reader
+  does not carry to public. Best and automatic final is still blend_v33xb 9.9868. 15 submissions left (5 a day 10-16..10-18).
+- Public model: scripts/d1016/pub/forensics17.py / kriging17.py (+ v34l2); read17_out.txt has kriging16 vs kriging17 for every
+  g1mix3/g1mix4 option (XN 9.9978 / 9.9992; XL 9.9886 / 9.9942; XLN 9.9939 / 9.9986).
+- g1mix5 addendum (ADDENDUM_B7seeds.txt, 14:48 KST, before any B7 data): B7 files only from 3 seeds (laptop section 22); every
+  file must pass SAFE/BOLD under both kriging16 and kriging17; bold order by kriging17. Builder updated (B7_SEEDS env, kriging17,
+  rms vs v34l2); self-test reproduces the g1mix4 3-seed md5s.
+- 10-16 slot 1: submissions/blend_v35xn.csv = g1mix4 XN [B1f + B4f + B5-NS] (md5 d1eab131..., BOLD under both krigings).
+  Next: 21-3 chunks -> ingest; section 22 (B7 seeds 1-2, needs the user's "섹션22 실행") -> ingest -> build_g1mix5.py -> the second
+  10-16 bold file if one qualifies.
 
 ## 2026-10-15 21:07 KST: PAUSED (JINWOO moved location, main thread 21:04 KST) - read this first
 - Laptop: all jobs stopped 21:05 KST, GPU idle. 21-3 (ev2l_locK_fsim) stopped at fold 2 epoch 6; folds 0-1 kept on the laptop;
