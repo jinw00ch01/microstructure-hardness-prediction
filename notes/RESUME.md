@@ -1,10 +1,22 @@
-# Resume guide (updated 2026-10-16 16:40 KST)
+# Resume guide (updated 2026-10-16 18:15 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 18:15 KST: laptop session parked at 17:37 KST; code-check inventory done; cloud-only files backed up - read this first
+- The laptop's Remote Control session went offline at 17:37 KST (parked after sitting idle; the device stays online). The
+  user's next message in the main thread restarts it with its transcript. Asked JINWOO at 18:14 KST to write one line
+  ("재개"). 22-2 (B7 seed 2) was due ~17:35 KST; its dump has not arrived. Sections 23 and 24 follow once it resumes.
+- Code-check prep (top-10 private teams submit code): hardness-cache repro/INVENTORY.txt (1269 lines, plan A: ship the 69
+  cache scripts byte-identical at their absolute paths, Docker or root symlinks; owner decisions O1-O7 in section 4.9) and
+  repro/CRITIC.txt (gaps: build_u1 needs L1_formula/CANDIDATE_v28n_gridhet_V4_lv.csv; build_clean needs N4/clean/options.sha256;
+  feats_lines.py / seg_alt.py missing from the copy list; disclosure items D1-D8 plus E1 (render-gap study scored test images,
+  label-free). From cached intermediates every blend v18..v35xn rebuilds byte-identically; GPU steps are not bit-exact.
+- Cloud-only artifacts backed up: hardness-cache cloud-only-2026-10-16.tar (data_restored/*.parquet x15, data/het_cnn/prep.npz,
+  submissions/blend_v22b(+oof), blend_v23_oof, experiments/cnn_*kf; list and md5 beside it).
 
 ## 2026-10-16 16:40 KST: B7 seed 1 in; g1mix7 builder ready - read this first
 - 22-1 (ev2l_locK_fsim_s1, 3880 s, batch 6) dumped, sums verified, ingested; het_cnn-tables.tar refreshed. 22-2 (B7 seed 2)
