@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-16 21:40 KST)
+# Resume guide (updated 2026-10-16 21:33 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-16 21:40 KST: blend_v37n2 9.9595 = NEW BEST (automatic final while best); blend_v37x78 9.9599 - read this first
+## 2026-10-16 21:33 KST: blend_v37n2 9.9595 = NEW BEST (automatic final while best); blend_v37x78 9.9599 - read this first
 - JINWOO 21:30 KST: blend_v37x78 = 9.9599001009, blend_v37n2 = 9.9594601661. Both beat v35xn (9.9722); N2 (NSf + B8f, the two
   Noisy Student readers only) is the best public file, XN78 0.0004 behind (public MSE +0.009). Observed dMSE vs v30b -1.215 /
   -1.223; kriging19 predicted -1.125 / -1.017 -> z -0.32 / -0.31. 10-16 used v35xn, v36l7, v37x78, v37n2: 1 SAFE slot left today
