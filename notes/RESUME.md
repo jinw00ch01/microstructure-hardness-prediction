@@ -1,10 +1,24 @@
-# Resume guide (updated 2026-10-16 19:30 KST)
+# Resume guide (updated 2026-10-16 19:40 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 19:40 KST: blend_v36l7 read 9.9779 (v35xn 9.9722 stays best); kriging19 written; XN7 still fails - read this first
+- JINWOO 19:34 KST: blend_v36l7 = 9.9778545791 (worse than v35xn by 0.0057; better than its kriging18 9.9843). It went in right
+  after the 19:29 KST ask "submit today only if the list shows v34l2 on 10-15", so v34l2 is taken as a 10-15 file (inference).
+  10-16 used: v35xn, v36l7 (both bold, cap reached); 3 slots left today, SAFE files only; 13 left in all (3 + 5 + 5).
+- hardness-cache scripts/d1016/pub/forensics19.py + kriging19.py (= 18 + v36l7, BUILT_ON v30b); read19.py -> read19_out.txt.
+  v36l7 observed dMSE vs v30b -0.857, kriging18 predicted -0.728 sd 0.287 (x1.34: 0.384) -> z -0.34. LOO z under kriging19:
+  v35xn -1.10, v36l7 -0.39, v34l2 +0.69, v31s +0.64; others within +-0.24.
+- Re-krige (k18 -> k19 rmse): XN7 9.9727 -> 9.9693 (passes k19, still fails the k18 SAFE bar 9.9722, so not delivered per
+  ADDENDUM_newreading rule 1; BOLD also fails, rms vs v35xn 0.379); XNf 9.9740 -> 9.9737; B8 seed-0 scratch looks: XN8 9.9668 ->
+  9.9664, XN78 9.9673 -> 9.9644, X8 9.9716 -> 9.9697, N2 9.9693 -> 9.9705 (decide nothing; official build after 23-5).
+- Next: after 23-5 (B8 seed 2) ingest, rerun g1mix6/build_g1mix6.py (all options), then apply SAFE under BOTH kriging18 (in the
+  build) and kriging19 (read19-style), skip rule vs all 12 submitted v30b-base files incl. v36l7, verify, deliver.
+  Section 24 files: g1mix7 with KRIG_LATEST=kriging19 and v36l7 in SUBMITTED_EXTRA.
 
 ## 2026-10-16 19:30 KST: blend_v36l7 (XL7) delivered as 10-16's second bold file; XN7 failed; B8 seeds 1-2 pending - read this first
 - Laptop resumed after JINWOO's "재개" (18:16 KST). Its background runner had died with the 17:37 KST park: 23-1 (B8 seed 0,
