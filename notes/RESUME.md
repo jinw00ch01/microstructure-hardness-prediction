@@ -1,10 +1,24 @@
-# Resume guide (updated 2026-10-16 21:30 KST)
+# Resume guide (updated 2026-10-16 21:40 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 21:40 KST: blend_v37n2 9.9595 = NEW BEST (automatic final while best); blend_v37x78 9.9599 - read this first
+- JINWOO 21:30 KST: blend_v37x78 = 9.9599001009, blend_v37n2 = 9.9594601661. Both beat v35xn (9.9722); N2 (NSf + B8f, the two
+  Noisy Student readers only) is the best public file, XN78 0.0004 behind (public MSE +0.009). Observed dMSE vs v30b -1.215 /
+  -1.223; kriging19 predicted -1.125 / -1.017 -> z -0.32 / -0.31. 10-16 used v35xn, v36l7, v37x78, v37n2: 1 SAFE slot left today
+  (0 if v34l2 went in on 10-16), 11 in all (1 + 5 + 5).
+- pub/forensics20.py + kriging20.py (= 19 + both readings, BUILT_ON v30b); read20.py -> read20_out.txt. LOO z under kriging20 all
+  within +-0.7 (v34l2 +0.68, v31s +0.62). Re-krige vs the new best (k20 rmse; OOF vs the N2 rule): XN8 9.9624 (+0.189, 2/5), XN7
+  9.9679 (+0.071), X8 9.9653 (+0.222), diagnostic B8f alone 9.9553 (-0.114, 2/5; diagnostics are never submitted). No g1mix6 file
+  beats N2.
+- g1mix7 re-based per options.txt: BASE = [NSf, B8f], BEST = v37n2 (BEST_RUNS = the N2 rule, reproduces blend_v37n2 bit for bit),
+  KRIG_LATEST = kriging20; env helper g1mix7/run_env_1016.sh (`source run_env_1016.sh v37n2 9.9594601661`). Scratch look with
+  NS6 seed 0 only (decide nothing): P6 = [NSf, B8f, NS6f] vs the N2 rule -0.004, 2/5 folds, kriging20 9.9627 -> fails SAFE, so the
+  last 10-16 slot most likely stays empty; the official build runs after 24-3 anyway.
 
 ## 2026-10-16 21:30 KST: blend_v37x78 (XN78) and blend_v37n2 (N2) delivered as 10-16 SAFE files; NS6f pending - read this first
 - B8 seeds 1-2 (23-4 b5ns_locK_fsim_s1, 23-5 b5ns_locK_fsim_s2) and 24-1 (b6ns_locK_real5, NS6 seed 0) ingested from the laptop

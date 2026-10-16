@@ -1,6 +1,6 @@
 # Microstructure Hardness Prediction (DACON)
 
-> **Status (2026-10-16 21:30 KST):** best public blend_v35xn 9.9722 (10-16, B1f + B4f + B5 Noisy Student G1 readers; automatic final while it stays best); target public in the 8s (user, 10-15 12:56 KST); 10-16 slot 2 blend_v36l7 (BOLD) read 9.9779; SAFE files blend_v37x78 (XN78, + B7f + B8f readers, kriging19 9.9644) and blend_v37n2 (N2, NS readers only, 9.9698) delivered 21:24 KST for today; a third SAFE slot may go to g1mix7 after section 24 (Noisy Student B6 seeds); design round N7 found no lever for the 8s (P(<9.0) about 0.2%). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
+> **Status (2026-10-16 21:40 KST):** best public blend_v37n2 9.9595 (10-16, g1mix6 N2 = the two Noisy Student G1 readers NSf + B8f; automatic final while it stays best); blend_v37x78 9.9599, v35xn 9.9722, v36l7 9.9779; target public in the 8s (user, 10-15 12:56 KST); 1 SAFE-only slot left on 10-16, 11 in all; laptop section 24 (Noisy Student / AdvProp readers, judged in scripts/d1016/g1mix7, now re-based on N2) running; design round N7 found no lever for the 8s (P(<9.0) about 0.2%). Current status, restore steps and next actions: [notes/RESUME.md](notes/RESUME.md).
 > Per-agent details: `notes/handoff/*.md`. Cached intermediates: `/mnt/project-files/work/hardness-cache/`.
 
 256×256 8-bit grayscale synthetic microstructure image → `hardness` (HV proxy). Metric: RMSE.
