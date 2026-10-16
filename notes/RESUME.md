@@ -1,10 +1,35 @@
-# Resume guide (updated 2026-10-16 18:15 KST)
+# Resume guide (updated 2026-10-16 19:30 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 19:30 KST: blend_v36l7 (XL7) delivered as 10-16's second bold file; XN7 failed; B8 seeds 1-2 pending - read this first
+- Laptop resumed after JINWOO's "재개" (18:16 KST). Its background runner had died with the 17:37 KST park: 23-1 (B8 seed 0,
+  b5ns_locK_fsim) had finished; 23-2 restarted from scratch at 18:18 KST. Now ingested and in het_cnn-tables.tar (95 members):
+  ev2l_locK_fsim_s2 (22-2), b5ns_locK_fsim (23-1), b5ns_locK_real5_s1 (23-2), b5ns_locK_real5_s2 (23-3). 23-4 (B8 seed 1) started
+  19:21 KST, then 23-5, then section 24. If the laptop session parks again the runner dies too: ask JINWOO for "재개".
+- Official builds (18:24-18:26 KST): g1mix6/judge_g5.py (OUT g1mix6/g5judge) and g1mix5/build_g1mix5.py give the same md5 for
+  every option. Only XL7 = [B1f, B4f, B7f] qualifies: vs XNfixed -0.301 MSE 4/5, 40-split P 0.10, drop-top-3 +0.117 (two rows,
+  TRAIN_000183 and TRAIN_000410, carry 106% of the gain), kriging18 9.9843 (BOLD bar 9.9854), rms vs v35xn 0.661, min rms vs all
+  11 submitted v30b-base files 0.467 (v33xb). LL, XLL, ALLL fail (kriging18 10.0113 / 9.9910; ALLL rms vs v35xn 0.450).
+- g1mix6/ADDENDUM_newreading.txt (18:27 KST, before XL7 was delivered or read): after each new public reading, files not yet
+  delivered must pass under both kriging18 and the latest kriging; a new best re-bases the g1mix6 bars as g1mix7 does.
+- Verification workflow (6 agents, all PASS_WITH_NOTES, critic DELIVER; reports in /tmp/v36verify, gone with the container):
+  dumps == transcript == parquet for all 8 XL7 runs; rebuild byte-identical three ways (incl. an implementation without
+  g1core/n5lib); rules and skip rule re-derived; test-reader perturbation leaves every fit and the OOF bit-identical; laptop
+  commands match the plan as announced. Open notes: (a) v34l2's submission day is our inference, not the user's word - if it
+  went in on 10-16, XL7 is 10-16's third bold file, so JINWOO was asked to check the list (10-15: submit today; 10-16: hold for
+  10-17). (b) judge_g5.py's skip list covers only 6 of the 11 submitted files: check all 11 by hand for later files.
+  (c) The 21-3 resume (folds 2-4) command and the laptop's score.json args were never shown to the cloud; ask the laptop for
+  them in the next section (resume guard does not check arch/batch/seed).
+- Delivered: hardness-cache submissions/blend_v36l7.csv (md5 4ed3ca53...) and blend_v36l7_oof.csv (38e730cd..., OOF RMSE 10.4499).
+- XN7 [B1f, B4f, NSf, B7f] with all seeds (g1mix6/build_g1mix6.py, 19:27 KST): vs XNfixed -0.327 4/5, P 0.03, kriging18 9.9727
+  -> fails SAFE (needs < 9.9722) and BOLD (rms vs v35xn 0.379 < 0.5). NS seeds shrink as B6/B7 did: XNf (v35xn families, all NS
+  seeds) kriging18 9.9740. B8 seed-0 scratch look (decides nothing): XN8 9.9668, XN78 9.9673, N2 9.9693 SAFE flags; X8 fails
+  (2/5 folds). Next: after 23-5 rerun build_g1mix6.py (all options), check rms vs all 11 submitted files (+ v36l7 if submitted).
 
 ## 2026-10-16 18:15 KST: laptop session parked at 17:37 KST; code-check inventory done; cloud-only files backed up - read this first
 - The laptop's Remote Control session went offline at 17:37 KST (parked after sitting idle; the device stays online). The
