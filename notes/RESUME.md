@@ -1,10 +1,25 @@
-# Resume guide (updated 2026-10-16 14:49 KST)
+# Resume guide (updated 2026-10-16 14:57 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 14:57 KST: blend_v35xn 9.9722 = NEW BEST; g1mix6 (NS family) pre-registered; laptop sections 22 + 23 - read this first
+- User 14:51 KST 10-16: blend_v35xn (g1mix4 XN = B1f + B4f + NS reader b5ns_locK_real5) public 9.9721726754 = new best and
+  automatic final while best (-0.29 public MSE vs v33xb; kriging17 had predicted 9.9992, z -0.93). 14 submissions left
+  (10-16: 3 more, 1 of them bold by the 2-per-day cap; 10-17 and 10-18: 5 each).
+- Public model now kriging18 (scripts/d1016/pub/forensics18.py, kriging18.py; read18_out.txt re-kriges every built option).
+  No built option qualifies under the new bars (XLN: train -0.160 vs XN 4/5, kriging18 9.9794, rms vs v35xn 0.277).
+- d1016/g1mix6 (options.txt sha a585cfbd..., written 14:54 KST before any new reader): families B1f, B4f, NSf (NS + seeds 1-2),
+  B7f (ev2l_locK_fsim + seeds), B8f (B1 recipe on B5-NS + seeds); options XN8, XN7, XN78, X8, N2; reference XNfixed (= v35xn,
+  md5 asserted); SAFE: better than XN on train (>= 3/5, P <= 0.5) and kriging18 < 9.9722; BOLD: vs XN <= +0.42, kriging18 <=
+  9.9854, rms vs v35xn >= 0.5; these bars replace the v33xb-relative ones for anything not yet submitted. Options are built only
+  when all seeds of their families are in. Builder build_g1mix6.py, self-test SELFTEST.txt.
+- Laptop: 21-3 (B7 seed 0) running; section 22 (B7 seeds 1-2) queued by the user's "섹션 22 실행" (14:52 KST); section 23
+  (B8 seeds 0-2, NS seeds 1-2; runs before 22 if 22 has not started) needs the user's "섹션23 실행".
+- Code-check prep: inventory workflow writing hardness-cache repro/INVENTORY.txt (read-only trace of the build chain).
 
 ## 2026-10-16 14:49 KST: resumed; v34l2 read 10.0055; 10-16 = XN now, B7 file after section 22 - read this first
 - User (14:43 KST 10-16): "재개", blend_v34l2 10.0054603343 (public dMSE vs v30b -0.305; kriging16 predicted -0.436, z +0.21).

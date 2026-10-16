@@ -1290,3 +1290,26 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   `--out`, and say so.
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 23. Noisy Student family: the B1 recipe on EfficientNet-B5 NS (3 seeds) and two more seeds of the NS reader (prepared 2026-10-16 14:57 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션23 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: if section 22 (22-1) has not started when the run line arrives, run section 23 first and section 22 after it; otherwise
+queue section 23 behind section 22. Inside section 23: 23-1, 23-2, 23-3, 23-4, 23-5.
+Why: blend_v35xn (v33xb's readers plus the NS reader b5ns_locK_real5) read 9.9722 on public, the new best. The next pieces are
+the public-favoured B1 recipe on the same NS backbone (B8) and NS seeds, so that every new file uses 3-seed averages
+(hardness-cache scripts/d1016/g1mix6/options.txt, pre-registered before any of these runs).
+
+23-1 [GPU] B8 seed 0: 21-3's exact command (tools/fsim/het_fsim.py ...) with only
+  `--arch tf_efficientnet_b5.ns_jft_in1k --batch 8 --out b5ns_locK_fsim` changed.
+23-2 [GPU] NS seed 1: 20-2's exact command with only `--seed 1 --out b5ns_locK_real5_s1`.
+23-3 [GPU] NS seed 2: 20-2's exact command with only `--seed 2 --out b5ns_locK_real5_s2`.
+23-4 [GPU] B8 seed 1: 23-1's command with only `--seed 1 --out b5ns_locK_fsim_s1`.
+23-5 [GPU] B8 seed 2: 23-1's command with only `--seed 2 --out b5ns_locK_fsim_s2`.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before each run, send the full command line you are going to use (one message).
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 (8 -> 6) with `_b<batch>` appended to
+  `--out`, and say so.
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
