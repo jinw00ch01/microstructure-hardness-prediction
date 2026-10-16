@@ -1,10 +1,33 @@
-# Resume guide (updated 2026-10-16 19:40 KST)
+# Resume guide (updated 2026-10-16 21:30 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-16 21:30 KST: blend_v37x78 (XN78) and blend_v37n2 (N2) delivered as 10-16 SAFE files; NS6f pending - read this first
+- B8 seeds 1-2 (23-4 b5ns_locK_fsim_s1, 23-5 b5ns_locK_fsim_s2) and 24-1 (b6ns_locK_real5, NS6 seed 0) ingested from the laptop
+  dumps (scripts/d1016/s19/, het_cnn-tables.tar 101 members). Official g1mix6 build 20:30 KST (all options; log copied to
+  g1mix6/build_official_2030KST.log), then g1mix6/judge_both.py (sha 858b7005..., written 19:40 KST before B8 seeds 1-2 existed) under kriging18 AND
+  kriging19, skip rule vs all 12 submitted v30b-base files.
+- Two options pass SAFE under both models:
+  XN78 = [B1f, B4f, NSf, B7f, B8f] -> submissions/blend_v37x78.csv (md5 93cf38f0...): honest nested CV 10.504 -> 10.444; vs XNfixed
+  -0.416 MSE, 4/5 folds, 40-split P 0.00, drop-top-3 -0.128; kriging18 9.9677, kriging19 9.9644 (sd x1.34 0.279, P(beat 9.9722)
+  about 0.7); min G1 rms vs submitted 0.435 (v35xn).
+  N2 = [NSf, B8f] -> submissions/blend_v37n2.csv (md5 d30852ba...): 10.504 -> 10.445; vs XNfixed -0.398, 3/5, 40-split P 0.175,
+  drop-top-3 +0.241 (narrow: two fold-4 rows carry most of the gain); kriging18 9.9697, kriging19 9.9698 (sd x1.34 0.660, P about
+  0.5); min rms 0.801 (v35xn).
+  Others: XN8, X8 fail on folds (2/5); XN7 still fails kriging18 (9.9727).
+- Verification workflow (verify-v37: dumps, rebuild, rules, format, compliance, laptop commands) passed every check; critic:
+  deliver both, XN78 first, both on 10-16. Delivered to JINWOO 21:24 KST in one reply, before any reading.
+- g1mix6/ADDENDUM_delivery.txt (21:23 KST, sha in options.sha256, before delivery): a delivered N2 stands whatever XN78 reads;
+  ADDENDUM_newreading rule 2 re-bases only files not yet delivered (re-based on XN78, N2 would fail: +0.018, 1/5).
+- Next: on each reading, pub/forensics20 + kriging20 (then 21). When 24-2 (b6ns_locK_real5_s1) and 24-3 (_s2) arrive: ingest,
+  refresh the tar, then g1mix7 for the third 10-16 slot (only if v34l2 counted on 10-15; SAFE only) with KRIG_LATEST = the
+  latest kriging and SUBMITTED_EXTRA += v36l7, v37x78, v37n2; if XN78 has read below 9.9722, BASE = B1f,B4f,NSf,B7f,B8f and
+  BEST = v37x78. Section 25 (GPU after section 24 ends, about 05:00 KST 10-17) is being designed; JINWOO starts it with
+  "섹션 25 실행".
 
 ## 2026-10-16 19:40 KST: blend_v36l7 read 9.9779 (v35xn 9.9722 stays best); kriging19 written; XN7 still fails - read this first
 - JINWOO 19:34 KST: blend_v36l7 = 9.9778545791 (worse than v35xn by 0.0057; better than its kriging18 9.9843). It went in right
