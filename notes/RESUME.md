@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-16 21:38 KST)
+# Resume guide (updated 2026-10-16 21:37 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-16 21:38 KST: PAUSED (JINWOO moving location, main thread 21:35 KST) - read this first
+## 2026-10-16 21:37 KST: PAUSED (JINWOO moving location, main thread 21:35 KST) - read this first
 - Laptop: all jobs stopped 21:36 KST, GPU idle (0 MiB). Done and sent: sections 21-23 and 24-1 (b6ns_locK_real5). 24-2
   (b6ns_locK_real5_s1) stopped at fold 3 epoch 2; folds 0-2 are kept on the laptop (data/het_cnn/b6ns_locK_real5_s1) and are
   skipped on the rerun. The laptop wrote run24r.sh (24-2 to 24-12 in order; copy notes/run24r.local.sh, git-excluded) and
