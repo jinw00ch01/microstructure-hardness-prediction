@@ -1,10 +1,26 @@
-# Resume guide (updated 2026-10-18 00:20 KST)
+# Resume guide (updated 2026-10-18 01:13 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-18 01:13 KST: 25-1 in (1-seed read only); section 28 (AdvProp B7/B8) prepared and pre-registered; NEAR-TIE class proposed - read this first
+- 25-1 b7ns_locK_fsim (laptop 00:00:51-00:55:07 KST, 3256 s, batch 6, no OOM) ingested 01:00 KST: sums match (train 87.2829 /
+  2746.9357 / 2782.2409; test 174.3948 / 5510.2022 / 5549.5627), parquet md5 train 299d1bc9, test 7563a75d; tar 94 parquet members;
+  gate corr 0.987. 25-2 (_s1) started 00:55 KST.
+- Seed-0 diagnostic only (hardness-cache scripts/d1017/g1mix9/early_s0/, ALLOW_PARTIAL, never submitted): NS7Bf alone vs A3fixed
+  -1.292 (strongest single family so far); line A P7B [B8f, APf, NS7Bf] vs Q8A -0.128 3/5, P 0.17, k24 9.9627, G1 rms 0.344 -> no
+  (too close for BOLD, kriging above the best reading so not SAFE); line B P7B [B8f, NS7Bf] -0.145 3/5, k24 9.9807 -> no.
+- Section 28 written to notes/handoff/laptop-gpu.md (01:10 KST): the B1 and the A3 recipe on tf_efficientnet_b7.ap_in1k (batch 6)
+  and tf_efficientnet_b8.ap_in1k (batch 4), 3 seeds each (28-1..28-12, about 13.5 h after section 27; no run starts after 04:00
+  KST 10-19). Pre-registered before any run: hardness-cache scripts/d1018/g1mix12/options.txt (sha256 5f4f6131...), mk_g1mix12.py,
+  build_g1mix12.py (hashes in g1mix12/options.sha256; dry run 01:09 KST reproduces blend_v38q8a bit for bit). Weights smoke-built
+  in the cloud 01:06 KST (B7-AP 62.4M, B8-AP 82.9M with the fpn head; saved activations B8/B7 1.25). Needs "섹션28 실행".
+- Proposed NEAR-TIE slot class (hardness-cache scripts/d1018/NOTE_neartie1018.txt, sha256 in d1018/NOTES.sha256; not in force
+  until JINWOO picks it on the 10-18 card): line A files that are better than the best file on train (SAFE train conditions)
+  with kriging <= best + 0.0132 but too close to be BOLD may fill spare slots, 1 or 2 per day, after SAFE and BOLD.
 
 ## 2026-10-18 00:15 KST: NS4f complete (no file); section 27 (AdvProp B6/B4) prepared and pre-registered - read this first
 - 24-12 b4ns_locK_real5_s2 (laptop 23:34:37-00:00:25 KST, 1548 s, batch 8) ingested 00:07 KST: sums match (train 84.3426 / 2779.6230 /

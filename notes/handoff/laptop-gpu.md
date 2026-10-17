@@ -1457,3 +1457,45 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   say so (the cloud counts a renamed run as the same seed of its family).
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 28. The two largest AdvProp backbones: EfficientNet-B7 AP and B8 AP, each with the B1 and the A3 recipe (3 seeds each) (prepared 2026-10-18 01:10 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션28 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: after section 27 has finished and its last run is dumped; if the run line arrives earlier, queue section 28 behind
+section 27. Inside section 28: 28-1 to 28-12 in order. Stop rule: start no section 28 run after 2026-10-19 04:00 KST; a run in
+progress then finishes and is dumped as usual; list any run skipped by this rule in one line.
+Why: the best public file blend_v38q8a (9.9496) holds the B1-recipe reader on B5 Noisy Student and the A3-recipe reader on B5
+AdvProp, and the first B1-recipe B7-NS seed (25-1) is the strongest single reader on train so far. Section 27 ends about 14:00
+KST 10-18, so the GPU is free from then until the 04:00 KST 10-19 stop. These runs put both recipes on the two largest AdvProp
+backbones for the 10-19 morning files. Judging is pre-registered in hardness-cache scripts/d1018/g1mix12/options.txt (sha256
+5f4f6131...) before any of these runs. Both weights are Apache-2.0 timm weights with GitHub-release URLs
+(tf_efficientnet_b7.ap_in1k, 62.4M parameters with the fpn head; tf_efficientnet_b8.ap_in1k, 82.9M); the cloud built both with
+the pretrained weights at 256 input. B8 keeps about 1.25x the activations of B7 per image, so the B8 runs use batch 4.
+
+28-1 [GPU] AP7B seed 0: 25-1's exact command (21-3's B1 recipe, batch 6) with only
+  `--arch tf_efficientnet_b7.ap_in1k --out b7ap_locK_fsim` changed.
+28-2 [GPU] AP7B seed 1: 28-1's command with only `--seed 1 --out b7ap_locK_fsim_s1`.
+28-3 [GPU] AP7B seed 2: 28-1's command with only `--seed 2 --out b7ap_locK_fsim_s2`.
+28-4 [GPU] AP7 seed 0: 24-1's exact command (the A3 recipe, batch 6; the command 27-1 used with its B6 arch) with only
+  `--arch tf_efficientnet_b7.ap_in1k --out b7ap_locK_real5` changed.
+28-5 [GPU] AP7 seed 1: 28-4's command with only `--seed 1 --out b7ap_locK_real5_s1`.
+28-6 [GPU] AP7 seed 2: 28-4's command with only `--seed 2 --out b7ap_locK_real5_s2`.
+28-7 [GPU] AP8B seed 0: 25-1's exact command with only `--arch tf_efficientnet_b8.ap_in1k --batch 4 --out b8ap_locK_fsim` changed.
+28-8 [GPU] AP8B seed 1: 28-7's command with only `--seed 1 --out b8ap_locK_fsim_s1`.
+28-9 [GPU] AP8B seed 2: 28-7's command with only `--seed 2 --out b8ap_locK_fsim_s2`.
+28-10 [GPU] AP8 seed 0: 24-1's exact command with only `--arch tf_efficientnet_b8.ap_in1k --batch 4 --out b8ap_locK_real5` changed.
+28-11 [GPU] AP8 seed 1: 28-10's command with only `--seed 1 --out b8ap_locK_real5_s1`.
+28-12 [GPU] AP8 seed 2: 28-10's command with only `--seed 2 --out b8ap_locK_real5_s2`.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before 28-1, say how much disk is free on the drive that holds the repo (a B7 run keeps about 1.25 GB of checkpoints, a B8 run
+  about 1.6 GB). If less than 20 GB is free, say so and wait for the cloud's answer before starting 28-1. Never delete any file.
+- Expected wall time: B7-AP about 55 min per seed at batch 6 (like 25-1, 3256 s), B8-AP about 75-85 min per seed at batch 4;
+  about 13.5 h in all, so the stop rule may skip the last B8 seeds. On Windows a VRAM overflow can turn into a silent slowdown
+  instead of a CUDA OOM: if fold 0's first epoch of 28-1 takes more than twice as long as 25-1's first epoch, or that of 28-7 more
+  than 150 s, say so in one line and keep going.
+- Before each run, send the full command line you are going to use (one message).
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 with `_b<batch>` appended to `--out`, and
+  say so (the cloud counts a renamed run as the same seed of its family).
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
