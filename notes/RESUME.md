@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 04:15 KST)
+# Resume guide (updated 2026-10-18 05:22 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,21 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 04:15 KST: section 25 complete; NS4Bf adds no file; P7B is still the only candidate - read this first
+## 2026-10-18 05:22 KST: JINWOO picked the NEAR-TIE class (strict, 2 per day); P7B handed over as 10-18 file 1 - read this first
+- 05:17:56 KST JINWOO tapped "엄격 조건, 하루 2개" on the 03:19 KST card; 05:18:00 and 05:18:03 KST also "하루 2개까지" on the two replaced
+  cards (01:12, 02:13). Recorded in hardness-cache scripts/d1018/DECISION_neartie1018.txt (sha in d1018/NOTES.sha256): the STRICT
+  variant (judge label NEAR-TIE(strict) only), at most 2 NEAR-TIE files per KST day on 10-18 and 10-19, outside the 2-BOLD cap,
+  order SAFE > BOLD > NEAR-TIE, handed over only while no SAFE/BOLD file is on hand or in verification. The thread told JINWOO it
+  follows the 03:19 card (strict) despite the two older taps.
+- Re-judged 05:19 KST (q8a_ns4b3 builds): P7B line A NEAR-TIE(strict), no SAFE/BOLD on hand. Handed over 05:20 KST as 10-18 file 1:
+  hardness-cache submissions/blend_v39p7b.csv (md5 e226678a487e1d2903eea3493d5144af; 433 G1 rows differ from Q8A, rms 0.342).
+  10-18 NEAR-TIE count 1 of 2. Public reading pending; when it comes: mk_pubN.py 25 -> pub/kriging25.py, new env, re-judge.
+- New env for every later build: hardness-cache scripts/d1018/run_env_1018p.sh "v38q8a 9.9495571078" (= run_env_1018.sh plus
+  v39p7b in SUBMITTED_EXTRA, so the skip rule covers P7B; scratch g1mix9 build 05:20 KST: P7B and PALL now SKIP(rms<0.25)).
+- JINWOO wrote "재개" 05:18 KST; the laptop never stopped (section 26 running, 26-3 started 05:11; section 27 follows; section 28
+  still needs "섹션28 실행" in the main thread, asked again in the 05:20 reply).
+
+## 2026-10-18 04:15 KST: section 25 complete; NS4Bf adds no file; P7B is still the only candidate
 - 25-6 b4ns_locK_fsim_s2 (laptop 03:40:06-04:07:31 KST, 1645 s, batch 8, no OOM) ingested 04:12 KST: sums match (train 85.8068 /
   2769.5434 / 2771.1833; test 171.2466 / 5552.5924 / 5529.8110), parquet md5 train 1bf4354c, test ea9bbf8d; tar 104 parquet members,
   re-extracted md5s equal; builder gate corr 0.990 / 0.990 / 0.991 for the three B4-NS seeds. Section 26 started 04:07:49 KST (26-1
