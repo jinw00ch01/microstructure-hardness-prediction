@@ -1,10 +1,37 @@
-# Resume guide (updated 2026-10-16 21:37 KST)
+# Resume guide (updated 2026-10-17 18:18 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 18:18 KST: resumed 17:47 KST; Q8 (B8f alone) is 10-17 bold #1 once verify-v38 passes - read this first
+- JINWOO "재개" 17:47 KST 10-17. Laptop reconnected; 24-2 (b6ns_locK_real5_s1) resumed at fold 3 17:49:59, done 18:10:05 (rc 0,
+  1206 s; first part 10-16 about 1700 s for folds 0-2), batch 6, no OOM. 24-3 (b6ns_locK_real5_s2) started 18:10 KST. Original
+  section 24 order unless JINWOO writes "섹션24 순서 변경 실행" (24-R in notes/handoff/laptop-gpu.md: NS6B 24-7..9 right after the run
+  in progress).
+- 24-2 ingested (s19_extract.py, src.het_cnn --ingest): chunk sums match the laptop's (train het 87.5600 logN 2789.5811 bmean
+  2749.3245; test 1-500 87.3902 / 2800.4309 / 2738.7501; test 501-1000 86.8961 / 2792.2599 / 2746.0003; no NaN). het_cnn-tables.tar
+  now 103 members.
+- g1mix6 leftovers re-based on N2 (g1mix6/ADDENDUM_rebaseN2.txt sha256 b2dc60ce..., mk_rebase_N2.py 2e811f6c..., generating
+  build_g1mix6_N2.py da10f03c... and judge_both_N2.py 564c7652...; full hashes in g1mix6/options.sha256): XN8 BOLD (vs N2 +0.189,
+  2/5; k18 9.9670, k20 9.9624; min rms 0.269 vs v37x78), X8 BOLD (+0.222, 3/5; 9.9704 / 9.9653; min 0.260), XN7 SKIP (min rms 0.209).
+- New round d1016/g1mix8 (the B8f line), options.txt sha256 577a31ca8bc1db5fd2d9a1f9b4a947249dff65d1faf332a990cad2cf75db42a8,
+  judge8.py 7f1ae8f2ed785b4c1eac063e4b443d49c1e9e6e31b250e5b800aa84d4a44605b, written 17:55 KST before NS6 seeds 1-2 existed.
+  Q8 = [B8f] alone was a g1mix6 diagnostic; promoting it is a public-driven piece choice after the N2 reading (its kriging20 was
+  known), so it is BOLD only. Q8 -> submissions/blend_v38q8.csv (md5 e68c6808...): vs N2 -0.114 MSE, 2/5 folds, 40-split P 0.450,
+  drop-top-3 +0.215; k20 9.9553 (sd x1.34 0.440; P(beat 9.9595) 0.575 under k20, 0.415 under k18); rms vs v37n2 0.614. XN8 ->
+  blend_v38xn8.csv (8d7bbd7a...), X8 -> blend_v38x8.csv (909f243b...). Pair rms: Q8-XN8 0.824, Q8-X8 0.877, XN8-X8 0.288.
+- d1017/g1mix9 (section 25 readers) pre-registered 18:00 KST: options.txt 5a99362d..., mk_g1mix9.py 14294dd0..., build_g1mix9.py
+  2bed2d07... (full hashes in g1mix9/options.sha256); section 25 in notes/handoff/laptop-gpu.md (commit d8bb80f).
+- verify-v38 workflow (rebuild, rules, format/compliance, critic) running; rebuild PASS for all three (independent numpy
+  implementation reproduces Q8/XN8/X8 bit for bit), rules PASS_WITH_NOTES (Q8 not truly pre-registered; train only ties N2,
+  edge on 3 rows; no further diagnostic promotions or seed/weight variants of Q8).
+- Plan for 10-17 (5 slots, at most 2 bold): bold #1 = Q8; bold #2 = the lowest latest-kriging BOLD candidate on hand by 22:30
+  KST (fallback XN8, then X8); SAFE files from g1mix7/g1mix8 as section 24 families complete (NS6f after 24-3, then APf ...).
+  g1mix7 official: `cd .../scripts/d1016/g1mix7 && source run_env_1016.sh v37n2 9.9594601661 && python3 build_g1mix7.py`; g1mix8:
+  the same env plus `BASE=B8f OUT=.../d1016/g1mix8`, then judge8.py.
 
 ## 2026-10-16 21:37 KST: PAUSED (JINWOO moving location, main thread 21:35 KST) - read this first
 - Laptop: all jobs stopped 21:36 KST, GPU idle (0 MiB). Done and sent: sections 21-23 and 24-1 (b6ns_locK_real5). 24-2
