@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 05:22 KST)
+# Resume guide (updated 2026-10-18 05:21 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 05:22 KST: JINWOO picked the NEAR-TIE class (strict, 2 per day); P7B handed over as 10-18 file 1 - read this first
+## 2026-10-18 05:21 KST: JINWOO picked the NEAR-TIE class (strict, 2 per day); P7B handed over as 10-18 file 1 - read this first
 - 05:17:56 KST JINWOO tapped "엄격 조건, 하루 2개" on the 03:19 KST card; 05:18:00 and 05:18:03 KST also "하루 2개까지" on the two replaced
   cards (01:12, 02:13). Recorded in hardness-cache scripts/d1018/DECISION_neartie1018.txt (sha in d1018/NOTES.sha256): the STRICT
   variant (judge label NEAR-TIE(strict) only), at most 2 NEAR-TIE files per KST day on 10-18 and 10-19, outside the 2-BOLD cap,
