@@ -1414,3 +1414,45 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   say so (the cloud counts a renamed run as the same seed of its family).
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 27. AdvProp one size up and one size down: EfficientNet-B6 AP and B4 AP, each with the A3 and the B1 recipe (3 seeds each) (prepared 2026-10-18 00:14 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션27 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: after section 26 has finished and its last run is dumped; if the run line arrives earlier, queue section 27 behind
+section 26. Inside section 27: 27-1 to 27-12 in order. Stop rule: start no section 27 run after 2026-10-19 04:00 KST; a run in
+progress then finishes and is dumped as usual.
+Why: blend_v38q8a (B8f + APf, where APf is the A3-recipe reader on EfficientNet-B5 AdvProp, 24-4..6) read 9.9496 on public at
+23:42 KST 10-17, the best file. On train, the A3 recipe on B5-AP is as strong as the B1 recipe on B6-NS, unlike the A3 recipe on
+the other Noisy Student sizes. These runs put both recipes on the AdvProp backbones one size up and one size down (section 26
+puts the B1 recipe on B5-AP). Judging is pre-registered in hardness-cache scripts/d1018/g1mix11/options.txt (sha256 bb568132...)
+before any of these runs. Both weights are Apache-2.0 timm weights with GitHub-release URLs (tf_efficientnet_b6.ap_in1k, 39.7M
+parameters with the fpn head; tf_efficientnet_b4.ap_in1k, 17.0M); the cloud built both with the pretrained weights at 256 input.
+
+27-1 [GPU] AP6 seed 0: 24-1's exact command (the A3 recipe on B6-NS, batch 6) with only
+  `--arch tf_efficientnet_b6.ap_in1k --out b6ap_locK_real5` changed.
+27-2 [GPU] AP6 seed 1: 27-1's command with only `--seed 1 --out b6ap_locK_real5_s1`.
+27-3 [GPU] AP6 seed 2: 27-1's command with only `--seed 2 --out b6ap_locK_real5_s2`.
+27-4 [GPU] AP6B seed 0: 24-7's exact command (the B1 recipe on B6-NS, batch 6) with only
+  `--arch tf_efficientnet_b6.ap_in1k --out b6ap_locK_fsim` changed.
+27-5 [GPU] AP6B seed 1: 27-4's command with only `--seed 1 --out b6ap_locK_fsim_s1`.
+27-6 [GPU] AP6B seed 2: 27-4's command with only `--seed 2 --out b6ap_locK_fsim_s2`.
+27-7 [GPU] AP4 seed 0: 24-10's exact command (the A3 recipe on B4-NS, 20-2's batch) with only
+  `--arch tf_efficientnet_b4.ap_in1k --out b4ap_locK_real5` changed.
+27-8 [GPU] AP4 seed 1: 27-7's command with only `--seed 1 --out b4ap_locK_real5_s1`.
+27-9 [GPU] AP4 seed 2: 27-7's command with only `--seed 2 --out b4ap_locK_real5_s2`.
+27-10 [GPU] AP4B seed 0: 25-4's exact command (the B1 recipe on B4-NS, batch 8) with only
+  `--arch tf_efficientnet_b4.ap_in1k --out b4ap_locK_fsim` changed.
+27-11 [GPU] AP4B seed 1: 27-10's command with only `--seed 1 --out b4ap_locK_fsim_s1`.
+27-12 [GPU] AP4B seed 2: 27-10's command with only `--seed 2 --out b4ap_locK_fsim_s2`.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before 27-1, say how much disk is free on the drive that holds the repo. If less than 10 GB is free, say so and wait for the
+  cloud's answer before starting 27-1. Never delete any file.
+- Expected wall time: B6-AP about 45 min per seed at batch 6 (like 24-1..24-3 and 24-7..24-9), B4-AP about 25-27 min per seed at
+  batch 8 (like 24-10..24-12); about 7 h in all. If fold 0's first epoch of 27-1 takes more than twice as long as 24-1's first
+  epoch, say so in one line and keep going.
+- Before each run, send the full command line you are going to use (one message).
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 with `_b<batch>` appended to `--out`, and
+  say so (the cloud counts a renamed run as the same seed of its family).
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
