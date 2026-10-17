@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 01:13 KST)
+# Resume guide (updated 2026-10-18 01:11 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 01:13 KST: 25-1 in (1-seed read only); section 28 (AdvProp B7/B8) prepared and pre-registered; NEAR-TIE class proposed - read this first
+## 2026-10-18 01:11 KST: 25-1 in (1-seed read only); section 28 (AdvProp B7/B8) prepared and pre-registered; NEAR-TIE class proposed - read this first
 - 25-1 b7ns_locK_fsim (laptop 00:00:51-00:55:07 KST, 3256 s, batch 6, no OOM) ingested 01:00 KST: sums match (train 87.2829 /
   2746.9357 / 2782.2409; test 174.3948 / 5510.2022 / 5549.5627), parquet md5 train 299d1bc9, test 7563a75d; tar 94 parquet members;
   gate corr 0.987. 25-2 (_s1) started 00:55 KST.
