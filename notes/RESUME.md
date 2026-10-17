@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 03:20 KST)
+# Resume guide (updated 2026-10-18 04:15 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,19 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 03:20 KST: NS7Bf complete; P7B (line A) = NEAR-TIE(strict), verified, staged as blend_v39p7b.csv pending JINWOO's card pick - read this first
+## 2026-10-18 04:15 KST: section 25 complete; NS4Bf adds no file; P7B is still the only candidate - read this first
+- 25-6 b4ns_locK_fsim_s2 (laptop 03:40:06-04:07:31 KST, 1645 s, batch 8, no OOM) ingested 04:12 KST: sums match (train 85.8068 /
+  2769.5434 / 2771.1833; test 171.2466 / 5552.5924 / 5529.8110), parquet md5 train 1bf4354c, test ea9bbf8d; tar 104 parquet members,
+  re-extracted md5s equal; builder gate corr 0.990 / 0.990 / 0.991 for the three B4-NS seeds. Section 26 started 04:07:49 KST (26-1
+  b5ap_locK_fsim).
+- Official g1mix9 build with NS4Bf complete (hardness-cache scripts/d1017/g1mix9/q8a_ns4b3/, README.txt; 04:12:59-04:13:23 KST):
+  NS4Bf alone vs A3fixed -0.373 2/5 (weak). Line A P4B [B8f, APf, NS4Bf] +0.163 3/5 k24 9.9596 -> no; PALL [B8f, APf, NS7Bf, NS4Bf]
+  -0.046 2/5 k24 9.9625 -> no. Line B P4B +0.280, PALL -0.026 2/5 k24 9.9753 -> no. P7B line A rebuilt bit for bit (test e226678a...,
+  OOF 91594c22... = the staged blend_v39p7b files), still NEAR-TIE(strict). No SAFE or BOLD file from g1mix9.
+- Next: section 26 (APBf = b5ap_locK_fsim x3, NS3Bf = b3ns_locK_fsim x3) -> d1017/g1mix10 official builds and d1018/judge_slots1018.py;
+  the card pick (cmsg_013RLctANMoWDtvGq8ZCRkU9T3Bzc36iGx12DzShoDwsck) still decides whether blend_v39p7b.csv goes out.
+
+## 2026-10-18 03:20 KST: NS7Bf complete; P7B (line A) = NEAR-TIE(strict), verified, staged as blend_v39p7b.csv pending JINWOO's card pick
 - 25-3 b7ns_locK_fsim_s2 (laptop 01:50:15-02:43:49 KST, 3214 s, batch 6, no OOM) ingested 02:48 KST: sums match (train 87.0799 /
   2751.5090 / 2780.0921; test 174.0026 / 5519.2321 / 5544.7508), parquet md5 train ce33e9a8, test fcaeaf61; gate corr 0.988.
 - Official g1mix9 build (hardness-cache scripts/d1017/g1mix9/q8a_ns7b3/, README.txt; env d1017/run_env_1018.sh, kriging24):
