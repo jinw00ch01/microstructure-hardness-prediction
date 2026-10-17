@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 00:15 KST)
+# Resume guide (updated 2026-10-18 00:20 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -13,12 +13,14 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   NS4f] +0.356 3/5, k24 9.9748 -> no; Q8ALL = [B8f, NS6f, APf, NS6Bf, NS4f] +0.261 2/5, k24 9.9763 -> no. NS4f alone vs A3fixed only
   -0.108 (the A3 recipe on B4-NS is weak, like on B6-NS). No 10-18 file from section 24.
 - Section 25 started on the laptop 00:00:51 KST (25-1 b7ns_locK_fsim, batch 6, first epoch 59 s vs 24-7's 55 s, no OOM). At the
-  observed speeds sections 25 and 26 should end about 06:00-06:30 KST 10-18 (the plan's 09:15 was conservative).
+  observed speeds sections 25 and 26 should end about 06:00-06:30 KST 10-18 (the plan's 09:15 was conservative). Laptop estimate
+  at 00:20 KST: section 25 ends about 04:30, section 26 about 07:10, section 27 about 14:00 KST 10-18.
 - Section 27 written to notes/handoff/laptop-gpu.md (00:14 KST): A3 and B1 recipes on tf_efficientnet_b6.ap_in1k and
   tf_efficientnet_b4.ap_in1k, 3 seeds each (27-1..27-12, about 7 h; no run starts after 04:00 KST 10-19). Pre-registered before any
   run: hardness-cache scripts/d1018/g1mix11/options.txt (sha256 bb568132...), mk_g1mix11.py, build_g1mix11.py (hashes in
   g1mix11/options.sha256; dry run 00:14 KST reproduces blend_v38q8a bit for bit). Both weights smoke-built in the cloud 00:12 KST
-  (B6-AP 39.7M, B4-AP 17.0M with the fpn head). Needs JINWOO's line "섹션27 실행" in the main thread.
+  (B6-AP 39.7M, B4-AP 17.0M with the fpn head). JINWOO wrote "섹션 27 실행" (main thread 00:18 KST 10-18); the laptop queued it
+  00:20 KST after sections 25 and 26 (C: 257 GB free, above the 10 GB bar).
 
 ## 2026-10-17 23:45 KST: Q8A read 9.9495571078 = NEW BEST; kriging24; everything re-based on Q8A - read this first
 - blend_v38q8a (Q8A = [B8f, APf], 10-17 extra #2) public 9.9495571078 (user, main thread 23:42 KST): -0.1378 public MSE vs XN8; NEW BEST

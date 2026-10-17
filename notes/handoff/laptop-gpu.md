@@ -1417,6 +1417,7 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
 
 ## 27. AdvProp one size up and one size down: EfficientNet-B6 AP and B4 AP, each with the A3 and the B1 recipe (3 seeds each) (prepared 2026-10-18 00:14 KST)
 
+Approved: JINWOO wrote "섹션 27 실행" in the main thread at 00:18 KST 10-18; the laptop queued it at 00:20 KST behind section 26.
 Runs on JINWOO's own run line in the main thread ("섹션27 실행"). GPU rule as in the header (this project owns the GPU until
 2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
 Order: after section 26 has finished and its last run is dumped; if the run line arrives earlier, queue section 27 behind
