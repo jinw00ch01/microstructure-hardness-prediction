@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 05:21 KST)
+# Resume guide (updated 2026-10-18 05:30 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,20 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 05:21 KST: JINWOO picked the NEAR-TIE class (strict, 2 per day); P7B handed over as 10-18 file 1 - read this first
+## 2026-10-18 05:30 KST: P7B read 9.9576 (worse than Q8A); kriging25; g1mix9 re-judged, no file - read this first
+- blend_v39p7b.csv (10-18 file 1) read 9.9575524935 (user 05:24 KST): +0.1592 public MSE vs Q8A (9.9495571078), which stays the best
+  file and the automatic final. kriging24 had predicted 9.9572 (z +0.02). hardness-cache scripts/d1016/pub/forensics25.py and
+  kriging25.py (mk_pubN.py 25 v39p7b=9.9575524935:e226678a; read25_out.txt: LOO z v39p7b +0.10, v38q8a -0.64).
+- Env for every later build: hardness-cache scripts/d1018/run_env_1018k25.sh "v38q8a 9.9495571078" (= run_env_1018p.sh with
+  KRIG_LATEST -> kriging25; sha in d1018/NOTES.sha256). Line B: export BASE=B8f after sourcing.
+- g1mix9 rebuilt under kriging25 (hardness-cache scripts/d1017/g1mix9/q8a_k25/, README.txt; 05:28 KST, rc 0, Q8A reproduced bit for
+  bit): line A P7B SKIP (= v39p7b; k25 9.9585), P4B +0.163 3/5 k25 9.9597 no, PALL SKIP (G1 rms 0.245 vs v39p7b); line B P7B k25
+  9.9748, P4B 9.9757, PALL 9.9767, all above the 9.9628 BOLD bar. No SAFE, BOLD or NEAR-TIE(strict) file on hand.
+- 10-18 slots: 1 used (v39p7b, NEAR-TIE 1 of 2), 4 left; BOLD 0 of 2 used. Next: 26-3 b5ap_locK_fsim_s2 (started 05:11 KST) completes
+  APBf -> d1017/g1mix10 PAB (line A [B8f, APf, APBf], line B [B8f, APBf]) with run_env_1018k25.sh and judge_slots1018.py; then
+  NS3Bf (26-4..6) -> P3B and PALL. Section 27 follows automatically; section 28 still needs "섹션28 실행".
+
+## 2026-10-18 05:21 KST: JINWOO picked the NEAR-TIE class (strict, 2 per day); P7B handed over as 10-18 file 1
 - 05:17:56 KST JINWOO tapped "엄격 조건, 하루 2개" on the 03:19 KST card; 05:18:00 and 05:18:03 KST also "하루 2개까지" on the two replaced
   cards (01:12, 02:13). Recorded in hardness-cache scripts/d1018/DECISION_neartie1018.txt (sha in d1018/NOTES.sha256): the STRICT
   variant (judge label NEAR-TIE(strict) only), at most 2 NEAR-TIE files per KST day on 10-18 and 10-19, outside the 2-BOLD cap,
