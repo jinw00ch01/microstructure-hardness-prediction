@@ -1,10 +1,31 @@
-# Resume guide (updated 2026-10-17 19:21 KST)
+# Resume guide (updated 2026-10-17 21:39 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 21:39 KST: NS6Bf complete; XN8 (blend_v38xn8.csv) delivered as 10-17 bold #2 - read this first
+- 24-9 b6ns_locK_fsim_s2 (B1 recipe on B6-NS, seed 2; laptop wall 20:22:16-21:05:16 KST, 2580 s, batch 6, no OOM) ingested at
+  21:10 KST: train md5 e865e0de..., test f09c7850...; sums match the dump (train 87.9386 / 2768.4439 / 2775.9521, test 175.2104 /
+  5551.9398 / 5539.0278); het_cnn-tables.tar now 111 members (re-extracted, md5s equal).
+- Official builds at 21:10 KST under kriging21 (g1mix7/build_2110.log; g1mix8/build_2110.log + judge8_2110.log):
+  g1mix7 (BASE N2): P6B = N2 + NS6Bf vs N2 -0.023 2/5, k21 9.9600, rms vs N2 0.341 -> no; PALL = N2 + NS6f + NS6Bf +0.080 3/5,
+  k21 9.9614, rms 0.435 -> no. g1mix8 (BASE B8f): Q86B = B8f + NS6Bf -0.050 2/5, k21 9.9674, rms vs N2 0.718, min-sub 0.453
+  (v38q8) -> BOLD; Q8ALL = B8f + NS6f + NS6Bf +0.072 2/5, k21 9.9645, rms 0.611 -> BOLD. NS6Bf alone (diagnostic) +0.122, k21 9.9802.
+  No SAFE file (all fail on OOF, folds or k21 >= 9.95946).
+- Bold #2 (ADDENDUM_q8 rule 4 + NOTE_bold2_order, strictly lowest kriging21 among BOLD): XN8 9.9632 < Q8ALL 9.9645 < Q86B 9.9674
+  < X8 9.9698 -> XN8 = hardness-cache submissions/blend_v38xn8.csv (md5 8d7bbd7a63f4604f7bfd3b1f6dd311c3; [B1f, B4f, NSf, B8f]; OOF 10.454;
+  k18 9.9670, P(beat N2) 0.29; vs N2 +0.189 2/5; rms vs N2 0.591, min-sub 0.269 vs v37x78, vs v38q8 0.824). Delivered 21:39 KST
+  after workflow verify-bold2-1017 (rules verifier recomputed every number from raw files and swept 91 + 40 cached files; critic
+  DELIVER_XN8; report g1mix8/verify_bold2_output.json, md5 93f786b7..., sweeps in g1mix8/verify_bold2/). The file itself was
+  rebuilt bit for bit and compliance-tested by verify-v38 and is unchanged.
+- Noted by the verifiers (not failures): XN8 leads Q8ALL by 0.0013 only, and under k21 P(beat N2) ranks Q8ALL 0.44 > Q86B 0.39 >
+  XN8 0.29 (XN8's sd is small); the pre-registered order is by point kriging. X8 is now closed (at most one of XN8/X8).
+- 10-17 after XN8: both bold slots used; the 3 remaining 10-17 slots take SAFE files only. 24-4 b5ap_locK_real5 (A3 recipe,
+  B5-AP) started 21:05 KST; chunk 0 arrived 21:38 KST; APf (24-4..6) complete around 22:45 KST, then PA/PALL and Q8A/Q8ALL are
+  built (SAFE needs k21 < 9.95946, unlikely). Then 24-10..12 (NS4f), sections 25 and 26 overnight.
 
 ## 2026-10-17 19:21 KST: Q8 read 9.9649369209 (worse than N2); kriging21; N2 stays best; XN8 leads bold #2 - read this first
 - blend_v38q8 (Q8 = B8f alone, 10-17 bold #1) public 9.9649369209 (user, main thread 19:18 KST): +0.1091 public MSE vs N2.
