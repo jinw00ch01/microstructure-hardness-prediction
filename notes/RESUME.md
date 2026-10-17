@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 07:01 KST)
+# Resume guide (updated 2026-10-18 07:31 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,25 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 07:01 KST: section 26 done; NS3Bf round judged; Q8AB stays the file to submit - read this first
+## 2026-10-18 07:31 KST: Q8AB read 9.9572 (worse than Q8A); kriging26; Q8AB3 is the only BOLD on hand, in verification - read this first
+- blend_v39q8ab.csv (10-18 file 2, BOLD 1 of 2) read 9.9572104905 (user 07:25 KST): +0.1524 public MSE vs Q8A (9.9495571078), which stays
+  the best file and the automatic final. kriging25 had predicted 9.9568 (z +0.02). hardness-cache scripts/d1016/pub/forensics26.py and
+  kriging26.py (mk_pubN.py 26 v39q8ab=9.9572104905:aab27fb4; read26.py / read26_out.txt: LOO z v39q8ab +0.04, v38q8a -0.54, v38q8 +1.00).
+- Env for every later build: hardness-cache scripts/d1018/run_env_1018k26.sh "v38q8a 9.9495571078" (= run_env_1018k25q.sh, 21 files in the
+  skip list incl. v39p7b and v39q8ab, with KRIG_LATEST -> kriging26; sha in d1018/NOTES.sha256). Line B: export BASE=B8f after sourcing.
+- Pool re-judged under kriging26 (NOTE_slate1018 rule 5): d1017/g1mix10/q8a_k26 and d1017/g1mix9/q8a_k26 official rebuilds (07:28 KST,
+  rc 0, Q8A reproduced bit for bit) and the g1mix8 Q8A-rule lines (best_q8a_k24, best_q8a_ns4) re-kriged: every option SKIP, "no", or
+  >= 9.9736, except g1mix10 line B PALL = Q8AB3 [B8f, APBf, NS3Bf]: +0.002 3/5, 40-split P 0.62, drop-top-3 +0.321, k26 9.9623 (bar
+  9.9628), P(beat Q8A) 0.31, G1 rms vs Q8A 0.709, vs v39q8ab 0.395 -> BOLD, the lowest (only) BOLD on hand.
+- Staged, NOT handed over: hardness-cache submissions/blend_v39q8ab3.csv (md5 c05736735286c14265489100de6f81a3) and
+  blend_v39q8ab3_oof.csv (12ef9e0bbcb8d7828372c42c7011b136). Workflow verify-q8ab3-1018 (run wf_ab3b1165-51c; rules, file rebuild and
+  re-implementation with test-noise invariance, NS3Bf reader health and provenance, public-model lens, critic) started 07:29 KST.
+  If it passes: hand over as 10-18 BOLD 2 of 2 (10-18 file 3), add v39q8ab3 to the skip list with a new env, record it here and in
+  LEADERBOARD. Do not append section 27 tables to het_cnn-tables.tar until the workflow ends.
+- 10-18: 2 files submitted (v39p7b NEAR-TIE 1 of 2, v39q8ab BOLD 1 of 2), 3 slots left. Section 27 (d1018/g1mix11) runs until about
+  14:00 KST; its BOLD files go to 10-19 if Q8AB3 takes the last 10-18 BOLD slot (SAFE needs no slot class; NEAR-TIE has 1 left on 10-18).
+
+## 2026-10-18 07:01 KST: section 26 done; NS3Bf round judged; Q8AB stays the file to submit
 - 26-5 b3ns_locK_fsim_s1 ingested 06:34 KST (parquet md5 train 835fc036, test 60bfd67c). 26-6 b3ns_locK_fsim_s2 (laptop
   06:29:48-06:52:13 KST, 1345 s, batch 8, no OOM) ingested 06:58 KST: sums match (train 86.6449 / 2759.6569 / 2771.8387; test
   173.0465 / 5532.5853 / 5530.0263), parquet md5 train 87723f5e, test b837e482; tar 116 parquet members, re-extracted md5s equal.
