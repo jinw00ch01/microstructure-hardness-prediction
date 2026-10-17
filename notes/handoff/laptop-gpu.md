@@ -1386,3 +1386,31 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   say so (the cloud counts a renamed run as the same seed of its family).
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+## 26. The B1 recipe on EfficientNet-B5 AdvProp and B3 Noisy Student (3 seeds each) (prepared 2026-10-17 18:49 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션26 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: after section 25 has finished and its last run is dumped (if section 25 never gets its run line, after section 24); if the
+run line arrives earlier, queue section 26 behind them. Inside section 26: 26-1 to 26-6 in order.
+Why: on the B5-NS backbone the public model credits the B1-recipe reader (b5ns_locK_fsim, 23-1) for the best file, while the
+A3-recipe reader on the same backbone (b5ns_locK_real5, 20-2) adds little, so the recipe carries the gain, not only the backbone.
+Section 24 trains AdvProp B5 only with the A3 recipe, and sections 24-25 put the B1 recipe on B6-, B7- and B4-NS. These runs put the
+B1 recipe on AdvProp B5 and on B3-NS so the 10-18 files can add new families. Judging is pre-registered in hardness-cache
+scripts/d1017/g1mix10/options.txt before any of these runs. Both weights are Apache-2.0 timm weights with GitHub-release URLs
+(tf_efficientnet_b5.ap_in1k; tf_efficientnet_b3.ns_jft_in1k); the cloud smoke-built both with the B1 recipe.
+
+26-1 [GPU] APB seed 0: 23-1's exact command (the B1 recipe on B5-NS, batch 8) with only
+  `--arch tf_efficientnet_b5.ap_in1k --out b5ap_locK_fsim` changed.
+26-2 [GPU] APB seed 1: 26-1's command with only `--seed 1 --out b5ap_locK_fsim_s1`.
+26-3 [GPU] APB seed 2: 26-1's command with only `--seed 2 --out b5ap_locK_fsim_s2`.
+26-4 [GPU] NS3B seed 0: 23-1's exact command with only `--arch tf_efficientnet_b3.ns_jft_in1k --out b3ns_locK_fsim` changed.
+26-5 [GPU] NS3B seed 1: 26-4's command with only `--seed 1 --out b3ns_locK_fsim_s1`.
+26-6 [GPU] NS3B seed 2: 26-4's command with only `--seed 2 --out b3ns_locK_fsim_s2`.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Expected wall time: B5-AP about 32 min per seed at batch 8 (like 23-1), B3-NS about 20 min per seed.
+- Before each run, send the full command line you are going to use (one message).
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 with `_b<batch>` appended to `--out`, and
+  say so (the cloud counts a renamed run as the same seed of its family).
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.

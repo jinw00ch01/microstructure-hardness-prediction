@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-17 18:47 KST)
+# Resume guide (updated 2026-10-17 18:46 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-17 18:47 KST: verify-v38 passed; Q8 delivered as 10-17 bold #1; ADDENDUM_q8 pre-registered - read this first
+## 2026-10-17 18:46 KST: verify-v38 passed; Q8 delivered as 10-17 bold #1; ADDENDUM_q8 pre-registered - read this first
 - verify-v38 (4 agents; report copied to hardness-cache scripts/d1016/g1mix8/verify_v38_output.json): rebuild PASS x3 (independent
   numpy/pandas rule reproduces Q8, XN8, X8, N2, XN78 bit for bit); rules PASS_WITH_NOTES; format/compliance PASS (Q8 with notes;
   perturbing every test reader value leaves all fits and the train OOF bit-identical; only the 433 G1 rows change); critic: DELIVER Q8,
@@ -19,6 +19,12 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   NS6Bf options are judged or at 22:30 KST, whichever first; at most one of XN8/X8 ever; no more diagnostic promotions and no
   seed/weight variants of Q8.
 - Delivered to JINWOO: blend_v38q8.csv (bold #1 of 10-17), with "섹션25 실행" asked for (queues behind section 24).
+- Section 26 (B1 recipe on B5-AP and B3-NS, 3 seeds each, about 2.6 h; after section 25) written to notes/handoff/laptop-gpu.md
+  18:49 KST with its judging pre-registered in hardness-cache scripts/d1017/g1mix10 (options.txt 00d1e0a5d84003aca9d0bd6883de52fa
+  0e0d16a20256caea4e8464487369f282, mk_g1mix10.py 2f6c2d93..., build_g1mix10.py 1844a3a1...; families APBf, NS3Bf; options PAB,
+  P3B, PALL on line A (best file's families) and line B ([B8f]); bars as g1mix9). JINWOO starts it with "섹션26 실행".
+- Public-model helper: hardness-cache scripts/d1016/pub/mk_pubN.py (`python3 mk_pubN.py 21 v38q8=<reading>:e68c6808` writes
+  forensics21.py + kriging21.py from 20; dry-run checked in scratch).
 
 ## 2026-10-17 18:18 KST: resumed 17:47 KST; Q8 (B8f alone) is 10-17 bold #1 once verify-v38 passes - read this first
 - JINWOO "재개" 17:47 KST 10-17. Laptop reconnected; 24-2 (b6ns_locK_real5_s1) resumed at fold 3 17:49:59, done 18:10:05 (rc 0,
