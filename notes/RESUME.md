@@ -1,10 +1,24 @@
-# Resume guide (updated 2026-10-17 18:18 KST)
+# Resume guide (updated 2026-10-17 18:47 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 18:47 KST: verify-v38 passed; Q8 delivered as 10-17 bold #1; ADDENDUM_q8 pre-registered - read this first
+- verify-v38 (4 agents; report copied to hardness-cache scripts/d1016/g1mix8/verify_v38_output.json): rebuild PASS x3 (independent
+  numpy/pandas rule reproduces Q8, XN8, X8, N2, XN78 bit for bit); rules PASS_WITH_NOTES; format/compliance PASS (Q8 with notes;
+  perturbing every test reader value leaves all fits and the train OOF bit-identical; only the 433 G1 rows change); critic: DELIVER Q8,
+  XN8 then X8 fallback OK. Notes: Q8 is the most public-driven file so far (promoted diagnostic, BOLD only); P(beat 9.9595) 0.575
+  under kriging20, 0.415 under kriging18; on train it ties N2 (edge on 3 rows), so its expected private score is about N2's.
+- g1mix8/ADDENDUM_q8.txt (sha256 1449bb5503915d2702b726968adc56127019e7f98a6b425176147c7a4f0d388b, written 18:45 KST before delivery
+  or any reading) with g1mix8/mk_rebase_Q8.py (sha256 515dcb6d7b602283e839876e8a2e30d5fee5c2f663707a6162fe2cf72848a5ac): new readings
+  -> kriging21 (g1mix6 leftovers under kriging18 AND latest); if Q8 reads below 9.9594601661 it becomes BEST (BASE [B8f], g1mix7 =
+  g1mix8 build, XN8/X8 re-based on the Q8 rule by mk_rebase_Q8.py); bold #2 on 10-17 = lowest latest-kriging BOLD candidate when the
+  NS6Bf options are judged or at 22:30 KST, whichever first; at most one of XN8/X8 ever; no more diagnostic promotions and no
+  seed/weight variants of Q8.
+- Delivered to JINWOO: blend_v38q8.csv (bold #1 of 10-17), with "섹션25 실행" asked for (queues behind section 24).
 
 ## 2026-10-17 18:18 KST: resumed 17:47 KST; Q8 (B8f alone) is 10-17 bold #1 once verify-v38 passes - read this first
 - JINWOO "재개" 17:47 KST 10-17. Laptop reconnected; 24-2 (b6ns_locK_real5_s1) resumed at fold 3 17:49:59, done 18:10:05 (rc 0,
