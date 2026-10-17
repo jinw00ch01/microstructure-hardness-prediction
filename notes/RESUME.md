@@ -24,6 +24,10 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
 - 25-4 b4ns_locK_fsim (laptop 02:43:49-03:12:39 KST, 1730 s, batch 8, no OOM) ingested 03:19 KST: sums match (train 85.6206 /
   2766.4451 / 2769.2897; test 171.5800 / 5546.7858 / 5527.3833), parquet md5 train 49694ad0, test 5310c05d; tar 100 parquet members.
   25-5 (_s1) started 03:12 KST.
+- 25-5 b4ns_locK_fsim_s1 (laptop 03:12:39-03:40:06 KST, 1647 s, batch 8, no OOM) ingested 03:46 KST: sums match (train 84.9278 /
+  2787.1792 / 2761.2927; test 169.8805 / 5589.8487 / 5508.1261), parquet md5 train 7c808dd0, test 1307d6f2; tar 102 parquet members,
+  re-extracted md5s equal. Label-free gate (builder formula, no option built) corr 0.990 for seed 0 and seed 1. 25-6 (_s2) started
+  03:40 KST; when it is in, run the official g1mix9 build (new OUT dirs) for P4B and PALL, then judge_slots1018.py.
 
 ## 2026-10-18 02:14 KST: 25-2 in (2-seed read only); NEAR-TIE card replaced with a disclosed one; section 28 stop times tightened
 - 25-2 b7ns_locK_fsim_s1 (laptop 00:55:07-01:50:15 KST, 3308 s, batch 6, no OOM) ingested 01:57 KST: sums match (train 87.1978 /
