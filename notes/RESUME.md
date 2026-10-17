@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 02:14 KST)
+# Resume guide (updated 2026-10-18 03:20 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,26 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 02:14 KST: 25-2 in (2-seed read only); NEAR-TIE card replaced with a disclosed one; section 28 stop times tightened - read this first
+## 2026-10-18 03:20 KST: NS7Bf complete; P7B (line A) = NEAR-TIE(strict), verified, staged as blend_v39p7b.csv pending JINWOO's card pick - read this first
+- 25-3 b7ns_locK_fsim_s2 (laptop 01:50:15-02:43:49 KST, 3214 s, batch 6, no OOM) ingested 02:48 KST: sums match (train 87.0799 /
+  2751.5090 / 2780.0921; test 174.0026 / 5519.2321 / 5544.7508), parquet md5 train ce33e9a8, test fcaeaf61; gate corr 0.988.
+- Official g1mix9 build (hardness-cache scripts/d1017/g1mix9/q8a_ns7b3/, README.txt; env d1017/run_env_1018.sh, kriging24):
+  NS7Bf alone vs A3fixed -1.563 3/5 (now the strongest single family on train, above B7f's -1.530). Line A P7B [B8f, APf, NS7Bf] vs
+  Q8A -0.218 3/5, 40-split mean -0.165 P 0.03, drop-top-3 -0.008 (drop-top-4 +0.051), k24 9.9572, P(beat Q8A) 0.35, G1 rms vs Q8A
+  0.342 -> builder "no" (not SAFE, not BOLD); d1018/judge_slots1018.py -> NEAR-TIE(strict). Line B P7B [B8f, NS7Bf] -0.278 3/5,
+  k24 9.9729 -> no. P4B waits for NS4Bf (25-4 in, 25-5/25-6 running); PALL = P7B until then.
+- Workflow verify-p7b-1018 (02:53-03:18 KST; q8a_ns7b3/verify_p7b_output.json): all three verifiers PASS_WITH_NOTES, critic
+  READY_ON_PICK. Staged (NOT handed over): hardness-cache submissions/blend_v39p7b.csv (md5 e226678a487e1d2903eea3493d5144af),
+  blend_v39p7b_oof.csv (91594c22f5da6140ec261c3f5e1fd2de).
+- Card: the 02:13 KST card (2-seed text, now wrong for the strict option) was withdrawn 03:19 KST and replaced by a card with the
+  3-seed numbers: 엄격 조건, 하루 2개 (recommended) / 엄격 조건, 하루 1개 / 기본 조건, 하루 2개 / 지금 규칙 유지. Any of the first three
+  releases blend_v39p7b.csv; record the pick in d1018/DECISION_neartie1018.txt (cite NOTE 7d58bf21..., DISCLOSURE 81ca1e86...).
+  Before handing over, re-judge: a SAFE or BOLD file that is on hand first takes precedence.
+- 25-4 b4ns_locK_fsim (laptop 02:43:49-03:12:39 KST, 1730 s, batch 8, no OOM) ingested 03:19 KST: sums match (train 85.6206 /
+  2766.4451 / 2769.2897; test 171.5800 / 5546.7858 / 5527.3833), parquet md5 train 49694ad0, test 5310c05d; tar 100 parquet members.
+  25-5 (_s1) started 03:12 KST.
+
+## 2026-10-18 02:14 KST: 25-2 in (2-seed read only); NEAR-TIE card replaced with a disclosed one; section 28 stop times tightened
 - 25-2 b7ns_locK_fsim_s1 (laptop 00:55:07-01:50:15 KST, 3308 s, batch 6, no OOM) ingested 01:57 KST: sums match (train 87.1978 /
   2776.2415 / 2763.0529; test 174.6217 / 5567.8024 / 5511.4991), parquet md5 train 7a35fbb8, test d26e138d; tar 96 parquet members;
   gate corr 0.987. 25-3 (_s2) started 01:50 KST.
