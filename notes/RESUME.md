@@ -18,6 +18,9 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
 - 26-1 b5ap_locK_fsim (laptop 04:07:49-04:40:00 KST, 1931 s, batch 8, no OOM) ingested 04:45 KST: sums match (train 85.5889 /
   2758.5403 / 2781.6122; test 170.8865 / 5529.3551 / 5549.9713), parquet md5 train 516942b9, test 9aa72a2c; tar 106 parquet members,
   re-extracted md5s equal; label-free gate (builder formula, no option built) corr 0.990. 26-2 (_s1) started 04:40 KST.
+- 26-2 b5ap_locK_fsim_s1 (laptop 04:40:00-05:11:15 KST, 1875 s, batch 8, no OOM) ingested 05:17 KST: sums match (train 85.7465 /
+  2768.6946 / 2767.6127; test 171.3864 / 5552.3452 / 5520.6430), parquet md5 train e65eda3e, test c60e0912; tar 108 parquet members,
+  re-extracted md5s equal; gate corr 0.991. 26-3 (_s2) started 05:11 KST.
 - Next: section 26 (APBf = b5ap_locK_fsim x3, NS3Bf = b3ns_locK_fsim x3) -> d1017/g1mix10 official builds and d1018/judge_slots1018.py;
   the card pick (cmsg_013RLctANMoWDtvGq8ZCRkU9T3Bzc36iGx12DzShoDwsck) still decides whether blend_v39p7b.csv goes out.
 
