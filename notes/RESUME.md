@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 00:16 KST)
+# Resume guide (updated 2026-10-18 00:15 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 00:16 KST: NS4f complete (no file); section 27 (AdvProp B6/B4) prepared and pre-registered - read this first
+## 2026-10-18 00:15 KST: NS4f complete (no file); section 27 (AdvProp B6/B4) prepared and pre-registered - read this first
 - 24-12 b4ns_locK_real5_s2 (laptop 23:34:37-00:00:25 KST, 1548 s, batch 8) ingested 00:07 KST: sums match (train 84.3426 / 2779.6230 /
   2759.8092; test 167.8805 / 5576.4292 / 5502.0067); tar 92 parquet members. Section 24 complete. NS4f gate corr 0.994/0.995/0.994.
 - g1mix8 line vs the Q8A rule (g1mix8/best_q8a_ns4, build_0008.log, judge8_0008.log; env d1017/run_env_1018.sh, BASE=B8f): Q84 = [B8f,
@@ -17,7 +17,7 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
 - Section 27 written to notes/handoff/laptop-gpu.md (00:14 KST): A3 and B1 recipes on tf_efficientnet_b6.ap_in1k and
   tf_efficientnet_b4.ap_in1k, 3 seeds each (27-1..27-12, about 7 h; no run starts after 04:00 KST 10-19). Pre-registered before any
   run: hardness-cache scripts/d1018/g1mix11/options.txt (sha256 bb568132...), mk_g1mix11.py, build_g1mix11.py (hashes in
-  g1mix11/options.sha256; dry run 00:15 KST reproduces blend_v38q8a bit for bit). Both weights smoke-built in the cloud 00:12 KST
+  g1mix11/options.sha256; dry run 00:14 KST reproduces blend_v38q8a bit for bit). Both weights smoke-built in the cloud 00:12 KST
   (B6-AP 39.7M, B4-AP 17.0M with the fpn head). Needs JINWOO's line "섹션27 실행" in the main thread.
 
 ## 2026-10-17 23:45 KST: Q8A read 9.9495571078 = NEW BEST; kriging24; everything re-based on Q8A - read this first
