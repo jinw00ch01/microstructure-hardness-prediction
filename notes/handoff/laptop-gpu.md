@@ -1347,3 +1347,9 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
   say so (the cloud counts a renamed run as the same seed of its family).
 - SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
 - The laptop sends no label numbers; the cloud scores every reader on train labels only.
+
+**24-R order change (prepared 2026-10-17 17:51 KST, after blend_v37n2 9.9595 became the best public file; its strongest piece is the B1-recipe
+B5-NS reader b5ns_locK_fsim, so the B1 recipe on B6-NS is the most promising family left in this section).** On JINWOO's line
+"섹션24 순서 변경 실행": let the run in progress finish (24-2) and dump it as usual, then run 24-7, 24-8, 24-9 (NS6B) next, then
+24-3, 24-4, 24-5, 24-6, 24-10, 24-11, 24-12. Commands, batch, dumps, the OOM rule and the SEND lines are unchanged. If the line
+never arrives, keep the original order.
