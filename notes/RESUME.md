@@ -19,6 +19,12 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   14 files before v38q8 (sha-pinned); read21 adds the rms vs v38q8 (XN8 0.824, X8 0.877).
 - Asked JINWOO again for "섹션25 실행" and now also "섹션26 실행" (19:21 KST reply).
 - Bold #2 (ADDENDUM_q8 rule 4): lowest latest-kriging BOLD candidate once the NS6Bf options (24-7..9) are judged, or at 22:30 KST.
+- 20:29 KST (24-7, 24-8 ingested; 24-9 running): hardness-cache scripts/d1016/g1mix8/NOTE_bold2_order.txt (sha256 12ee59c8aeb983c7
+  c4f6bc1c9a6c050f07b1752dca8991fb6e5a410cdae6a267, pinned in g1mix8/options.sha256) fixes the cross-round order for bold #2: the
+  strictly lowest latest kriging (no "within 0.002" tie-break across rounds; exact ties go to the better vs-N2 OOF). Written after a
+  2-seed scratch preview (disclosed in the note: Q8ALL k21 9.9637, Q86B 9.9670, XN8 9.9632) and before NS6Bf seed 2 exists.
+  24-7 b6ns_locK_fsim (train md5 7bedb4b3..., test 55a09448...) and 24-8 b6ns_locK_fsim_s1 (train b3b6b2a3..., test e3ed0fa2...)
+  ingested, sums match, tar 109 members.
 
 ## 2026-10-17 19:06 KST: 24-3 in, NS6f complete; P6 (N2 + NS6f) and Q86 (B8f + NS6f) judged: no file - read this first
 - 24-3 b6ns_locK_real5_s2 (B6-NS, A3 recipe, seed 2; laptop wall 18:10:05-18:54:54 KST, batch 6, no OOM) ingested: train md5
