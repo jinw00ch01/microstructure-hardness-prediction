@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 05:52 KST)
+# Resume guide (updated 2026-10-18 06:18 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,23 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 05:52 KST: APBf complete; line B PAB = Q8AB = [B8f, APBf] is BOLD; staged, in verification - read this first
+## 2026-10-18 06:18 KST: Q8AB verified and handed over as 10-18 file 2 (BOLD 1 of 2) - read this first
+- Workflow verify-q8ab-1018 (run wf_544b9be0-36f, 05:52-06:16 KST): critic DELIVER; rules, file and reader verifiers and the
+  public-model lens all PASS_WITH_NOTES (two bit-identical rebuilds, independent numpy re-implementation matching Q8AB and the Q8A
+  control, test-noise invariance, APBf chunk/parquet/tar integrity, Apache-2.0 weights). Public-model notes: kriging25 9.9568,
+  P(beat Q8A) 0.35 is the most generous variant (others 0.25-0.30; B8f-line bias-adjusted about 0.2-0.3); (Q8AB - Q8A) correlates
+  +0.787 with (v38q8 - Q8A) on the 433 G1 rows, so it moves about 62% of the way back toward B8f alone.
+- Handed over 06:18 KST: hardness-cache submissions/blend_v39q8ab.csv (md5 aab27fb4fb477bcf60874a8dba5c4c79; OOF
+  blend_v39q8ab_oof.csv 121c1309785f1f769f231b3871485fa4). 10-18: 2 files (v39p7b NEAR-TIE, v39q8ab BOLD), 3 slots left, BOLD 1 of 2,
+  NEAR-TIE 1 of 2. Public reading pending; then mk_pubN.py 26 -> kriging26, a new env, re-judge.
+- NOTE_slate1018 rule 4: if NS3Bf (26-5, 26-6) finishes before the user submits v39q8ab, re-judge g1mix10 with v39q8ab as a candidate
+  (env run_env_1018k25.sh, v39q8ab not in the skip list) and say which file to submit. Once it is submitted, builds use
+  hardness-cache scripts/d1018/run_env_1018k25q.sh (v39q8ab in the skip list, 21 files).
+- 26-4 b3ns_locK_fsim (laptop 05:43:46-06:06:56 KST, 1390 s, batch 8, no OOM) ingested 06:11 KST: sums match (train 87.6585 /
+  2752.6267 / 2769.6652; test 174.6839 / 5516.8253 / 5527.7741), parquet md5 train 6cf5bbf1, test fea32d79; appended to the tar after
+  the workflow ended (112 parquet members, re-extracted md5s equal); gate corr 0.991. 26-5 (_s1) started 06:06 KST.
+
+## 2026-10-18 05:52 KST: APBf complete; line B PAB = Q8AB = [B8f, APBf] is BOLD; staged, in verification
 - 26-3 b5ap_locK_fsim_s2 (laptop 05:11:15-05:43:46 KST, 1951 s, batch 8, no OOM) ingested 05:48 KST: sums match (train 85.6749 /
   2753.9599 / 2782.1119; test 171.2053 / 5522.4649 / 5550.3109), parquet md5 train 5000cd15, test 99a7c3e7; tar 110 parquet members,
   re-extracted md5s equal; builder gate corr 0.990 / 0.991 / 0.990 for the three APBf seeds. 26-4 (b3ns_locK_fsim) started 05:43 KST.
