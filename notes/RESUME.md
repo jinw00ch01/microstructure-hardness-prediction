@@ -1,10 +1,28 @@
-# Resume guide (updated 2026-10-17 21:53 KST)
+# Resume guide (updated 2026-10-17 22:41 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 22:38 KST: extra #1 = Q86 (blend_v38q86.csv) handed over; extra #2 waits on APf seed 2 - read this first
+- Workflow verify-q86-1017 (rebuild, compliance perturbation, rules re-derivation, critic with its own numpy/pandas rebuild):
+  critic DELIVER_Q86 (output hardness-cache scripts/d1016/g1mix8/verify_q86_output.json). Q86 = [B8f, NS6f]: vs the XN8 rule -0.090
+  MSE 3/5 (40-split P 0.60, drop-top-3 +0.248), kriging22 9.9618 (P(beat XN8) 0.427), G1 rms vs XN8 0.618, min over the 16
+  submitted files 0.488 (v37n2) -> BOLD, not SAFE. Switching from the card's Q8ALL follows the pinned rules (reading before
+  delivery; ADDENDUM_q8 rule 1, g1mix6/ADDENDUM_delivery rule 2). verify-q8all-1017: file sound, critic DELIVER_IF_USER_AGREES
+  (verify_q8all_output.json).
+- 22:38 KST reply: submit blend_v38q86.csv (10-17 file 3); said plainly the card named Q8ALL and the XN8 reading moved Q86 first
+  (9.9618 vs 9.9635, 43% vs 42%); offered blend_v38q8all.csv as the alternative, only one of the two (G1 rms between them 0.255).
+  Record g1mix8/DELIVERY_extra1_q86.txt.
+- Extra #2 set fixed before APf seed 2 exists: g1mix8/NOTE_extra2_set.txt (22:18 KST, sha256 21d4b378..., pinned in options.sha256):
+  rebuild into g1mix8/best_xn8_ap and g1mix7/best_xn8_ap; candidates = their BOLD options minus extra #1 (the 21:10 Q8ALL is
+  superseded by the rebuilt Q8ALL with APf); XN8-rule bars; strictly lowest kriging22. Env g1mix8/run_env_extra2.sh = run_env_1017.sh
+  + v38q86 and v38q8all in SUBMITTED_EXTRA (both count as handed over).
+- 24-5 b5ap_locK_real5_s1 (laptop 21:36:38-22:08:38 KST, 1920 s, batch 8) ingested 22:15 KST: sums match the dump (train 86.0886 /
+  2772.0106 / 2757.9995; test 171.8311 / 5559.0782 / 5502.5814); het_cnn-tables.tar 84 parquet members (re-extracted, md5 equal).
+  24-6 (_s2) started 22:08 KST.
 
 ## 2026-10-17 21:53 KST: XN8 read 9.9564798521 = NEW BEST; kriging22; re-based on XN8; extra bold files tonight - read this first
 - blend_v38xn8 (XN8 = B1f + B4f + NSf + B8f, 10-17 bold #2) public 9.9564798521 (user, main thread 21:49 KST): -0.0594 public MSE vs
