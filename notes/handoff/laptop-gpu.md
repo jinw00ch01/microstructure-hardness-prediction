@@ -1350,6 +1350,39 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
 
 **24-R order change (prepared 2026-10-17 17:51 KST, after blend_v37n2 9.9595 became the best public file; its strongest piece is the B1-recipe
 B5-NS reader b5ns_locK_fsim, so the B1 recipe on B6-NS is the most promising family left in this section).** On JINWOO's line
-"섹션24 순서 변경 실행": let the run in progress finish (24-2) and dump it as usual, then run 24-7, 24-8, 24-9 (NS6B) next, then
-24-3, 24-4, 24-5, 24-6, 24-10, 24-11, 24-12. Commands, batch, dumps, the OOM rule and the SEND lines are unchanged. If the line
-never arrives, keep the original order.
+"섹션24 순서 변경 실행": let the run in progress finish (24-2, or whichever run is running when the line arrives) and dump it
+as usual, then run 24-7, 24-8, 24-9 (NS6B) next, then the remaining section 24 runs in their original order. Commands, batch,
+dumps, the OOM rule and the SEND lines are unchanged. If the line never arrives, keep the original order.
+
+## 25. The B1 recipe on two more Noisy Student sizes: B7-NS and B4-NS (3 seeds each) (prepared 2026-10-17 18:01 KST)
+
+Runs on JINWOO's own run line in the main thread ("섹션25 실행"). GPU rule as in the header (this project owns the GPU until
+2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
+Order: after section 24 has finished and its last run is dumped; if the run line arrives earlier, queue section 25 behind
+section 24. Inside section 25: 25-1 to 25-6 in order.
+Why: blend_v37n2 (the A3-recipe and B1-recipe readers on EfficientNet-B5 Noisy Student) read 9.9595 on public, the best file,
+and the public model credits most of that to the B1-recipe B5-NS reader (b5ns_locK_fsim, 23-1). These runs put the same B1
+recipe on the next larger and the next smaller Noisy Student backbones (B6-NS is section 24's 24-7..24-9). Judging is
+pre-registered in hardness-cache scripts/d1017/g1mix9/options.txt before any of these runs. Both weights are Apache-2.0 timm
+weights with GitHub-release URLs (tf_efficientnet_b7.ns_jft_in1k, 66M parameters; tf_efficientnet_b4.ns_jft_in1k, 19M); the
+cloud smoke-built both with the B1 recipe.
+
+25-1 [GPU] NS7B seed 0: 21-3's exact command (tools/fsim/het_fsim.py ..., the B1 recipe, batch 6) with only
+  `--arch tf_efficientnet_b7.ns_jft_in1k --out b7ns_locK_fsim` changed.
+25-2 [GPU] NS7B seed 1: 25-1's command with only `--seed 1 --out b7ns_locK_fsim_s1`.
+25-3 [GPU] NS7B seed 2: 25-1's command with only `--seed 2 --out b7ns_locK_fsim_s2`.
+25-4 [GPU] NS4B seed 0: 23-1's exact command (the B1 recipe on B5-NS, batch 8) with only
+  `--arch tf_efficientnet_b4.ns_jft_in1k --out b4ns_locK_fsim` changed.
+25-5 [GPU] NS4B seed 1: 25-4's command with only `--seed 1 --out b4ns_locK_fsim_s1`.
+25-6 [GPU] NS4B seed 2: 25-4's command with only `--seed 2 --out b4ns_locK_fsim_s2`.
+After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <run> --chunk $k ... }`).
+- Before 25-1, say how much disk is free on the drive that holds the repo (a B7-NS run keeps about 1.25 GB of checkpoints).
+  If less than 15 GB is free, say so and wait for the cloud's answer before starting 25-1. Never delete any file.
+- Expected wall time: B7-NS about 55-65 min per seed at batch 6, B4-NS about 25 min per seed at batch 8. On Windows a VRAM
+  overflow can turn into a silent slowdown instead of a CUDA OOM: if fold 0's first epoch of 25-1 takes more than twice as
+  long as 24-7's first epoch, say so in one line and keep going.
+- Before each run, send the full command line you are going to use (one message).
+- CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 with `_b<batch>` appended to `--out`, and
+  say so (the cloud counts a renamed run as the same seed of its family).
+- SEND after each run: its 3 chunks, one message each (full text), and one line with the run's wall time.
+- The laptop sends no label numbers; the cloud scores every reader on train labels only.
