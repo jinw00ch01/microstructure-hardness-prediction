@@ -20,6 +20,10 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
 - Next: when the user reports Q8A, mk_pubN.py 24 + read24, new env with kriging24 and v38q8a in SUBMITTED_EXTRA; when NS4f has 3
   seeds, rebuild g1mix7/g1mix8 with NS4f (BEST = the best file then) and judge for 10-18; sections 25 and 26 overnight (g1mix9,
   g1mix10). Skip rule now covers 19 files (16 submitted + v38q86, v38q8all, v38q8a).
+- Slot plan pinned 23:29 KST before the Q8A reading and before NS4f seeds 1-2 / sections 25-26: hardness-cache scripts/d1017/
+  NOTE_slate1018.txt (sha256 f220d50e..., in d1017/NOTES.sha256): 10-18 has 5 slots and 10-19 has 5 more until the 10:00 KST deadline
+  (earlier records missed 10-19); at most 2 BOLD per day; pool = NS4f rebuilds + g1mix9 + g1mix10 + undelivered 10-17 options; SAFE
+  first, then strictly lowest latest kriging; a reading or round arriving before the user submits is applied first.
 
 ## 2026-10-17 23:10 KST: Q86 read 9.9809869429 (worse than XN8); kriging23; extra #2 re-picked = Q8A (B8f + APf) - read this first
 - blend_v38q86 (extra #1) public 9.9809869429 (user, main thread 23:05 KST): +0.489 public MSE vs XN8; kriging22 had predicted
