@@ -1,10 +1,25 @@
-# Resume guide (updated 2026-10-17 22:41 KST)
+# Resume guide (updated 2026-10-17 23:10 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 23:10 KST: Q86 read 9.9809869429 (worse than XN8); kriging23; extra #2 re-picked = Q8A (B8f + APf) - read this first
+- blend_v38q86 (extra #1) public 9.9809869429 (user, main thread 23:05 KST): +0.489 public MSE vs XN8; kriging22 had predicted
+  9.9618 (z +0.66). XN8 stays the best file. Added as pub/forensics23.py + kriging23.py (mk_pubN.py 23; BUILT_ON v30b); pub/read23.py
+  -> read23_out.txt (LOO z v38xn8 -1.78, v35xn +1.27, v38q8 +1.21, v38q86 +0.94, rest within +-0.73).
+- 24-6 b5ap_locK_real5_s2 ingested 22:46 KST (sums match the dump; tar 86 parquet members). APf complete -> rebuilds g1mix8/best_xn8_ap
+  and g1mix7/best_xn8_ap (env g1mix8/run_env_extra2.sh); pick under kriging22 (g1mix8/PICK_extra2.txt) was Q8ALL+AP = [B8f, NS6f, APf,
+  NS6Bf] 9.9640 (blend_v38q8allap.csv); its verification (verify-q8allap-1017) was stopped at the critic when the Q86 reading came;
+  its three verifier reports (all PASS_WITH_NOTES) are in g1mix8/verify_q8allap_partial.json.
+- Re-judge under kriging23 (env g1mix8/run_env_extra2_k23.sh; builds best_xn8_ap_k23, files identical; judge8_2306.log; record
+  g1mix8/PICK_extra2_k23.txt): Q8A = [B8f, APf] vs XN8 -0.312 2/5 (40-split P 0.125), k23 9.9690 (P(beat XN8) 0.33), rms vs XN8
+  0.638, min 0.466 -> BOLD (the only one); Q86B k23 9.9802 and Q8ALL+AP 9.9832 fail the kriging bar 9.9697; g1mix7 all SKIP or no.
+  Extra #2 = submissions/blend_v38q8a.csv (md5 78a31699cf40a8dcfdb5a29b0483afb2, OOF aca4900f...); workflow verify-q8a-1017 running.
+- Disclosure (PICK_extra2_k23.txt): a 21:42 KST scratch preview with APf seed 0 only (before the extra rules existed; not an option).
+- Laptop: 24-10 b4ns_locK_real5 (NS4f seed 0) started 22:41 KST; chunk 0 in (sums 84.5885 / 2774.2729 / 2763.8907).
 
 ## 2026-10-17 22:38 KST: extra #1 = Q86 (blend_v38q86.csv) handed over; extra #2 waits on APf seed 2 - read this first
 - Workflow verify-q86-1017 (rebuild, compliance perturbation, rules re-derivation, critic with its own numpy/pandas rebuild):
