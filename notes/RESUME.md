@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 06:18 KST)
+# Resume guide (updated 2026-10-18 07:01 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,24 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 06:18 KST: Q8AB verified and handed over as 10-18 file 2 (BOLD 1 of 2) - read this first
+## 2026-10-18 07:01 KST: section 26 done; NS3Bf round judged; Q8AB stays the file to submit - read this first
+- 26-5 b3ns_locK_fsim_s1 ingested 06:34 KST (parquet md5 train 835fc036, test 60bfd67c). 26-6 b3ns_locK_fsim_s2 (laptop
+  06:29:48-06:52:13 KST, 1345 s, batch 8, no OOM) ingested 06:58 KST: sums match (train 86.6449 / 2759.6569 / 2771.8387; test
+  173.0465 / 5532.5853 / 5530.0263), parquet md5 train 87723f5e, test b837e482; tar 116 parquet members, re-extracted md5s equal.
+  Builder gate corr 0.991 / 0.991 / 0.990 for the three NS3Bf seeds. Section 26 is complete; section 27 (AdvProp B6/B4, d1018/g1mix11)
+  started on its own 06:52:52 KST (27-1 b6ap_locK_real5, batch 6), expected to end about 14:00 KST 10-18.
+- Official g1mix10 builds with complete NS3Bf: hardness-cache scripts/d1017/g1mix10/q8a_ns3b3/ (env d1018/run_env_1018k25.sh, Q8AB a
+  candidate; the NOTE_slate1018 rule-4 re-judge, the user had not submitted v39q8ab) and its twin q8a_ns3b3q/ (run_env_1018k25q.sh,
+  Q8AB in the skip list); same files in both. judge_slots1018.py: line A PAB SKIP, PALL [B8f, APf, APBf, NS3Bf] k25 9.9539 and P3B
+  [B8f, APf, NS3Bf] 9.9550 both "no" (train +0.004 / +0.003 vs Q8A, G1 rms vs Q8A 0.43-0.44 < 0.5). Line B: Q8AB 9.9568 BOLD (lowest),
+  PALL [B8f, APBf, NS3Bf] +0.002 3/5, 40-split P 0.62, drop-top-3 +0.321, k25 9.9619, P(beat Q8A) 0.33, G1 rms vs Q8A 0.709, vs
+  v39q8ab 0.395 -> BOLD; P3B [B8f, NS3Bf] 9.9699 no.
+- Rule-4 result: no change; the user should submit blend_v39q8ab.csv as handed over. Line B PALL ("Q8AB3"; test md5
+  c05736735286c14265489100de6f81a3, OOF 12ef9e0bbcb8d7828372c42c7011b136) is the 10-18 BOLD 2 candidate, NOT staged: it shares B8f +
+  APBf with Q8AB, so wait for the Q8AB reading, then mk_pubN.py 26 -> kriging26, a new env, re-judge this round and the pool
+  (rule 5), and verify before any delivery.
+
+## 2026-10-18 06:18 KST: Q8AB verified and handed over as 10-18 file 2 (BOLD 1 of 2)
 - Workflow verify-q8ab-1018 (run wf_544b9be0-36f, 05:52-06:16 KST): critic DELIVER; rules, file and reader verifiers and the
   public-model lens all PASS_WITH_NOTES (two bit-identical rebuilds, independent numpy re-implementation matching Q8AB and the Q8A
   control, test-noise invariance, APBf chunk/parquet/tar integrity, Apache-2.0 weights). Public-model notes: kriging25 9.9568,
