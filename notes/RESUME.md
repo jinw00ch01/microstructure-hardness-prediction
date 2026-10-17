@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 01:11 KST)
+# Resume guide (updated 2026-10-18 02:14 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,24 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 01:11 KST: 25-1 in (1-seed read only); section 28 (AdvProp B7/B8) prepared and pre-registered; NEAR-TIE class proposed - read this first
+## 2026-10-18 02:14 KST: 25-2 in (2-seed read only); NEAR-TIE card replaced with a disclosed one; section 28 stop times tightened - read this first
+- 25-2 b7ns_locK_fsim_s1 (laptop 00:55:07-01:50:15 KST, 3308 s, batch 6, no OOM) ingested 01:57 KST: sums match (train 87.1978 /
+  2776.2415 / 2763.0529; test 174.6217 / 5567.8024 / 5511.4991), parquet md5 train 7a35fbb8, test d26e138d; tar 96 parquet members;
+  gate corr 0.987. 25-3 (_s2) started 01:50 KST.
+- Two-seed diagnostic (d1017/g1mix9/early_s0/README.txt, build_line{A,B}_s01.log; never submitted): NS7Bf alone vs A3fixed -1.477
+  3/5; line A P7B [B8f, APf, NS7Bf] vs Q8A -0.193 3/5, 40-split mean -0.151 P 0.03, drop-top-3 +0.023, k24 9.9583, P(beat Q8A) 0.33,
+  G1 rms 0.343 -> no under the g1mix9 bars; line B P7B [B8f, NS7Bf] -0.237 3/5, k24 9.9746 -> no.
+- Independent check workflow verify-section28-g1mix12 (critic 01:58 KST): section 28 and g1mix12 fine to run; the NEAR-TIE note
+  needed a disclosure. Written: d1018/DISCLOSURE_neartie1018.txt (the class came 10 min after a diagnostic that meets it; errata
+  (a)-(e); clarifications; the stricter variant = also 40-split mean < 0 and drop-top-3 < 0, the 10-11 SAFE addendum A, which both
+  P7B diagnostics fail). NOTE_neartie1018.txt unchanged; both sha256 in d1018/NOTES.sha256 (note 7d58bf21..., disclosure 81ca1e86...).
+- The 01:12 KST card was withdrawn at 02:13 KST and replaced (02:13 KST) by a card with the disclosure and 4 options (하루 2개까지 recommended,
+  하루 1개까지, 엄격 조건만, 지금 규칙 유지). The pick goes to d1018/DECISION_neartie1018.txt citing both shas.
+- Wording erratum d1018/g1mix12/ERRATUM.txt: NS7Bf is the strongest Noisy Student or AdvProp reader, not the strongest single reader
+  (effnetv2-l B7f -1.530 alone). Section 28 stop rule in notes/handoff/laptop-gpu.md changed before any section 28 run: no B7 run
+  starts after 03:50 KST 10-19, no B8 run after 03:30 KST, so every run ends before g1mix12's 05:00 KST fallback cut-off.
+
+## 2026-10-18 01:11 KST: 25-1 in (1-seed read only); section 28 (AdvProp B7/B8) prepared and pre-registered; NEAR-TIE class proposed
 - 25-1 b7ns_locK_fsim (laptop 00:00:51-00:55:07 KST, 3256 s, batch 6, no OOM) ingested 01:00 KST: sums match (train 87.2829 /
   2746.9357 / 2782.2409; test 174.3948 / 5510.2022 / 5549.5627), parquet md5 train 299d1bc9, test 7563a75d; tar 94 parquet members;
   gate corr 0.987. 25-2 (_s1) started 00:55 KST.

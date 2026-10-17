@@ -1463,15 +1463,18 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
 Runs on JINWOO's own run line in the main thread ("섹션28 실행"). GPU rule as in the header (this project owns the GPU until
 2026-10-19 10:00 KST; `--device cuda` directly; never touch the robot project's files or jobs).
 Order: after section 27 has finished and its last run is dumped; if the run line arrives earlier, queue section 28 behind
-section 27. Inside section 28: 28-1 to 28-12 in order. Stop rule: start no section 28 run after 2026-10-19 04:00 KST; a run in
-progress then finishes and is dumped as usual; list any run skipped by this rule in one line.
+section 27. Inside section 28: 28-1 to 28-12 in order. Stop rule: start no B7 run (28-1 to 28-6) after 2026-10-19 03:50 KST and
+no B8 run (28-7 to 28-12) after 2026-10-19 03:30 KST, so that every run ends and is dumped before 05:00 KST, when g1mix12 judges
+the seeds that are in; a run in progress then finishes and is dumped as usual; list any run skipped by this rule in one line.
 Why: the best public file blend_v38q8a (9.9496) holds the B1-recipe reader on B5 Noisy Student and the A3-recipe reader on B5
-AdvProp, and the first B1-recipe B7-NS seed (25-1) is the strongest single reader on train so far. Section 27 ends about 14:00
-KST 10-18, so the GPU is free from then until the 04:00 KST 10-19 stop. These runs put both recipes on the two largest AdvProp
-backbones for the 10-19 morning files. Judging is pre-registered in hardness-cache scripts/d1018/g1mix12/options.txt (sha256
-5f4f6131...) before any of these runs. Both weights are Apache-2.0 timm weights with GitHub-release URLs
-(tf_efficientnet_b7.ap_in1k, 62.4M parameters with the fpn head; tf_efficientnet_b8.ap_in1k, 82.9M); the cloud built both with
-the pretrained weights at 256 input. B8 keeps about 1.25x the activations of B7 per image, so the B8 runs use batch 4.
+AdvProp, and the B1 recipe on B7-NS (25-1, 25-2) is the strongest Noisy Student or AdvProp reader on train so far (alone -1.477
+vs A3fixed at 2 seeds; only the effnetv2-l reader B7f, -1.530, is stronger). Section 27 should end about 14:00 KST 10-18 (laptop
+estimate at 00:20 KST), so the GPU is free from then; the stop rule keeps every run inside g1mix12's 05:00 KST 10-19 cut-off.
+These runs put both recipes on the two largest AdvProp backbones for the 10-19 morning files. Judging is pre-registered in
+hardness-cache scripts/d1018/g1mix12/options.txt (sha256 5f4f6131...) before any of these runs. Both weights are Apache-2.0 timm
+weights with GitHub-release URLs (tf_efficientnet_b7.ap_in1k, 62.4M parameters with the fpn head; tf_efficientnet_b8.ap_in1k,
+82.9M); the cloud built both with the pretrained weights at 256 input. B8 keeps about 1.25x the activations of B7 per image, so
+the B8 runs use batch 4.
 
 28-1 [GPU] AP7B seed 0: 25-1's exact command (21-3's B1 recipe, batch 6) with only
   `--arch tf_efficientnet_b7.ap_in1k --out b7ap_locK_fsim` changed.
@@ -1491,9 +1494,9 @@ After each run, dump it as in section 19 (`foreach ($k in 0,1,2) { ... --dump <r
 - Before 28-1, say how much disk is free on the drive that holds the repo (a B7 run keeps about 1.25 GB of checkpoints, a B8 run
   about 1.6 GB). If less than 20 GB is free, say so and wait for the cloud's answer before starting 28-1. Never delete any file.
 - Expected wall time: B7-AP about 55 min per seed at batch 6 (like 25-1, 3256 s), B8-AP about 75-85 min per seed at batch 4;
-  about 13.5 h in all, so the stop rule may skip the last B8 seeds. On Windows a VRAM overflow can turn into a silent slowdown
-  instead of a CUDA OOM: if fold 0's first epoch of 28-1 takes more than twice as long as 25-1's first epoch, or that of 28-7 more
-  than 150 s, say so in one line and keep going.
+  about 13.5 h in all, so the stop rule may skip the last B8 seeds (it binds only if section 28 starts after about 15:00 KST
+  10-18). On Windows a VRAM overflow can turn into a silent slowdown instead of a CUDA OOM: if fold 0's first epoch of 28-1 takes
+  more than twice as long as 25-1's first epoch, or that of 28-7 more than 150 s, say so in one line and keep going.
 - Before each run, send the full command line you are going to use (one message).
 - CUDA OOM: rerun the identical command once; after a second OOM lower `--batch` by 2 with `_b<batch>` appended to `--out`, and
   say so (the cloud counts a renamed run as the same seed of its family).
