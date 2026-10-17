@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 05:30 KST)
+# Resume guide (updated 2026-10-18 05:53 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,22 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 05:30 KST: P7B read 9.9576 (worse than Q8A); kriging25; g1mix9 re-judged, no file - read this first
+## 2026-10-18 05:53 KST: APBf complete; line B PAB = Q8AB = [B8f, APBf] is BOLD; staged, in verification - read this first
+- 26-3 b5ap_locK_fsim_s2 (laptop 05:11:15-05:43:46 KST, 1951 s, batch 8, no OOM) ingested 05:48 KST: sums match (train 85.6749 /
+  2753.9599 / 2782.1119; test 171.2053 / 5522.4649 / 5550.3109), parquet md5 train 5000cd15, test 99a7c3e7; tar 110 parquet members,
+  re-extracted md5s equal; builder gate corr 0.990 / 0.991 / 0.990 for the three APBf seeds. 26-4 (b3ns_locK_fsim) started 05:43 KST.
+- Official g1mix10 build (hardness-cache scripts/d1017/g1mix10/q8a_apb3/, README.txt; env d1018/run_env_1018k25.sh, kriging25):
+  line A PAB [B8f, APf, APBf] +0.007 1/5 k25 9.9504, G1 rms vs Q8A 0.237 -> SKIP. Line B PAB = Q8AB [B8f, APBf] +0.002 3/5,
+  40-split P 0.80, drop-top-3 +0.306, k25 9.9568, P(beat Q8A) 0.35, G1 rms vs Q8A 0.571 (min over the 20 files 0.445) -> BOLD.
+  PALL = PAB in both lines (NS3Bf incomplete).
+- Staged, NOT handed over: hardness-cache submissions/blend_v39q8ab.csv (md5 aab27fb4fb477bcf60874a8dba5c4c79) and
+  blend_v39q8ab_oof.csv (121c1309785f1f769f231b3871485fa4). Workflow verify-q8ab-1018 (run wf_544b9be0-36f; rules, file rebuild
+  and re-implementation, APBf reader health, public-model lens, critic) started 05:52 KST. If it passes: hand over as 10-18 BOLD #1
+  (10-18 file 2), add v39q8ab to the skip list with a new env, and record it here and in LEADERBOARD.
+- Then NS3Bf (26-4..26-6) -> P3B and PALL into a new g1mix10 OUT dir. Do not append 26-4 tables to het_cnn-tables.tar until the
+  verify workflow ends (its reader check extracts from the tar).
+
+## 2026-10-18 05:30 KST: P7B read 9.9576 (worse than Q8A); kriging25; g1mix9 re-judged, no file
 - blend_v39p7b.csv (10-18 file 1) read 9.9575524935 (user 05:24 KST): +0.1592 public MSE vs Q8A (9.9495571078), which stays the best
   file and the automatic final. kriging24 had predicted 9.9572 (z +0.02). hardness-cache scripts/d1016/pub/forensics25.py and
   kriging25.py (mk_pubN.py 25 v39p7b=9.9575524935:e226678a; read25_out.txt: LOO z v39p7b +0.10, v38q8a -0.64).
