@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-17 19:24 KST)
+# Resume guide (updated 2026-10-17 19:21 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,7 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-17 19:24 KST: Q8 read 9.9649369209 (worse than N2); kriging21; N2 stays best; XN8 leads bold #2 - read this first
+## 2026-10-17 19:21 KST: Q8 read 9.9649369209 (worse than N2); kriging21; N2 stays best; XN8 leads bold #2 - read this first
 - blend_v38q8 (Q8 = B8f alone, 10-17 bold #1) public 9.9649369209 (user, main thread 19:18 KST): +0.1091 public MSE vs N2.
   kriging20 had predicted 9.9553 (z +0.44 with sd x1.34); kriging18 9.9702 (z -0.10). ADDENDUM_q8 rule 3: the best stays v37n2
   (the N2 rule) and every bar stays as it was; nothing is re-based (mk_rebase_Q8.py is not used).
@@ -17,7 +17,7 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   XN8 BOLD under both k18 (9.9670) and k21 (9.9632), P(beat N2) 0.29, G1 rms vs v38q8 0.824; X8 BOLD (k18 9.9704, k21 9.9698);
   XN7 SKIP (rms 0.209 vs v37x78); P6 no (k21 9.9616, rms vs N2 0.369); Q86 no (k21 9.9618, rms 0.488). judge_both_N2.py checks the
   14 files before v38q8 (sha-pinned); read21 adds the rms vs v38q8 (XN8 0.824, X8 0.877).
-- Asked JINWOO again for "섹션25 실행" and now also "섹션26 실행" (19:22 KST reply).
+- Asked JINWOO again for "섹션25 실행" and now also "섹션26 실행" (19:21 KST reply).
 - Bold #2 (ADDENDUM_q8 rule 4): lowest latest-kriging BOLD candidate once the NS6Bf options (24-7..9) are judged, or at 22:30 KST.
 
 ## 2026-10-17 19:06 KST: 24-3 in, NS6f complete; P6 (N2 + NS6f) and Q86 (B8f + NS6f) judged: no file - read this first
