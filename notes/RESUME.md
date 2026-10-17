@@ -1,10 +1,27 @@
-# Resume guide (updated 2026-10-17 18:46 KST)
+# Resume guide (updated 2026-10-17 19:06 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 19:06 KST: 24-3 in, NS6f complete; P6 (N2 + NS6f) and Q86 (B8f + NS6f) judged: no file - read this first
+- 24-3 b6ns_locK_real5_s2 (B6-NS, A3 recipe, seed 2; laptop wall 18:10:05-18:54:54 KST, batch 6, no OOM) ingested: train md5
+  21c89f5ea48b5f23e685fb4bd5dd1139, test md5 c5e4485f43d0be60aec991c58123a66a; chunk sums match (train 87.4877/2788.1477/2751.4636,
+  test = chunks 1+2); appended to hardness-cache het_cnn-tables.tar (105 members, re-extract md5 checked). Health corr 0.994.
+- g1mix7/run_env_1016.sh now lists v38q8 (handed over 18:46 KST) as submitted, for the rms < 0.25 skip rule. Do not also pass it on
+  the command line (build_g1mix7.py asserts each name once).
+- Official g1mix7 build on N2 (hardness-cache scripts/d1016/g1mix7/build_1902.log; `source run_env_1016.sh v37n2 9.9594601661`):
+  P6 = NSf + B8f + NS6f: vs the N2 rule +0.125 MSE, 1/5 folds, 40-split P(>=0) 0.72; kriging20 9.9629; G1 rms vs N2 0.369 -> no
+  (SAFE fails on train; BOLD needs rms >= 0.5). PALL = P6 (NS6f is the only complete section 24 family). md5 50b47d9e...
+- Official g1mix8 build (BASE=B8f OUT=g1mix8; build_1903.log, judge8_1903.log): Q86 = B8f + NS6f: vs N2 +0.099, 2/5, P 0.75,
+  drop-top-3 +0.469; kriging20 9.9587; rms vs N2 0.488 -> no (BOLD rms bar 0.5 missed). Q8 shows SKIP only because it is the
+  handed-over file itself. md5 8c5bba8b...
+- NS6f alone (diagnostic): +0.555 vs N2, 1/5. The A3 recipe on B6-NS is weak on train, like NSf (A3 recipe on B5-NS); the B1-recipe
+  readers (B8f on B5-NS) carry the gains, which is why 24-7..9 (NS6Bf = B1 recipe on B6-NS) were moved up.
+- Next: 24-7 started 18:55 KST; 24-9 ends about 21:10 KST. Then P6B/Q86B and PALL/Q8ALL (NS6f + NS6Bf) are built and judged; bold #2
+  of 10-17 = lowest latest-kriging BOLD candidate on hand then (now XN8, kriging20 9.9624) or at 22:30 KST (ADDENDUM_q8 rule 4).
 
 ## 2026-10-17 18:46 KST: verify-v38 passed; Q8 delivered as 10-17 bold #1; ADDENDUM_q8 pre-registered - read this first
 - verify-v38 (4 agents; report copied to hardness-cache scripts/d1016/g1mix8/verify_v38_output.json): rebuild PASS x3 (independent
