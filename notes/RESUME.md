@@ -1,10 +1,31 @@
-# Resume guide (updated 2026-10-17 21:39 KST)
+# Resume guide (updated 2026-10-17 21:53 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 21:53 KST: XN8 read 9.9564798521 = NEW BEST; kriging22; re-based on XN8; extra bold files tonight - read this first
+- blend_v38xn8 (XN8 = B1f + B4f + NSf + B8f, 10-17 bold #2) public 9.9564798521 (user, main thread 21:49 KST): -0.0594 public MSE vs
+  N2; NEW BEST and automatic final while best. kriging21 had predicted 9.9632 (z -0.98), kriging18 9.9670 (z -0.67).
+- 21:44 KST card "오늘 남은 3칸에 과감 파일을 더 낼까요?"; the user picked "더 낸다" at 21:47 KST: hardness-cache
+  scripts/d1016/g1mix8/ADDENDUM_extra1017.txt (sha256 be1502fd..., pinned in g1mix8/options.sha256) is in effect (record
+  g1mix8/DECISION_extra1017.txt): up to 2 extra bold files on 10-17 only (the 2-bold/day cap is a thread rule; SAFE is out of reach
+  near the best because the best's own kriging is above its reading). 10-18 keeps the cap unless the user says otherwise.
+- pub/forensics22.py + kriging22.py (mk_pubN.py 22; BUILT_ON v30b) add the reading; pub/read22.py -> read22_out.txt (LOO z v38xn8
+  -1.80, v38q8 +1.44, v35xn +1.34, rest within +-0.71). New env g1mix7/run_env_1017.sh (KRIG_LATEST kriging22, v38xn8 in
+  SUBMITTED_EXTRA, best case v38xn8 with the 24-entry XN8 reader list; reproduces blend_v38xn8 bit for bit); run_env_1016.sh unchanged.
+- Re-based builds 21:51 KST (outputs in g1mix7/best_xn8/ and g1mix8/best_xn8/, logs build_2151.log), bars vs the XN8 rule: BOLD =
+  OOF dMSE <= +0.42, kriging22 <= 9.9697, rms vs XN8 >= 0.5. g1mix8: Q86 = B8f + NS6f -0.090 3/5 P 0.60, k22 9.9618 (P(beat XN8)
+  0.43), rms vs XN8 0.618, min-sub 0.488 (v37n2) -> BOLD; Q8ALL -0.117 3/5, k22 9.9635 (0.42) -> BOLD; Q86B -0.239 3/5, k22 9.9651
+  (0.39) -> BOLD. g1mix7 (BASE = XN8 families): P6 SKIP (rms 0.223 vs XN8), P6B SKIP (0.195; k22 9.9562), PALL no (rms 0.279; k22
+  9.9578). No SAFE file.
+- Extra #1 = the strictly lowest kriging22 BOLD file = Q86 (submissions/blend_v38q86.csv, md5 8c5bba8b..., OOF 5a85f329...): the
+  reading arrived before extra #1 was delivered, so ADDENDUM_q8 rules 1 and 4 apply first (latest kriging, new best); Q8ALL (named in
+  ADDENDUM_extra1017 under kriging21) is now second. Workflows verify-q86-1017 (file + pick) and verify-q8all-1017 (file) running.
+- Extra #2 after APf (24-5, 24-6) completes about 22:45 KST: rebuild with run_env_1017.sh, then the lowest kriging22 BOLD file on
+  hand (skip rule vs all handed-over files incl. Q86), verified, delivered before 00:00 KST.
 
 ## 2026-10-17 21:39 KST: NS6Bf complete; XN8 (blend_v38xn8.csv) delivered as 10-17 bold #2 - read this first
 - 24-9 b6ns_locK_fsim_s2 (B1 recipe on B6-NS, seed 2; laptop wall 20:22:16-21:05:16 KST, 2580 s, batch 6, no OOM) ingested at
