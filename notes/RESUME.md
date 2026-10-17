@@ -1,10 +1,25 @@
-# Resume guide (updated 2026-10-17 23:10 KST)
+# Resume guide (updated 2026-10-17 23:24 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 23:24 KST: extra #2 = Q8A (blend_v38q8a.csv) handed over 23:20 KST; 10-17 done (4 of 5 files) - read this first
+- Workflow verify-q8a-1017 (rules re-derived under kriging23, file rebuilt and checked, critic with its own rebuild): rules_k23 and
+  file_q8a PASS_WITH_NOTES, critic DELIVER (hardness-cache scripts/d1016/g1mix8/verify_q8a_output.json; APf reader health and
+  compliance from verify_q8allap_partial.json). Record g1mix8/DELIVERY_extra2_q8a.txt.
+- Q8A = [B8f, APf] under the XN8 rule: OOF -0.312 MSE 2/5 folds (40-split P 0.125, drop-top-3 +0.110), kriging23 9.9690 (bar 9.9697,
+  P(beat XN8) 0.33), G1 rms vs XN8 0.638, min over the 18 submitted/handed-over files 0.466 (v37n2) -> BOLD. md5 78a31699...,
+  OOF aca4900f.... The reply said the 21:42 KST APf-seed-0 scratch preview existed (before the extra rules; not used for the pick).
+- 10-17 slots: v38q8, v38xn8, v38q86, v38q8a; the 5th stays empty (ADDENDUM_extra1017: at most 2 extras). 10-18: 5 slots, 2-bold cap.
+- 24-10 b4ns_locK_real5 (NS4f seed 0) ingested 23:23 KST: sums match the dump (train 84.5885 / 2774.2729 / 2763.8907; test 168.1159 /
+  5563.7034 / 5513.8197; no NaN); tables train 9883efe4..., test 40bfc798...; het_cnn-tables.tar 88 parquet members (re-extracted,
+  md5 equal). 24-11 (_s1) running since 23:07 KST, then 24-12 (_s2).
+- Next: when the user reports Q8A, mk_pubN.py 24 + read24, new env with kriging24 and v38q8a in SUBMITTED_EXTRA; when NS4f has 3
+  seeds, rebuild g1mix7/g1mix8 with NS4f (BEST = the best file then) and judge for 10-18; sections 25 and 26 overnight (g1mix9,
+  g1mix10). Skip rule now covers 19 files (16 submitted + v38q86, v38q8all, v38q8a).
 
 ## 2026-10-17 23:10 KST: Q86 read 9.9809869429 (worse than XN8); kriging23; extra #2 re-picked = Q8A (B8f + APf) - read this first
 - blend_v38q86 (extra #1) public 9.9809869429 (user, main thread 23:05 KST): +0.489 public MSE vs XN8; kriging22 had predicted
@@ -17,7 +32,7 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
 - Re-judge under kriging23 (env g1mix8/run_env_extra2_k23.sh; builds best_xn8_ap_k23, files identical; judge8_2306.log; record
   g1mix8/PICK_extra2_k23.txt): Q8A = [B8f, APf] vs XN8 -0.312 2/5 (40-split P 0.125), k23 9.9690 (P(beat XN8) 0.33), rms vs XN8
   0.638, min 0.466 -> BOLD (the only one); Q86B k23 9.9802 and Q8ALL+AP 9.9832 fail the kriging bar 9.9697; g1mix7 all SKIP or no.
-  Extra #2 = submissions/blend_v38q8a.csv (md5 78a31699cf40a8dcfdb5a29b0483afb2, OOF aca4900f...); workflow verify-q8a-1017 running.
+  Extra #2 = submissions/blend_v38q8a.csv (md5 78a31699cf40a8dcfdb5a29b0483afb2, OOF aca4900f...); verify-q8a-1017 DELIVER (above).
 - Disclosure (PICK_extra2_k23.txt): a 21:42 KST scratch preview with APf seed 0 only (before the extra rules existed; not an option).
 - Laptop: 24-10 b4ns_locK_real5 (NS4f seed 0) started 22:41 KST; chunk 0 in (sums 84.5885 / 2774.2729 / 2763.8907).
 
