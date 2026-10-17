@@ -1,10 +1,28 @@
-# Resume guide (updated 2026-10-17 23:24 KST)
+# Resume guide (updated 2026-10-17 23:45 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-17 23:45 KST: Q8A read 9.9495571078 = NEW BEST; kriging24; everything re-based on Q8A - read this first
+- blend_v38q8a (Q8A = [B8f, APf], 10-17 extra #2) public 9.9495571078 (user, main thread 23:42 KST): -0.1378 public MSE vs XN8; NEW BEST
+  and automatic final while best. kriging23 had predicted 9.9690 (z -0.68), kriging22 9.9644 (z -0.50). 10-17 is closed (4 files).
+- pub/forensics24.py + kriging24.py (mk_pubN.py 24; BUILT_ON v30b); pub/read24.py -> read24_out.txt (LOO z v38xn8 -1.85, v38q8a -0.92,
+  v35xn +1.37, v38q8 +1.34, v38q86 +1.13, rest within +-0.80).
+- New env hardness-cache scripts/d1017/run_env_1018.sh (sha256 fd2248e8...): KRIG_LATEST kriging24, SUBMITTED_EXTRA + v38q86, v38q8all,
+  v38q8a, best case v38q8a (BASE = B8f,APf; BEST_RUNS = B8 3 seeds + AP 3 seeds; reproduces blend_v38q8a bit for bit). Usage:
+  `source .../d1017/run_env_1018.sh v38q8a 9.9495571078` (then BASE=B8f for the g1mix8 line). Bars vs the Q8A rule: BOLD kriging bar
+  9.9628, SAFE kriging < 9.9495571078.
+- Re-based g1mix8 line (g1mix8/best_q8a_k24, build_2344.log, judge8_2344.log): Q86B +0.073 3/5, k24 9.9795 -> no; Q8ALL+AP +0.147 2/5,
+  k24 9.9734 -> no; Q8, Q86, Q8A SKIP (submitted). g1mix7 line A is not built while the best holds APf (NOTE_slate1018 item 2a); its
+  XN8-base options all sit < 0.25 from XN8. So no 10-18 file on hand yet.
+- B4-NS: 24-10 (seed 0) and 24-11 (b4ns_locK_real5_s1, laptop 23:07:50-23:34:37 KST, 1607 s, batch 8) ingested, sums match (s1 train
+  84.8252 / 2790.6527 / 2748.7404; test 168.9568 / 5594.2969 / 5484.3804); tar 90 parquet members. 24-12 (_s2) started 23:34 KST; section
+  25 (25-1 b7ns_locK_fsim) starts after it on the laptop.
+- Next: NS4f complete -> rebuild the g1mix8 line (Q84, Q8ALL) with run_env_1018.sh; sections 25/26 -> g1mix9/g1mix10 lines A (BASE =
+  [B8f, APf]) and B ([B8f]); pick per d1017/NOTE_slate1018.txt (10-18 and 10-19 morning, 2 BOLD per day).
 
 ## 2026-10-17 23:24 KST: extra #2 = Q8A (blend_v38q8a.csv) handed over 23:20 KST; 10-17 done (4 of 5 files) - read this first
 - Workflow verify-q8a-1017 (rules re-derived under kriging23, file rebuilt and checked, critic with its own rebuild): rules_k23 and
