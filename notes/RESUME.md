@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 07:31 KST)
+# Resume guide (updated 2026-10-18 07:57 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,25 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 07:31 KST: Q8AB read 9.9572 (worse than Q8A); kriging26; Q8AB3 is the only BOLD on hand, in verification - read this first
+## 2026-10-18 07:57 KST: Q8AB3 verified and handed over as 10-18 file 3 (BOLD 2 of 2) - read this first
+- Workflow verify-q8ab3-1018 (run wf_ab3b1165-51c, 07:29-07:53 KST): critic DELIVER; rules (own rebuild, kriging26, all 21 rms, judge
+  agreement), file (bit-identical rebuild, independent numpy re-implementation, test-noise invariance), NS3Bf reader (chunk/parquet/tar
+  md5 chain, seed sanity, Apache-2.0 tf_efficientnet_b3.ns_jft_in1k) and public-model lens all PASS_WITH_NOTES. Notes: k26 9.96228 is
+  0.0005 under the bar; leave-one-out range 9.9604-9.9637; P(beat Q8A) 0.31, bias-corrected 0.23-0.28; kriging puts it about +0.10
+  public MSE worse than Q8AB's reading; both earlier "add a Noisy Student family" readings were worse (v38q86, v39p7b).
+- Handed over 07:56 KST: hardness-cache submissions/blend_v39q8ab3.csv (md5 c05736735286c14265489100de6f81a3; OOF
+  blend_v39q8ab3_oof.csv 12ef9e0bbcb8d7828372c42c7011b136). A card asks JINWOO: submit now (recommended; NOTE_slate1018 rule 4) or wait
+  until about 09:40 KST for the AP6f judgment (b6ap_locK_real5 seeds, d1018/g1mix11) and take the better of the two for 10-18's last
+  BOLD slot. If AP6f gives a lower-kriging BOLD before the user submits Q8AB3, rule 4 applies either way: re-judge with
+  run_env_1018k26.sh (Q8AB3 a candidate) and say which file to submit. Once Q8AB3 is submitted: run_env_1018k26q.sh (22 files).
+- 27-1 b6ap_locK_real5 (laptop 06:52:52-07:37:39 KST, 2687 s, batch 6, no OOM) ingested 07:42 KST: sums match (train 85.7199 /
+  2759.9410 / 2766.1715; test 171.0501 / 5531.5719 / 5520.7949), parquet md5 train fba8f081, test a407c8ab; appended to the tar after
+  the workflow (118 parquet members, re-extracted md5s equal); gate corr 0.993 (scratch g1mix11 build). 27-2 (_s1) started 07:37 KST;
+  B6 runs take about 45 min, so AP6f is complete about 09:10 KST and section 27 ends about 14:30 KST.
+- 10-18: 2 files submitted (v39p7b, v39q8ab), Q8AB3 handed over; with it 3 of 5 slots, BOLD 2 of 2, NEAR-TIE 1 of 2. Verifier scratch
+  copies (test predictions under /tmp/q8ab3verify, /tmp/q8abverify) deleted.
+
+## 2026-10-18 07:31 KST: Q8AB read 9.9572 (worse than Q8A); kriging26; Q8AB3 is the only BOLD on hand, in verification
 - blend_v39q8ab.csv (10-18 file 2, BOLD 1 of 2) read 9.9572104905 (user 07:25 KST): +0.1524 public MSE vs Q8A (9.9495571078), which stays
   the best file and the automatic final. kriging25 had predicted 9.9568 (z +0.02). hardness-cache scripts/d1016/pub/forensics26.py and
   kriging26.py (mk_pubN.py 26 v39q8ab=9.9572104905:aab27fb4; read26.py / read26_out.txt: LOO z v39q8ab +0.04, v38q8a -0.54, v38q8 +1.00).
