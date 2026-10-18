@@ -1,9 +1,22 @@
-# Resume guide (updated 2026-10-18 15:54 KST)
+# Resume guide (updated 2026-10-19 00:58 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+## 2026-10-19 00:58 KST: v40b8all read 9.9465 (worse); files 2-3 handed over together = blend_v40b8a4 + blend_v40q8an4b; env run_env_1019k30h.sh - read this first
+- JINWOO 00:35 KST: "blend_v40b8all.csv 평가 9.9465055964 / 남은 횟수 4회를 큰 점수 하락을 기대하면서 CSV 생성할것. 10시 이내"; 00:36 KST "섹션 28 실행"
+  (laptop started 28-1 at 00:39 KST). Read as option 0 on the 14:44 KST card (closed): the 4 remaining slots are all BOLD
+  (hardness-cache scripts/d1018/DECISION_slots1019.txt). FP-BOLD eligibility and honest-route rules unchanged.
+- kriging30 (pub/mk_pubN.py 30; read30_out.txt: kriging29 had 9.9460, z +0.04), env d1018/run_env_1019k30.sh, pool rebuilt tag q8a4b_k30.
+  No SAFE, no NEAR-TIE(strict). FP-BOLD (P at x1.0): lineB P4A [B8f, AP4f] 0.20, g1mix9 lineAq8a P4B [B8f, APf, NS4Bf] 0.18 (top by
+  expected gain), lineAq8a P4A 0.14, lineAq8a P6AB 0.08. P4A and P4B are nearly independent (corr 0.08, G1 rms 0.437).
+- Workflow verify-1019-files23 (record d1018/verify_1019_files23/): critic DELIVER for both. Handed over together 00:57 KST:
+  submissions/blend_v40b8a4.csv (P4A, test eac61115) and blend_v40q8an4b.csv (P4B, test 2f77349f; train-worse +0.185, 40/40 re-splits).
+  Told JINWOO: either beats the best about 34%; a drop of 0.005+ about 14%; the 8s are out of reach. Env after: run_env_1019k30h.sh.
+- Next: their readings -> mk_pubN.py 31/32, new env, rebuild_pool1019.sh new tag; files 4-5 from section 28 (d1018/g1mix12, line A BASE
+  = B8f,APf,AP4Bf and line B BASE = B8f, builds at 05:00 KST with the seeds present; dry-run 15:42 KST 10-18 reproduced the best).
 
 ## 2026-10-18 15:54 KST: 10-19 file 1 handed over = blend_v40b8all (lineB PALL, BOLD by P(beat)); env run_env_1018q4bh.sh - read this first
 - Workflow verify-1019-file1 (15:25-15:49 KST; record hardness-cache scripts/d1018/verify_1019_file1/): rules and public-model
