@@ -1,9 +1,24 @@
-# Resume guide (updated 2026-10-19 01:16 KST)
+# Resume guide (updated 2026-10-19 03:46 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+## 2026-10-19 03:46 KST: 10-19 file 4 handed over = blend_v40b8a4a7b (g1mix12 lineA P7AB = B8f + AP4f + AP7Bf); env run_env_1019b5.sh - read this first
+- Section 28: 28-1..28-3 (AP7Bf = b7ap_locK_fsim, _s1, _s2; B1 recipe, tf_efficientnet_b7.ap_in1k, batch 6) done 01:35 / 02:28 / 03:20 KST,
+  ingested (hardness-cache scripts/d1018/g1mix12/INGEST_s28.txt: sums, parquet md5s, tar, gates 0.986/0.987/0.988). 28-4 (b7ap_locK_real5 =
+  AP7f seed 0, A3 recipe) started 03:20 KST, expected about 04:15; 28-5..28-12 skip (stop rule).
+- Official build 03:26 KST: bash d1018/g1mix12/build_judge_1019.sh d1018/run_env_1019b4.sh v40b8a4 9.9433362872 b4_p7ab b4_k31 (README in
+  g1mix12/b4_p7ab/). lineA P7AB [B8f, AP4f, AP7Bf] = FP-BOLD #1 (P 0.436 x1.34, 0.415 x1.0) and NEAR-TIE(strict): vs best -0.434 OOF MSE 3/5,
+  40-split P(>=0) 0.00; kriging31 9.9460, full 9.9452. lineA PALL = the same file. lineB P7AB [B8f, AP7Bf] 'no' (kriging31 9.9613).
+- Workflow verify-1019-file4 (d1018/verify_1019_file4/): critic DELIVER. Staged and handed over 03:46 KST: submissions/blend_v40b8a4a7b.csv
+  (test 6f71c742, oof 7aa2f120). Told JINWOO: P(beat) about 42% (38-44%), median 9.945, P(drop >= 0.005) 22%, train best of all candidates but
+  not decisive, private risk small (about 14%). Env after: d1018/run_env_1019b5.sh (28 files in the skip list). NOTES.sha256 48 entries.
+- Next (file 5, last slot): ingest 28-4; at or after 05:00 KST run build_judge_1019.sh with run_env_1019b5.sh (or a kriging32 env if the
+  v40b8a4a7b reading arrives first; if it is the new best, line A BASE = B8f,AP4f,AP7Bf) and 'partial'; expected pick P7A [B8f, AP4f, AP7f s0]
+  (PALL likely SKIP vs file 4; options.txt says PALL takes only complete families, the builder applies that only without ALLOW_PARTIAL:
+  disclose if PALL is ever the pick). AP7f has one seed: no later seed variant may ever be submitted. Verify, stage, hand over before 10:00.
 
 ## 2026-10-19 01:16 KST: v40b8a4 read 9.9433 = NEW BEST; kriging31, env run_env_1019b4.sh; pool re-judged (b4_k31); files 4-5 from section 28 - read this first
 - JINWOO 01:08 KST: "blend_v40b8a4.csv 평가 9.9433362872 / blend_v40q8an4b.csv 평가 9.9572738847". v40b8a4 (g1mix11 lineB P4A = [B8f, AP4f],
