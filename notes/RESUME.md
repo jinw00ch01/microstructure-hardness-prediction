@@ -1,10 +1,35 @@
-# Resume guide (updated 2026-10-18 11:05 KST)
+# Resume guide (updated 2026-10-18 13:18 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-18 13:18 KST: BOLD order now = full-predictive P(beat best) (user card 12:34); slot 5 leader B8f+AP4f pre-verified; waiting for AP4Bf - read this first
+- 11:22-11:49 KST workflow verify-p3b-1018 (record hardness-cache scripts/d1018/verify_p3b_1018/) found that the written-rule slot 5
+  pick g1mix10 line B P3B [B8f, NS3Bf] has its public score fixed by the readings (P3B = 1.5 Q8AB3 + 0.5 v38q8 - Q8AB on the test
+  rows, ~9.950, P(beat Q3A6) ~0): kriging's kpred sd leaves out the candidate's own sampling term. Same for line A Q8A P6A.
+- Amendment d1018/AMEND_bold_fullpred_1018.txt (11:57 KST; model hardness-cache scripts/d1016/pub/fullpred28.py, prospective check
+  fullpred28_prospective.py, judge d1018/judge_bold_fp1018.py). **Card 11:58 KST, JINWOO picked "이길 확률로 고르기" at 12:34 KST**
+  (record d1018/DECISION_bold_fullpred_1018.txt with an erratum; hashes in d1018/NOTES.sha256): every BOLD pick (10-18 slot 5 and
+  the 10-19 BOLD slots) = the FP-BOLD file with the highest full-predictive P(beat best). FP-BOLD = not SAFE, vs-BESTfixed dMSE <=
+  +0.42, latest kriging <= best + 0.0132, skip rule (G1 rms >= 0.25 vs all submitted or handed-over files), full-predictive sd
+  (x1.34) >= 0.002; order by P(beat) (x1.34; within 0.01 -> better dMSE). SAFE first, section 27 completion, verification, caps stand.
+  P(beat) is quoted to the user at x1.0 with a band. A train-worse pick must be named as such at handover (told the user 12:35 KST).
+- Section 27: AP6Bf (b6ap_locK_fsim, _s1, _s2) complete 11:14 KST -> d1018/g1mix11/q3a6_ap6b (leader then lineAq8a P6AB [B8f, APf,
+  AP6Bf], pre-verified by verify-p6ab-1018: DELIVER conditional). AP4f (b4ap_locK_real5, _s1, _s2; 27-7..9 11:14:41-12:31:02 KST)
+  complete -> rebuilt 12:39-12:40 KST into d1018/g1mix11/q3a6_ap4/{lineB, lineAq8ab3, lineAq8a} (README, judge_slots_pool.txt,
+  judge_bold_fp_pool.txt). No SAFE. FP-BOLD leader: **line B P4A [B8f, AP4f]** (test eac61115, oof da32c9db): vs Q3A6 +0.055 2/5
+  (train-WORSE), drop-top-3 +0.338; kriging28 9.9518, full 9.9511, P(beat Q3A6) 0.33 at x1.0 (band 0.26-0.44); leads only through
+  its uncertainty (AP4f direction, no reading). Next: lineAq8a P4A 0.337 (x1.34), line B PALL 0.321, lineAq8a PALL 0.288, P6AB 0.274.
+- Pre-verified 12:45-13:15 KST by workflow verify-p4a-1018 (record d1018/verify_p4a_1018/): all PASS_WITH_NOTES, critic DELIVER
+  conditional on section 27 complete, no SAFE, P4A still the strict leader, md5s unchanged. Scratch preview (1 AP4Bf seed, never an
+  option) showed no AP4Bf option overtaking it.
+- AP4Bf (b4ap_locK_fsim, _s1, _s2; B1 recipe on tf_efficientnet_b4.ap_in1k): 27-10 12:31:02-12:57:54 KST ingested (parquet md5 train
+  4dc94187 / test bc190f82, gate 0.990, tar 136 members); 27-11 started 12:57:54, then 27-12 (~13:52 KST). Then: rebuild the 3 g1mix11
+  lines into d1018/g1mix11/q3a6_ap4b/, both judges over the 8 pool dirs, hand over the top FP-BOLD (new verification if not P4A), as
+  submissions/blend_v39<name>.csv, new env with it in SUBMITTED_EXTRA (24 files). Section 28 still needs "섹션28 실행" from the user.
 
 ## 2026-10-18 11:05 KST: Q3A6 read 9.9443 = NEW BEST; kriging28, env run_env_1018a6.sh; pool re-judged, no file for 10-18 slot 5 - read this first
 - blend_v39q3a6.csv (10-18 file 4, SAFE, Q3A6 = [B8f, APBf, NS3Bf, AP6f]) read 9.9443061756 (user 10:58 KST): -0.0947 public MSE vs
