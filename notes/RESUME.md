@@ -1,10 +1,29 @@
-# Resume guide (updated 2026-10-18 14:41 KST)
+# Resume guide (updated 2026-10-18 14:54 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-18 14:54 KST: v39q8a4b read 9.9434 = NEW BEST; kriging29, env run_env_1018q4b.sh; pool re-judged (10-19 file 1 = lineB PALL) - read this first
+- blend_v39q8a4b.csv (10-18 file 5, Q8A4B = [B8f, APf, AP4Bf]) read 9.9434377740 (user 14:48 KST): -0.0173 public MSE vs Q3A6, -0.1217
+  vs Q8A; kriging28 had predicted 9.9469 (z -0.20), the full predictive 9.9462 (z -0.26). It is the best file and the automatic final.
+  10-18 slots are used up; 10-19 has 5 slots from 00:00 KST until the 10:00 KST deadline.
+- Public model: hardness-cache scripts/d1016/pub/forensics29.py + kriging29.py (mk_pubN.py 29 v39q8a4b=9.9434377740:cfe4f97c);
+  read29.py / read29_out.txt (LOO z v39q8a4b -0.26, v39q3a6 -0.22).
+- Env for every later build: d1018/run_env_1018q4b.sh "v39q8a4b 9.9434377740" (= run_env_1018a6b.sh, 24-file skip list, plus
+  KRIG_LATEST -> kriging29 and the v39q8a4b best case: BEST_RUNS = its 9 runs; every builder reproduced it bit for bit). Its line A
+  (BASE = B8f,APf,AP4Bf) cannot be built (AP4Bf is a g1mix11 new family); BASE per d1018/ADDENDUM_pool1019.txt as before.
+- Whole pool rebuilt 14:51 KST with d1018/rebuild_pool1019.sh into tag q8a4b_k29 (record d1018/g1mix11/q8a4b_k29/README.txt). No SAFE,
+  no NEAR-TIE(strict). FP-BOLD order (P(beat v39q8a4b) at x1.0): lineB PALL [B8f, AP6f, AP6Bf, AP4f, AP4Bf] 0.35 (train -0.079 3/5,
+  k29 9.9460); lineAq8a PALL 0.32 (G1 rms 0.154 to lineB PALL, so one of the two); lineB P4A 0.32; lineAq8a P4A 0.23; lineAq8a P6AB
+  0.18; g1mix9 lineAq8a P4B 0.17.
+- Next: workflow preverify-1019-files (file side of lineB PALL, lineAq8a PALL, lineAq8a P4A, lineB P4AB; started 14:46 KST), then a
+  rules + public-model verification of lineB PALL under q8a4b_k29 and its handover as 10-19 file 1 (submit after 00:00 KST). After
+  each 10-19 reading: mk_pubN.py next N, a new env, rebuild_pool1019.sh with a new tag, pick again, verify, hand over.
+- Card 14:44 KST (pending, d1018/CARD_boldcap1019.txt): fill the spare 10-19 slots with BOLD files (option 0, recommended) or keep
+  the 2-BOLD cap. Section 28 still needs "섹션28 실행".
 
 ## 2026-10-18 14:41 KST: 10-18 file 5 handed over = blend_v39q8a4b (B8f + APf + AP4Bf, BOLD by P(beat)); env run_env_1018a6b.sh - read this first
 - Section 27 complete 13:52 KST (12 runs, rc 0, no OOM). AP4Bf = b4ap_locK_fsim, _s1, _s2 (27-10..12: 25-4's B1-recipe command with
