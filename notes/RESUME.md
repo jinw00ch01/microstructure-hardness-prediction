@@ -17,8 +17,10 @@ could win public by noise and be worse on private). The earlier "finals v27u + v
   23 files in the skip list; hash in d1018/NOTES.sha256). Use run_env_1018q3.sh only for a rule-4 re-judge before v39q3a6 is submitted.
 - After the v39q3a6 reading: mk_pubN.py 28 v39q3a6=<score>:dfa00a78, read28.py, a new env (with a v39q3a6 best case if it beats
   9.9490659450; then line A BASE = [B8f, APBf, NS3Bf, AP6f], and g1mix11 line A cannot carry AP6f-based options), re-judge the pool.
-- Open for 10-19: whether the lineAq8a builds (BASE = the earlier Q8A families [B8f, APf]) stay in the BOLD pool. They set the 10-19
-  BOLD order (lineAq8a P6A 9.9539, g1mix9 lineAq8a P4B 9.9546; without them line B P6A 9.9558 is top). Settle before the 10-19 slate.
+- Pool membership settled 10:31 KST, before the v39q3a6 reading: hardness-cache scripts/d1018/ADDENDUM_pool1019.txt (hash in
+  d1018/NOTES.sha256). Line A options built on a superseded best file's families since Q8A stay in the pool (lineAq8a = [B8f, APf];
+  lineAq8ab3 = [B8f, APBf, NS3Bf] if a later file replaces Q8AB3), rebuilt against the new BESTfixed with the latest kriging (rule
+  2(d) reading). Under kriging27 the 10-19 BOLD order is lineAq8a P6A 9.9539, g1mix9 lineAq8a P4B 9.9546, line B P6A 9.9558.
 - 10-18: 4 of 5 slots handed over; 1 left (SAFE, or NEAR-TIE(strict) 2 of 2). 27-5 b6ap_locK_fsim_s1 started 09:46:49 KST, then 27-6;
   AP6Bf complete about 11:15 KST -> rebuild g1mix11 under run_env_1018q3q.sh (or the k28 env if v39q3a6 has been read).
 
