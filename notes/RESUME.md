@@ -1,9 +1,23 @@
-# Resume guide (updated 2026-10-18 14:54 KST)
+# Resume guide (updated 2026-10-18 15:54 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+## 2026-10-18 15:54 KST: 10-19 file 1 handed over = blend_v40b8all (lineB PALL, BOLD by P(beat)); env run_env_1018q4bh.sh - read this first
+- Workflow verify-1019-file1 (15:25-15:49 KST; record hardness-cache scripts/d1018/verify_1019_file1/): rules and public-model
+  verifiers PASS_WITH_NOTES, critic DELIVER. Staged 15:50 KST as submissions/blend_v40b8all.csv (test adb8dcd4, oof 798c65b3) =
+  g1mix11 q8a4b_k29 lineB PALL [B8f, AP6f, AP6Bf, AP4f, AP4Bf]. **Submit after 00:00 KST 10-19** (10-18 slots are used up).
+- Handed over 15:55 KST. Told JINWOO: P(beat v39q8a4b) about 35% at x1.0 (band 29-39%); full predictive 9.9453; train better than Q8A4B (-0.079, 3/5) and
+  Q3A6 (-0.049, 4/5) but drop-top-3 +0.045 / +0.149; it rules out lineAq8a PALL (G1 rms 0.154); it is 1 of the 2 BOLD files of 10-19
+  while the 14:44 KST card is pending.
+- Env for every later build: d1018/run_env_1018q4bh.sh "v39q8a4b 9.9434377740" (= run_env_1018q4b.sh plus v40b8all in the skip list,
+  25 files; lineAq8a PALL is now SKIP). Hashes: d1018/NOTES.sha256 (29 entries; kriging29 files pinned). Tie reading for the BOLD
+  order: d1018/NOTE_tierule1018.txt (the written "within 0.01 -> better dMSE" rule governs).
+- Next: the v40b8all reading -> mk_pubN.py 30 (kriging30), a new env (with a v40b8all best case if it wins), rebuild_pool1019.sh with
+  a new tag, pick file 2 (now lineB P4A [B8f, AP4f], train-worse +0.025), verify, hand over. Section 28 (d1018/g1mix12) still needs
+  "섹션28 실행"; its builder was dry-run 15:42 KST for line A (BASE = B8f,APf,AP4Bf, reproduces v39q8a4b) and line B.
 
 
 ## 2026-10-18 14:54 KST: v39q8a4b read 9.9434 = NEW BEST; kriging29, env run_env_1018q4b.sh; pool re-judged (10-19 file 1 = lineB PALL) - read this first
