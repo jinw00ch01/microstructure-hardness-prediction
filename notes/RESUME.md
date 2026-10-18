@@ -1,9 +1,26 @@
-# Resume guide (updated 2026-10-19 03:46 KST)
+# Resume guide (updated 2026-10-19 05:01 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+## 2026-10-19 05:01 KST: 10-19 file 5 (last slot) handed over = blend_v40b8a4a7 (g1mix12 b5_fb lineA P7A = B8f + AP4f + AP7f); env run_env_1019b6.sh - read this first
+- Section 28 ended ALLDONE 04:14:54 KST: 28-4 (b7ap_locK_real5 = AP7f seed 0, A3 recipe) done 04:14:53, ingested (INGEST_s28.txt: sums,
+  parquet md5 train 56f401fb, test 0895ba94, tar 179 entries, gate 0.992); 28-5..28-12 skipped by the stop rule, so AP7f has seed 0 only
+  and no AP8 family exists.
+- Pool re-judged under run_env_1019b5.sh (tag b5_k31), then bash d1018/g1mix12/build_judge_1019.sh d1018/run_env_1019b5.sh v40b8a4
+  9.9433362872 b5_fb b5_k31 partial (04:23 KST; README g1mix12/b5_fb/). Judge order: lineA PALL [B8f, AP4f, AP7Bf, AP7f] P 0.329 x1.34,
+  lineA P7A [B8f, AP4f, AP7f] P 0.284, then lineB P4AB 0.009. Rebuild at 05:00:05 KST reproduced every md5.
+- Workflow verify-1019-file5 (d1018/verify_1019_file5/): critic DELIVER_P7A. options.txt:29 limits PALL to families with all 3 seeds; the
+  fallback relaxes when an option may be built, not PALL's membership; ALLOW_PARTIAL is scratch-only (build_g1mix6.py:4-5) and no earlier
+  round built a PALL under it. So the fallback PALL = file 4 (SKIP) and P7A is the top eligible row. Staged and handed over 05:01 KST:
+  submissions/blend_v40b8a4a7.csv (test 70641dbd, oof eda30153). Told JINWOO: P(beat) about 22% (13-28%), median 9.952; with file 4 the
+  chance that at least one sets a new best is about 47% (51% at x1.34); train better than the best but worse than file 4; AP7f one seed.
+- All 10-19 slots are now used (files 4 and 5 unread). If file 4's score arrives before file 5 is submitted: mk_pubN.py 32; if file 4
+  beats 9.9433362872, new env with line A BASE = B8f,AP4f,AP7Bf, rebuild g1mix12 partial (the registered P7A becomes [B8f, AP4f, AP7Bf,
+  AP7f]), re-judge, re-verify, and replace file 5 with the top eligible row; else re-judge under kriging32 and re-check P7A's kriging gate.
+  After both readings: mk_pubN.py 32/33 and records only. Env d1018/run_env_1019b6.sh (29-file skip list). NOTES.sha256 52 entries.
 
 ## 2026-10-19 03:46 KST: 10-19 file 4 handed over = blend_v40b8a4a7b (g1mix12 lineA P7AB = B8f + AP4f + AP7Bf); env run_env_1019b5.sh - read this first
 - Section 28: 28-1..28-3 (AP7Bf = b7ap_locK_fsim, _s1, _s2; B1 recipe, tf_efficientnet_b7.ap_in1k, batch 6) done 01:35 / 02:28 / 03:20 KST,
