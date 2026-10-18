@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 10:28 KST)
+# Resume guide (updated 2026-10-18 11:05 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,28 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 10:28 KST: Q3A6 (Q8AB3 + AP6f) verified and handed over as 10-18 file 4 (SAFE); env run_env_1018q3q.sh - read this first
+## 2026-10-18 11:05 KST: Q3A6 read 9.9443 = NEW BEST; kriging28, env run_env_1018a6.sh; pool re-judged, no file for 10-18 slot 5 - read this first
+- blend_v39q3a6.csv (10-18 file 4, SAFE, Q3A6 = [B8f, APBf, NS3Bf, AP6f]) read 9.9443061756 (user 10:58 KST): -0.0947 public MSE vs
+  Q8AB3 (9.9490659450), -0.1045 vs Q8A; kriging27 had predicted 9.9464 (z -0.15). It is the best file and the automatic final.
+  JINWOO also wrote (10:59 KST) "이제 전체 제출횟수 6번 남음": 10-18 has 1 slot left, 10-19 has 5 (until 10:00 KST).
+- Public model: hardness-cache scripts/d1016/pub/forensics28.py + kriging28.py (mk_pubN.py 28 v39q3a6=9.9443061756:dfa00a78;
+  read28.py / read28_out.txt: LOO z v39q3a6 -0.25, v39q8ab3 -0.18, v38xn8 -1.83, v35xn +1.39).
+- Env for every later build: hardness-cache scripts/d1018/run_env_1018a6.sh "v39q3a6 9.9443061756" (= run_env_1018q3q.sh, 23 files in
+  the skip list, plus KRIG_LATEST -> kriging28 and the v39q3a6 best case: BEST_RUNS = its 12 runs; every builder reproduced Q3A6 bit
+  for bit). The new best's line A (BASE = B8f,APBf,NS3Bf,AP6f) cannot be built (AP6f is a g1mix11 new family), so the default BASE
+  fails safe; set BASE=B8f (line B), BASE=B8f,APBf,NS3Bf (lineAq8ab3, g1mix11 only) or BASE=B8f,APf (lineAq8a) after sourcing,
+  per d1018/ADDENDUM_pool1019.txt.
+- Whole pool re-judged 11:01-11:02 KST into q3a6_k28 dirs (record d1018/g1mix11/q3a6_k28/README.txt): no SAFE, no NEAR-TIE(strict).
+  BOLD: g1mix10 line B P3B [B8f, NS3Bf] k28 9.9502 (P(beat) 0.31, train +0.064 2/5); g1mix11 Q8A-line P6A [B8f, APf, AP6f] 9.9516.
+  SKIP: g1mix10 Q8A-line P3B 9.9421 (rms 0.241 vs Q3A6) and PALL 9.9443 (0.181).
+- Card 11:03 KST (main thread): use the 10-18 last slot for a BOLD file or keep the 2-BOLD cap. **JINWOO picked "BOLD로 쓰기"
+  11:04 KST.** Rule: hardness-cache scripts/d1018/DECISION_bold3_1018.txt (hash in d1018/NOTES.sha256): slot 5 = the lowest-kriging
+  BOLD in the whole pool once section 27 is complete (or the families complete at 16:00 KST if a run fails), SAFE first if one
+  exists, verified before handover. 10-19 keeps the 2-BOLD cap.
+- Section 27: 27-5 b6ap_locK_fsim_s1 ingested (laptop 09:46:49-10:31:02 KST, 2653 s, rc 0; parquet md5 train 1215cb41 / test
+  47f65269; tar 126 parquet members); 27-6 _s2 started 10:31:02 KST. Then AP4f (27-7..9) and AP4Bf (27-10..12).
+
+## 2026-10-18 10:28 KST: Q3A6 (Q8AB3 + AP6f) verified and handed over as 10-18 file 4 (SAFE); env run_env_1018q3q.sh
 - Workflow verify-q3a6-1018 (run wf_5b8a1dda-048, 10:00-10:24 KST): rules, file rebuild, readers and public model all
   PASS_WITH_NOTES, critic DELIVER (independent rebuild matched dfa00a78 / 6b3a3cdd; hand judge of all 23 option rows agreed with
   judge_slots1018.py). The SAFE bar (g1mix11 options.txt:32-33) has no drop-top-3 term; precedent blend_v37n2 (SAFE 10-16, dt3 +0.241).
