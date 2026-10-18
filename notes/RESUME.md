@@ -1,9 +1,24 @@
-# Resume guide (updated 2026-10-19 00:58 KST)
+# Resume guide (updated 2026-10-19 01:16 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
+
+## 2026-10-19 01:16 KST: v40b8a4 read 9.9433 = NEW BEST; kriging31, env run_env_1019b4.sh; pool re-judged (b4_k31); files 4-5 from section 28 - read this first
+- JINWOO 01:08 KST: "blend_v40b8a4.csv 평가 9.9433362872 / blend_v40q8an4b.csv 평가 9.9572738847". v40b8a4 (g1mix11 lineB P4A = [B8f, AP4f],
+  test eac61115) is the best file and the automatic final: -0.0020 public MSE vs v39q8a4b (kriging30 had 9.9502, z -0.51; full
+  predictive 9.9494, z -0.84). v40q8an4b +0.2753 vs v39q8a4b (kriging30 9.9539, z +0.20). Record pub/read31_out.txt.
+- Public model pub/forensics31.py + kriging31.py (mk_pubN.py 31). Env d1018/run_env_1019b4.sh "v40b8a4 9.9433362872" (= run_env_1019k30h.sh,
+  27-file skip list, KRIG_LATEST kriging31, BEST_RUNS = runs_of([B8f, AP4f])). Pinned in d1018/NOTES.sha256 (43 entries, all OK).
+- Pool rebuilt tag b4_k31 (README d1018/g1mix11/b4_k31/README.txt): every builder reproduced v40b8a4 bit for bit; no SAFE; FP-BOLD only
+  lineB P4AB [B8f, AP4Bf] (P 0.009) and lineB P6A [B8f, AP6f] (0.000). The high-P rows are SKIP (G1 rms < 0.25 vs a submitted file):
+  g1mix10 lineAq8a P3B [B8f, APf, NS3Bf] full 9.9418 P 0.95 and lineAq8ab3 P4A [B8f, APBf, NS3Bf, AP4f] full 9.9415 P 0.91 (gain about
+  0.002, close to combinations of read files). Card 01:10 KST in the main thread: use them only if section 28 gives fewer than 2 files
+  (option 0, recommended) or keep section 28 only (option 1); no answer yet, so the no-duplicate rule holds.
+- Section 28 builder d1018/g1mix12/build_g1mix12.py dry-run 01:16 KST under run_env_1019b4.sh: line A (BASE=B8f,AP4f) and line B (BASE=B8f)
+  both reproduce v40b8a4 bit for bit (BESTfixed). Files 4-5: P7AB once b7ap_locK_fsim has 3 seeds (laptop about 03:25 KST), the rest at
+  the 05:00 KST fallback; judge with judge_slots1018.py and KRIG=kriging31 judge_bold_fp1018.py, verify, hand over before 10:00 KST.
 
 ## 2026-10-19 00:58 KST: v40b8all read 9.9465 (worse); files 2-3 handed over together = blend_v40b8a4 + blend_v40q8an4b; env run_env_1019k30h.sh - read this first
 - JINWOO 00:35 KST: "blend_v40b8all.csv 평가 9.9465055964 / 남은 횟수 4회를 큰 점수 하락을 기대하면서 CSV 생성할것. 10시 이내"; 00:36 KST "섹션 28 실행"
