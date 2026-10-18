@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 10:01 KST)
+# Resume guide (updated 2026-10-18 10:28 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,23 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 10:01 KST: Q8AB3 read 9.9491 = NEW BEST; kriging27, env run_env_1018q3.sh; SAFE candidate Q3A6 in verification - read this first
+## 2026-10-18 10:28 KST: Q3A6 (Q8AB3 + AP6f) verified and handed over as 10-18 file 4 (SAFE); env run_env_1018q3q.sh - read this first
+- Workflow verify-q3a6-1018 (run wf_5b8a1dda-048, 10:00-10:24 KST): rules, file rebuild, readers and public model all
+  PASS_WITH_NOTES, critic DELIVER (independent rebuild matched dfa00a78 / 6b3a3cdd; hand judge of all 23 option rows agreed with
+  judge_slots1018.py). The SAFE bar (g1mix11 options.txt:32-33) has no drop-top-3 term; precedent blend_v37n2 (SAFE 10-16, dt3 +0.241).
+  Told JINWOO plainly: the train edge rests on 3 rows (top 3 rows -86.7 SSE vs total -27.2), expected gain about -0.054 public MSE,
+  P(beat Q8AB3) 0.58 under kriging27 (kriging26 gives 9.9560, P 0.37), a worse reading leaves Q8AB3 as the final.
+- Handed over 10:26 KST: hardness-cache submissions/blend_v39q3a6.csv (10-18 file 4, SAFE). Env for every later build:
+  hardness-cache scripts/d1018/run_env_1018q3q.sh "v39q8ab3 9.9490659450" (= run_env_1018q3.sh plus v39q3a6 in SUBMITTED_EXTRA,
+  23 files in the skip list; hash in d1018/NOTES.sha256). Use run_env_1018q3.sh only for a rule-4 re-judge before v39q3a6 is submitted.
+- After the v39q3a6 reading: mk_pubN.py 28 v39q3a6=<score>:dfa00a78, read28.py, a new env (with a v39q3a6 best case if it beats
+  9.9490659450; then line A BASE = [B8f, APBf, NS3Bf, AP6f], and g1mix11 line A cannot carry AP6f-based options), re-judge the pool.
+- Open for 10-19: whether the lineAq8a builds (BASE = the earlier Q8A families [B8f, APf]) stay in the BOLD pool. They set the 10-19
+  BOLD order (lineAq8a P6A 9.9539, g1mix9 lineAq8a P4B 9.9546; without them line B P6A 9.9558 is top). Settle before the 10-19 slate.
+- 10-18: 4 of 5 slots handed over; 1 left (SAFE, or NEAR-TIE(strict) 2 of 2). 27-5 b6ap_locK_fsim_s1 started 09:46:49 KST, then 27-6;
+  AP6Bf complete about 11:15 KST -> rebuild g1mix11 under run_env_1018q3q.sh (or the k28 env if v39q3a6 has been read).
+
+## 2026-10-18 10:01 KST: Q8AB3 read 9.9491 = NEW BEST; kriging27, env run_env_1018q3.sh; SAFE candidate Q3A6 in verification
 - blend_v39q8ab3.csv (10-18 file 3, BOLD 2 of 2, Q8AB3 = [B8f, APBf, NS3Bf]) read 9.9490659450 (user 09:51 KST): -0.0098 public MSE vs
   Q8A (9.9495571078) and -0.1621 vs Q8AB; kriging26 had predicted 9.9623 (z -0.53). It is the best file and the automatic final.
 - Public model: hardness-cache scripts/d1016/pub/forensics27.py + kriging27.py (mk_pubN.py 27 v39q8ab3=9.9490659450:c0573673;
