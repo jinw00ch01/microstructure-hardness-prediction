@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 09:13 KST)
+# Resume guide (updated 2026-10-18 10:01 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,25 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 09:13 KST: AP6f (B6 AdvProp, A3 recipe) complete; g1mix11 gives no file; Q8AB3 stays the file to submit - read this first
+## 2026-10-18 10:01 KST: Q8AB3 read 9.9491 = NEW BEST; kriging27, env run_env_1018q3.sh; SAFE candidate Q3A6 in verification - read this first
+- blend_v39q8ab3.csv (10-18 file 3, BOLD 2 of 2, Q8AB3 = [B8f, APBf, NS3Bf]) read 9.9490659450 (user 09:51 KST): -0.0098 public MSE vs
+  Q8A (9.9495571078) and -0.1621 vs Q8AB; kriging26 had predicted 9.9623 (z -0.53). It is the best file and the automatic final.
+- Public model: hardness-cache scripts/d1016/pub/forensics27.py + kriging27.py (mk_pubN.py 27 v39q8ab3=9.9490659450:c0573673;
+  read27.py / read27_out.txt: LOO z v39q8ab3 -0.79, v38xn8 -1.83, v35xn +1.44).
+- Env for every later build: hardness-cache scripts/d1018/run_env_1018q3.sh "v39q8ab3 9.9490659450" (= run_env_1018k26q.sh, 22 files
+  in the skip list, plus KRIG_LATEST -> kriging27 and the v39q8ab3 best case: line A BASE = [B8f, APBf, NS3Bf], BEST_RUNS = its 9 runs;
+  every builder reproduced Q8AB3 bit for bit). Line B: export BASE=B8f. The earlier Q8A line A stays in the pool: BASE=B8f,APf.
+- Whole pool re-judged 09:56-09:57 KST (NOTE_slate1018 rule 5) into q8ab3_k27 dirs (d1018/g1mix11, d1017/g1mix10, d1017/g1mix9) and
+  d1016/g1mix8/best_q8ab3_k27: SAFE = g1mix11 line A P6A = Q3A6 [B8f, APBf, NS3Bf, AP6f]: vs Q8AB3 -0.054 4/5, 40-split mean -0.071
+  P 0.20, drop-top-3 +0.120, kriging27 9.9464 (P(beat best) 0.58), G1 rms vs Q8AB3 0.331. BOLD (for 10-19, the 10-18 cap is used):
+  g1mix11 Q8A-line P6A [B8f, APf, AP6f] 9.9539; g1mix9 Q8A-line P4B [B8f, APf, NS4Bf] 9.9546; g1mix11 line B P6A [B8f, AP6f] 9.9558.
+  'no': g1mix10 Q8A-line P3B [B8f, APf, NS3Bf] k27 9.9421 (train +0.000 2/5, rms 0.386), PALL 9.9443 (+0.001 2/5, rms 0.329).
+- Staged, NOT handed over: hardness-cache submissions/blend_v39q3a6.csv (md5 dfa00a7887b2d62f2473be61fe6d3072; OOF
+  blend_v39q3a6_oof.csv 6b3a3cdd4c29c51010469cefb652a025). Workflow verify-q3a6-1018 (run wf_5b8a1dda-048) started 10:00 KST.
+  If it passes: hand over as 10-18 file 4 (SAFE; does not count against the BOLD cap), add v39q3a6 to the skip list with a new env.
+- 10-18: 3 of 5 slots used (v39p7b NEAR-TIE 1 of 2, v39q8ab and v39q8ab3 BOLD 2 of 2). AP6Bf (27-5, 27-6) completes about 11:15 KST.
+
+## 2026-10-18 09:13 KST: AP6f (B6 AdvProp, A3 recipe) complete; g1mix11 gives no file; Q8AB3 stays the file to submit
 - 27-2 b6ap_locK_real5_s1 (laptop 07:37:40-08:20:06 KST, 2547 s) and 27-3 _s2 (08:20:06-09:03:58, 2632 s): batch 6, rc 0, no OOM;
   chunk and parquet sums match; parquet md5 (train / test) _s1 4b41d5ac / 3df45b41, _s2 41744213 / 4d219d56; appended to the tar
   (122 parquet members, re-extracted md5s equal); gate corr 0.993 / 0.994.
