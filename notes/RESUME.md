@@ -1,4 +1,4 @@
-# Resume guide (updated 2026-10-18 07:57 KST)
+# Resume guide (updated 2026-10-18 09:13 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
@@ -6,7 +6,19 @@ every file submitted must be one we would accept as the final if it tops public 
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
 
-## 2026-10-18 07:57 KST: Q8AB3 verified and handed over as 10-18 file 3 (BOLD 2 of 2) - read this first
+## 2026-10-18 09:13 KST: AP6f (B6 AdvProp, A3 recipe) complete; g1mix11 gives no file; Q8AB3 stays the file to submit - read this first
+- 27-2 b6ap_locK_real5_s1 (laptop 07:37:40-08:20:06 KST, 2547 s) and 27-3 _s2 (08:20:06-09:03:58, 2632 s): batch 6, rc 0, no OOM;
+  chunk and parquet sums match; parquet md5 (train / test) _s1 4b41d5ac / 3df45b41, _s2 41744213 / 4d219d56; appended to the tar
+  (122 parquet members, re-extracted md5s equal); gate corr 0.993 / 0.994.
+- Official g1mix11 builds 09:10 KST (no ALLOW_PARTIAL): hardness-cache scripts/d1018/g1mix11/q8a_ap6 (env run_env_1018k26.sh, the
+  rule-4 re-judge) and q8a_ap6q (run_env_1018k26q.sh): same numbers. Line A P6A [B8f, APf, AP6f] -0.020 3/5, 40-split P 0.35,
+  drop-top-3 +0.131, k26 9.9538, G1 rms vs Q8A 0.277; line B P6A [B8f, AP6f] -0.089 3/5, P 0.38, drop-top-3 +0.072, k26 9.9556,
+  rms 0.362. Both lenient NEAR-TIE only (strict needs drop-top-3 < 0; BOLD needs rms >= 0.5): no file. Record q8a_ap6/README.txt.
+- Q8AB3 (blend_v39q8ab3.csv, handed over 07:56 KST) stays the only BOLD on hand; told JINWOO 09:13 KST to submit it as is and
+  withdrew the 07:56 card. Asked once more for "섹션28 실행" in the main thread (section 27 ends about 14:00 KST).
+- 27-4 b6ap_locK_fsim (AP6Bf, B1 recipe) started 09:03:58 KST; then _s1, _s2, AP4f, AP4Bf. Rebuild g1mix11 as each family completes.
+
+## 2026-10-18 07:57 KST: Q8AB3 verified and handed over as 10-18 file 3 (BOLD 2 of 2)
 - Workflow verify-q8ab3-1018 (run wf_ab3b1165-51c, 07:29-07:53 KST): critic DELIVER; rules (own rebuild, kriging26, all 21 rms, judge
   agreement), file (bit-identical rebuild, independent numpy re-implementation, test-noise invariance), NS3Bf reader (chunk/parquet/tar
   md5 chain, seed sanity, Apache-2.0 tf_efficientnet_b3.ns_jft_in1k) and public-model lens all PASS_WITH_NOTES. Notes: k26 9.96228 is
