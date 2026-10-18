@@ -1,10 +1,35 @@
-# Resume guide (updated 2026-10-18 13:18 KST)
+# Resume guide (updated 2026-10-18 14:41 KST)
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
 every file submitted must be one we would accept as the final if it tops public (no public-tuned or untested probes that
 could win public by noise and be worse on private). The earlier "finals v27u + v28n" rules are moot.
 
+
+## 2026-10-18 14:41 KST: 10-18 file 5 handed over = blend_v39q8a4b (B8f + APf + AP4Bf, BOLD by P(beat)); env run_env_1018a6b.sh - read this first
+- Section 27 complete 13:52 KST (12 runs, rc 0, no OOM). AP4Bf = b4ap_locK_fsim, _s1, _s2 (27-10..12: 25-4's B1-recipe command with
+  --arch tf_efficientnet_b4.ap_in1k; walls 12:31:02-12:57:54, 12:57:54-13:24:28, 13:24:28-13:52:07 KST) ingested: parquet md5 train/test
+  4dc94187/bc190f82, ebf517f9/d78c2b3d, f68a5c88/d7dcaeeb; gates 0.990/0.991/0.990; het_cnn-tables.tar 140 parquet members.
+- Final builds 13:57-13:58 KST (env run_env_1018a6.sh, no ALLOW_PARTIAL): hardness-cache scripts/d1018/g1mix11/q3a6_ap4b/{lineB,
+  lineAq8ab3, lineAq8a} (README.txt, judge_slots_pool.txt, judge_bold_fp_pool.txt). No SAFE; NEAR-TIE lenient only (lineAq8a P6AB).
+  FP-BOLD order (P at x1.34): 1 lineAq8a P4AB [B8f, APf, AP4Bf] 0.448; 2 lineB PALL [B8f, AP6f, AP6Bf, AP4f, AP4Bf] 0.407 (train
+  -0.049 4/5); 3 lineAq8a PALL [B8f, APf, AP6f, AP6Bf, AP4f, AP4Bf] 0.403; 4 lineB P4A 0.373 (the interim leader); 5 lineAq8a P4A 0.337.
+- Verified 14:06-14:37 KST by workflow verify-p4ab-1018 (record d1018/verify_p4ab_1018/): all PASS_WITH_NOTES, critic DELIVER.
+  **Handed over 14:40 KST as submissions/blend_v39q8a4b.csv** (test cfe4f97c, oof 0046c8d9). Told JINWOO: P(beat Q3A6) about 43%
+  (band 40-52%); train-worse than Q3A6 (+0.030, 3/5 folds, drop-top-3 +0.264); the card's B8f+APf+AP6Bf was replaced after section
+  27; private about neutral if it wins public; the train-better 2nd file (lineB PALL, about 38%) stays a 10-19 candidate.
+- From the verification: kriging28's x1.34 sd factor does not reproduce from the 34 readings (LOO rms z 0.98; quote P at x1.0); the
+  top three are near-equal (about 0.4 each) and dropping the v38q8a or v39q8ab3 reading puts lineB PALL first; 97.5% of P4AB's
+  predictive variance is the AP4Bf part no reading has measured.
+- Env for every later build: d1018/run_env_1018a6b.sh "v39q3a6 9.9443061756" (= run_env_1018a6.sh + v39q8a4b in SUBMITTED_EXTRA,
+  24-file skip list; hash in d1018/NOTES.sha256). The runners-up stay >= 0.25 G1 rms from v39q8a4b (lineB PALL 0.279, lineAq8a PALL
+  0.278, lineB P4A 0.324, lineAq8a P6AB 0.299), so they remain 10-19 candidates.
+- After the v39q8a4b reading: mk_pubN.py 29 v39q8a4b=<score>:cfe4f97c -> forensics29/kriging29, read29.py; a new env (a v39q8a4b
+  best case if it beats 9.9443061756: BEST_RUNS = the 9 runs of B8f, APf, AP4Bf); rebuild the pool under it; judge_slots1018.py and
+  KRIG=kriging29 judge_bold_fp1018.py over the 8 pool dirs; then the 10-19 slate (5 slots until 10:00 KST): SAFE first, BOLD by
+  P(beat) at most 2, NEAR-TIE(strict) at most 2, each verified before handover.
+- Section 28 (AdvProp B7/B8; d1018/g1mix12) still needs "섹션28 실행" from JINWOO in the main thread; GPU idle since 13:52 KST
+  (reminded 14:40 KST).
 
 ## 2026-10-18 13:18 KST: BOLD order now = full-predictive P(beat best) (user card 12:34); slot 5 leader B8f+AP4f pre-verified; waiting for AP4Bf - read this first
 - 11:22-11:49 KST workflow verify-p3b-1018 (record hardness-cache scripts/d1018/verify_p3b_1018/) found that the written-rule slot 5
