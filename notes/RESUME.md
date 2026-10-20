@@ -1,4 +1,14 @@
-# Resume guide (updated 2026-10-19 05:01 KST)
+# Resume guide (updated 2026-10-20 14:29 KST)
+
+## 2026-10-20 14:29 KST: PROJECT CLOSED - final blend_v40b8a4: public 9.9433362872, private 10.6186914819, rank 30 / 414
+- JINWOO 14:22 KST 10-20: "blend_v40b8a4.csv 최종 제출, Public 점수 9.9433362872 / Private 점수 10.6186914819"; 14:25 KST: 414 entrants
+  (individual-only hackathon), rank 30 / 414 to be written on GitHub; 14:28 KST: the original leaderboard goal was public <= 10, so the
+  report states the goal was reached. No reading of 10-19 files 4-5 was reported.
+- Private vs public: +0.675 RMSE; private vs the honest nested OOF of the final rule (10.4395): +0.179. The 300-image public subset was
+  easier than average (10-10 forecast: our public reading about 2 sd lucky).
+- Wrap-up: README.md rewritten as the project report (trial and error from 10-05 to 10-19); the code that built the final file copied
+  byte-identical into pipeline/ (see pipeline/README.md); records closed (CLAUDE.md, LEADERBOARD.md). No further submissions, GPU runs or
+  slots. Caches stay in /mnt/project-files/work/hardness-cache/.
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so
