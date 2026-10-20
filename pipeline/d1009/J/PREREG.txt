@@ -1,0 +1,33 @@
+d1009 J: clean-row formula7 (with bd_frac, the share of non-pore grains touching the image edge) mixed 0.5/0.5 with blend_v24
+on clean rows (raw ic_noise < 9.5; 267 train / 519 test). Written 18:40 KST 2026-10-09, BEFORE any public score of the file.
+
+Status of the evidence (honest): found this afternoon by a label-used exploration on the same 267 clean train rows (headroom
+workflow, cleanhead/ d1-d21); the bd_frac choice is nested over 27 extensions (5/5 folds), the 0.5 weight nested (5/5), but the
+four base terms, log N_eff, het4 and the 0.5 prior came from earlier label-informed work. So this is NOT a clean confirmatory test;
+the public score is the only fresh evidence.
+Verification (verify_workflow.json): two independent re-segmentations reproduce every input exactly; clean 9.705 -> 9.251,
+fold deltas -0.242/-0.412/-0.150/-1.176/-0.482; all 500 nested 11.465 -> 11.263; perm p 0.001 (bd_frac shuffled), 0.0005
+(only the part of bd_frac not explained by N shuffled); flexible-N controls give only -0.23 to -0.26 (formula6 level); gain equal on
+calibration-source (168) and other (99) clean rows; no train/test shift (adversarial AUC 0.46; KS p 0.47-0.86). Weaknesses:
+bd_frac is one of a cluster of edge-count terms (wider nested selection picks it 3/5); about half the gain is plain averaging with
+any clean-only model; the top-10 rows carry the increment over formula6; honest clean gain about -0.30 (80% -0.10 to -0.45).
+RETRACTED: the claim that bd_frac restores a Hall-Petch size slope (collinearity, corr(logN, bd_frac) -0.966; net slope +12 in
+both formula6 and formula7).
+
+File: submissions/blend_v25.csv (md5 f1e6dbc47ecd6136a0cacd1a14d034cb), builder J/j_build.py, train-side stats blend_v25.json.
+Expected public: about 10.39 (delta -0.12 central; plausible -0.25 to +0.03; SE of one reading about 0.12).
+Reading lines vs blend_v24 public 10.5130 (delta = v25 - v24), fixed now:
+  <= 10.40: transfers; v25 becomes a final candidate (best nested CV).
+  10.40-10.46: supported but weaker; keep v25 as a final candidate; no tuning.
+  10.46-10.53: inconclusive; finals fall back on nested CV (v25 leads), paired with v24 as the safe final.
+  10.53-10.60: warning (v12 pattern); v24 stays the primary final, v25 at most second.
+  > 10.60: refuted; drop v25 and every bd_frac / edge-count extension; no other weights or cluster members to chase public.
+At no reading is the 0.5 weight re-tuned or another cluster member picked on the public score.
+
+READING (2026-10-09 22:55 KST): blend_v25 public 10.2394364218 (user), delta -0.2736 vs v24 10.5130 -> line "<= 10.40:
+transfers; v25 becomes a final candidate". Below the expected range (10.26-10.54): public dMSE -5.68 vs train nested
+dMSE -4.59 (no shrinkage seen). Report only (not used to change v25): public quadratic along v24 -> v25, B = mean d^2
+over all 1000 test rows 3.50 (random-300 sd 0.43), A 4.59, public-optimal scale 1.31 (sd about 0.35; mix weight 0.66),
+worth -0.017 public; train nested optimum 1.11 (bootstrap sd 0.24; 5-fold per-fold optimum varies); precision-weighted
+about 1.17, worth about -0.003. The 0.5 weight stays. Finals: v25 first, v24 second (safe; differs from v25 only on
+the 519 clean rows).

@@ -1,0 +1,110 @@
+d1010 R: blend_v26r, a bold public probe of ringall_avg5. Written 2026-10-10 00:15 KST (15:15 UTC 10-09), BEFORE any
+public score of this file. There is no new label test. ringall_avg5 was already scored on the 267 clean train labels, where
+it passed only a post-hoc family, and the re-splits refuted it (d1010/C SYNTHESIS.md, skeptic-stats-ringall). This file
+exists only so the public split can test it.
+
+FILE
+  submissions/blend_v26r.csv   md5 1b6037e79823fd18c298feab9e60da3d   (hardness-cache/submissions only, never the repo)
+  blend_v26r_oof.csv           md5 f2956f784effe039d8c5238ec720f84b
+  blend_v26r.json              md5 5ccded585993d09fd307359e52982ac6   (train-side stats only)
+  builder R/r_build.py: refuses to overwrite, and reads the files back at write time and again 10 s later.
+  Rule on the 519 clean test rows (raw features_v3 ic_noise < 9.5): 0.5*blend_v24 + 0.5*formula8.
+    formula8 = OLS with intercept on the formula7 terms + ringall_avg5, fitted on the 267 clean train rows.
+    The weight w 0.5 is fixed (the v25 form, no w selection).
+  All other 481 rows are blend_v25, bit-identical. Exactly 519 test rows and 267 OOF rows differ from v25.
+  The OOF formula8 is cross-fitted on data/folds.csv.
+  As a check, the builder re-derives v25 from formula7 and matches the v25 file exactly (max abs diff 0.0, test and OOF).
+  Inputs verified by R/r_verify.py (verify_avg5.json, ALL_OK):
+    - feats_avg5 covers exactly the 267 clean train and 519 clean test IDs (unique, finite).
+    - The build_avg5 arithmetic reproduces the stored column exactly.
+    - Re-running all 5 segmentations from the PNGs for all 786 images reproduces every value with max abs diff 0.0:
+      segalt N_all / N_bd / N_in / ring / allm, the base ring / allm against the cleanhead row/col counts, and
+      ringall_avg5 itself.
+
+TRAIN SIDE (labels, shared split; post-hoc column, so optimistic)
+  clean nested    9.2512 -> 9.1014 (gain 0.150, 5/5 folds: -0.048 -0.146 -0.205 -0.213 -0.154); clean MSE drop 2.751
+  all-500 nested  11.2631 -> 11.1977
+  formula8 alone (xfit) 9.374 vs formula7 9.541
+  coefficients:
+    - ringall_avg5 +36.0 (folds 41.0 / 38.6 / 23.9 / 35.3 / 39.8)
+    - bd_frac 151 -> 91 (ringall partly substitutes for it)
+    - logN_eff 31.9 -> 24.3
+  Same figure as the stats skeptic's ring_w05 (9.1014). Over 200 re-splits the fixed-w form gains 0.141 (sd 0.015),
+  but that still carries the menu-selection bias. The honest nested-procedure re-split gain is about 0.06.
+
+LABEL-FREE TEST SIDE (d = v26r - v25)
+  - On the 519 clean rows: mean +0.039, sd 0.814, max |d| 3.69. Train OOF analogue: sd 0.951.
+  - B = mean d^2 over all 1000 rows: 0.345. Over random 300-row subsets: mean 0.344, sd 0.042, 5-95% 0.278-0.415.
+  - Clean test d^2 is 0.735 of clean train d^2. This matches the leak skeptic's finding that train has heavier ringall
+    tails (their reweighting cut the gain from 0.134 to 0.095).
+
+EXPECTED PUBLIC vs v25 10.2394 (R/expect.json; delta = v26r - v25)
+  Two methods:
+    calib:    public MSE drop = 0.519 x clean MSE drop x k
+    d2-scaled: the same train drop per unit d^2, carried to the test d^2, x k
+  k ranges over [1, 1.27].
+                                        calib k1    calib k1.27   d2 k1      d2 k1.27
+  as built (shared split, gain 0.150)   -0.070      -0.089        -0.051     -0.065
+  fixed-w re-split mean (0.141)         -0.066      -0.084        -0.048     -0.061
+  honest re-split gain (0.06)           -0.028      -0.036        -0.021     -0.026
+  low (0.03)                            -0.014      -0.018        -0.010     -0.013
+  null (no signal: cross term 0, public MSE rises by B): +0.017 (10.2563)
+  CENTRAL EXPECTATION: -0.03 (honest, 10.21). Plausible range: +0.017 (null) to -0.07 (as built).
+
+PUBLIC-SAMPLING NOISE of the delta (300 public rows)
+  The per-row term is q = d^2 + 2de. Var(q) on test is built from the test d^2 / d^4 plus the train analogue E[d^2 e^2] / E[d^2]
+  (73.3, scaled to the test d^2):
+    - sd q 9.79 (train 11.50)
+    - SD of public dMSE 0.565 (simple scaling 0.561; the d^2 part alone 0.050)
+    - SD of the public delta: 0.028 RMSE (0.023 with the finite-population correction)
+    - private-700 SD 0.018
+  Calibration check with the same method on v25 vs v24:
+    - B 3.50 (sd 0.43)
+    - SD 0.108
+    - predicted (k1) -0.214; observed -0.274, so z -0.55. The method was not over-confident there.
+
+READING LINES (fixed now; SD = 0.0276; probabilities for each scenario: null / honest / as built)
+  <= 10.184 (delta <= -0.055, beats -2 SD): CARRIED. v26r becomes the first final, v25 second (v24 leaves the finals).
+      Probabilities: 0.5% / 16% / 69%.
+      Illustrative posterior (prior null 0.35, low 0.2, honest 0.3, fixed-w 0.15): E[true] about -0.037,
+      P(private better) about 0.91.
+  10.184 - 10.212 (-2 SD to -1 SD): SUPPORTED, NOT CARRIED. Consistent with the honest -0.03, and still 1.6-2.6 SD from
+      the null. Finals stay v25 first, v24 second. v26r is not a final.
+      Probabilities: 5% / 34% / 24%.
+      Note: under the illustrative prior this bin still favours v26r on private (E[true] -0.02 to -0.037, P about 0.8-0.9).
+      Keeping v25 is the conservative choice at a cost of at most about 0.03. Not adopted: v26r replacing v24 as the second
+      final.
+  10.212 - 10.256 (-1 SD to the null expectation +0.017): INCONCLUSIVE. Finals stay v25 + v24. ringall is closed (no slot,
+      no re-test on the 267 rows).
+      Probabilities: 45% / 45% / 7%.
+  > 10.256 (worse than pure noise would make it): REFUTED on public too. Drop ringall_avg5 and the whole multi-segmentation
+      edge-count family (ra_*, ring/allm, bdf_avg5, seg contrasts); no further slots on it.
+      Probabilities: 50% / 5% / 0.1%.
+  At no reading are any of these re-tuned on public:
+    - the 0.5 weight, or a scale along d
+    - another ringall variant (single segmentation, ra_avg4, bdf_avg5 / lN_avg5 sets)
+    - another clean gate
+  The public quadratic along v25 -> v26r (B 0.345, the cross term solved from the reading, the public-optimal scale) is
+  reported only, as for v25.
+
+WHEN v26r MAY BECOME A FINAL
+  Only in the CARRIED bin (public <= 10.184). It is then the first final, with v25 second.
+  With blend_v26L (d1010 L, LV rows): v26r and v26L change disjoint rows (519 clean vs 42 LV test rows; 267 vs 21 OOF rows;
+  overlap 0). So on the fixed public rows their MSE changes add exactly:
+      public(union) = sqrt(10.2394^2 + (P_r^2 - 10.2394^2) + (P_L^2 - 10.2394^2))
+  If both carry under their own pre-set lines, the union file (v25 + both swaps, built mechanically with no new choice)
+  is the first final and v25 second. It needs no extra slot to know its public score.
+  If a later file replaces v25 as the base, the carried swap may move onto it only in this fixed form: formula8 refitted
+  the same way on the 267 clean rows, w 0.5 against v24 on the clean rows.
+  Otherwise v26r is never a final.
+
+RULES
+  - Test images are used only for label-free per-image features and prediction. Nothing is fitted on test rows.
+  - There are no pseudo-labels.
+  - The json holds train-side numbers only.
+  - The test-side numbers above are label-free (d only).
+  - Nothing was written into the repo checkout.
+
+PUBLIC READING (user, 2026-10-10 09:23 KST): blend_v26r 10.2136 (delta -0.0258 vs v25; public MSE -0.528).
+Bin: 10.212 - 10.256 -> INCONCLUSIVE (by 0.0016). ringall is closed; v26r is never a final; the union blend_v27u is
+not submitted and not a final (its public score is known without a slot: sqrt(10.2394^2 - 2.225 - 0.528) = 10.1041).

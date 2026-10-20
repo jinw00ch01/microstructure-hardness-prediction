@@ -1,0 +1,38 @@
+d1016/g1mix7 : G1-row reader-family averages with the laptop section 24 readers (Noisy Student sizes, AdvProp, the B1 recipe on
+B6-NS), on top of the best public file at build time. Written 2026-10-16 15:42 KST by the main thread, BEFORE any section 24 run
+exists (laptop on 22-1; section 23 queued; section 24 not yet written to the laptop plan).
+Same recipe, step (0.75), fits, mapping and honest comparisons as d1016/g1mix4..g1mix6; only the reader lists, the reference
+and the bars differ.
+
+New reader families (equal-weight mean of the seeds present at build time):
+  NS6f  = b6ns_locK_real5 (+ _s1 _s2)  A3 recipe (20-2's command), EfficientNet-B6 Noisy Student, tf_efficientnet_b6.ns_jft_in1k
+  APf   = b5ap_locK_real5 (+ _s1 _s2)  A3 recipe (20-2's command), EfficientNet-B5 AdvProp, tf_efficientnet_b5.ap_in1k
+  NS6Bf = b6ns_locK_fsim (+ _s1 _s2)   B1 recipe (21-3's command), EfficientNet-B6 Noisy Student
+  NS4f  = b4ns_locK_real5 (+ _s1 _s2)  A3 recipe (20-2's command), EfficientNet-B4 Noisy Student, tf_efficientnet_b4.ns_jft_in1k
+  (all Apache-2.0 timm weights with GitHub-release URLs; the cloud built each with --head fpn at 256 input on 2026-10-16 15:38 KST:
+   B6-NS 39.7M, B5-AP 27.5M, B4-NS 17.0M parameters; 16 blocks, logN and the 16x16 cell map.)
+Health gate as before (corr with A3f on the 208 G1 train rows >= 0.80).
+
+BASE = the reader families of the best public file at build time, each as its full seed family as defined in
+d1016/g1mix6/options.txt (B1f, B4f, NSf, B7f, B8f). When written, the best file is blend_v35xn (9.9721726754), so BASE =
+[B1f, B4f, NSf]. If a later file tops public before the build, BASE = that file's family list.
+BESTfixed = the exact rule of that best public file (its test md5 asserted); every bar below is measured against it.
+
+Options (equal weight per LISTED family):
+  P6   = BASE + [NS6f]
+  PA   = BASE + [APf]
+  P6B  = BASE + [NS6Bf]
+  P4   = BASE + [NS4f]
+  PALL = BASE + [NS6f, APf, NS6Bf, NS4f]   (only the new families whose 3 seeds are all in; see Seeds)
+Diagnostics only (never submitted): NS6f, APf, NS6Bf, NS4f alone, and BASE with full seed families (a seed variant).
+
+Public model: the latest kriging at build time (pub/forensicsN.py plus every public reading the user reported before the build).
+Slate rule (the g1mix6 rule re-based on the best file):
+  SAFE = vs BESTfixed OOF dMSE < 0 with >= 3/5 folds better and 40-split P(>=0) <= 0.5, AND kriging rmse < the best public score.
+  BOLD = vs BESTfixed OOF dMSE <= +0.42 AND kriging rmse <= best public + 0.0132 AND G1-row test change vs the best file rms >= 0.5;
+         at most 2 bold files per day.
+  Skip a file whose G1-row rms vs any submitted file is < 0.25. Order: lowest kriging rmse first; within 0.002, the better
+  vs-BESTfixed OOF dMSE.
+  Seeds: an option is built only once all 3 seeds of each listed new family are in; fallback = the seeds present by
+  2026-10-18 12:00 KST, and no later seed variant of such a file is ever submitted. PALL uses only complete families.
+  Never two files that differ only by seeds of the same readers. Public picks pieces, never weights, steps or seeds.

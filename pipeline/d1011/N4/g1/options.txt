@@ -1,0 +1,53 @@
+N4 / g1 : G1-row family on top of blend_v29g. PRE-DECLARED OPTION SET AND PROCEDURE
+Written 2026-10-11 (KST afternoon) BEFORE any label number of this folder was computed (only label-free checks so far:
+het parquet presence, m3b T-CP gate counts). Earlier label numbers that are already known and informed this set:
+L4_noisy/gpu q7 C1-C3 + posthoc/nested_select_g1 (fixed replace_A2 -1.84, replace_A3 -2.24, replace_A23 -2.20 vs v28n;
+selection-honest 13-option nested -0.58, 3/5). This set is therefore NOT blind; the nested inner selection is honest
+only about the choice WITHIN the set below.
+
+Rows: G1 = raw features_v3 ic_noise >= 9.5 and ic_ridge_snr < 0.5 (208 train; test midLF 113 + G1hi 320).
+      G1hi = ic_noise >= 12 and ridge < 0.5 (161 train / 320 test); stretch rows = G1hi and ic_noise < m,
+      m = median train G1hi ic_noise of the fitting rows.
+Recipe of one option (het spec h, stretch step s), as q7_fsim_test.py / posthoc/nested_select_g1.py:
+  r = y - blend_v21 nested OOF; hr = het - g(logN) (g linear, fitted on fitting-fold G1 rows, per estimator);
+  offset = OLS (no intercept) of (r - mean r) on hr over fitting-fold G1 rows; G1 rows = v21 + offset; v27u elsewhere;
+  then on the G1hi low half: c + k (p - c), c = mean base OOF, b = OLS slope (with intercept) of y on base OOF over the
+  fitting-fold low-half rows, k = 1 + s (b / RHO - 1), RHO = 0.9795141681843882.  (s = 0.5 is v28n's half step.)
+Het specs H (6), estimators: LOC = mean(ev2s_loc_e32r4, ev2s_loc_e32r4_s1); A2 = ev2s_loc_fsim; A3 = ev2s_locK_real5;
+  A23 = mean(A2, A3) (het and logN averaged):
+  H1 LOC            (v28n estimator)
+  H2 replace_A2     (offset from A2 only)
+  H3 replace_A3     (offset from A3 only)
+  H4 replace_A23    (offset from A23 only)
+  H5 avg_A23        (het = mean(LOC het, A23 het), g on LOC logN, one beta)
+  H6 twobeta_A23    (columns LOC and A23, two betas)
+  A1 (AdaBN) is excluded: closed in section 14 (gate pc 0.995, near copy of LOC) and its test half is not being dumped
+  (laptop section 15 dumps only A2/A3 test halves). avg/twobeta only for A23 to keep the set <= 20.
+Stretch steps S (3): 0.5 (v28n), 0.75, 1.0.
+
+PROCEDURE g1 (main): 18 options = H x S, list order H1..H6 outer, S inner:
+  LOC/0.5, LOC/0.75, LOC/1.0, replace_A2/0.5, ..., twobeta_A23/1.0.  LOC/0.5 = no change (reproduces v29g exactly).
+PROCEDURE g1_stretch (secondary, buildable now; no A2/A3): 3 options LOC/0.5, LOC/0.75, LOC/1.0.
+
+Mapping to v29g (both OOF and test): cand = v29g + w (newG1 - v28n) on G1 rows; w = 0.5 on the T-CP rows (m3b gate_cp
+  midLF rows: 7 train = impl_C4/C3_oof_rows.csv, 19 test) and 1 on the other G1 rows; other rows = v29g.
+  Assert LOC/0.5 mapped OOF == v29g OOF (max abs < 1e-9) and LOC/0.5 mapped test == blend_v29g.csv on all rows.
+Selection-honest nested OOF: outer folds = data/folds.csv. For outer fold k, every option is scored by inner CV on the
+  outer-training rows only (inner folds = the 4 other outer folds; for inner fold j every fit uses rows of folds not in
+  {j, k}); score = MSE of the v29g-mapped candidate over the outer-training rows; pick = argmin (ties -> earlier in list
+  order). The picked option then predicts fold k with fits on folds != k (the fixed-option nested recipe).
+  Convention kept from v28n (needed for the exact reproduction): the stretch's c and b for fold k are computed from the
+  base OOF of the other folds' rows (each built on its own other folds), as v28n's a_test did with the v27u OOF.
+Reported: vs29() of the honest OOF (all-500 dMSE, folds_better, fold_dsse, sign-flip p, drop-top-3), the per-fold
+  picks; IN-SAMPLE (fixed option, no selection) vs29 of every option, labelled in-sample; 40 stratified re-splits
+  (lib strat_split, rng seed 20261015) of the whole nested procedure, each vs LOC/0.5 rebuilt under the same split
+  (both mapped), mean / sd / P(>= 0).
+Full-data pick (test file): the same selection with all 500 rows as the training set and data/folds.csv as the inner
+  5-fold split, i.e. argmin of the fixed-option 5-fold OOF MSE (mapped) -> the option the test file uses; its test
+  rows: offsets fitted on all 208 G1 train rows; stretch c, b from the option's nested base OOF on the 80 train low-half
+  rows, m from all 161 train G1hi rows.
+Tier (N4): SAFE if honest all-500 dMSE vs v29g < 0 and folds_better >= 3; BOLD if honest dMSE <= +0.5 with a stated
+  mechanism and a large test change; else FAIL. If the pick needs A2/A3 test het not yet ingested: g1 tier
+  PENDING_TEST_INPUT, and the g1_stretch procedure's full-data pick is written as the separate candidate 'g1_stretch'.
+No test prediction is read to choose anything; test rows enter only via label-free gate features and the het CNN
+  per-image test outputs (same function as train).

@@ -310,7 +310,16 @@ flowchart TD
 
 ### 최종 파일을 만든 스크립트 (pipeline/)
 
-최종 파일 `blend_v40b8a4`를 만든 스크립트를 `pipeline/`으로 옮기는 중이다.
+최종 파일 `blend_v40b8a4`를 만든 스크립트 115개를 작업 캐시에서 `pipeline/`으로 그대로 옮겼다. 흐름은 다음과 같다.
+
+1. 기본 블렌드와 깨끗한 이미지의 het4 보정(v21): 저장소 `src/`.
+2. 노이즈 이미지 판독기 보정과 물리 회귀식(v22b → v24 → v25 → v26 → v27u → v28n → v29g): `pipeline/het-1008`, `pipeline/d1009`, `pipeline/d1010`, `pipeline/d1011/bold`.
+3. 정직한 선택으로 만든 기반 파일 v30b: `pipeline/d1011/N4`.
+4. 판독기 학습(노트북 GPU): `src/het_cnn.py`, `tools/fsim/het_fsim.py`. 실행 명령은 `notes/handoff/laptop-gpu.md`.
+5. 최종 파일: `pipeline/d1018/g1mix11/build_g1mix11.py`의 옵션 P4A = [B8f, AP4f].
+6. 제출 판정 도구(public 점수 예측, 판정 규칙): `pipeline/d1016/pub`, `pipeline/d1018/judge_*.py`.
+
+이 폴더는 실행 패키지가 아니라 기록이다. 대부분의 스크립트가 원래 작업 환경의 절대 경로를 쓰고 다른 파일의 sha256을 확인한 뒤 실행되기 때문에, 고치지 않고 그대로 복사했다. 단계별 실행 순서, 고정된 파일, 남아 있지 않은 코드는 [pipeline/README.md](pipeline/README.md)에 정리했다.
 
 ### 저장소에 없는 것
 
@@ -319,7 +328,7 @@ flowchart TD
 ## 11. 대회 규칙 준수
 
 - **외부 데이터**: 쓰지 않았다. 판독기 학습용 이미지도 train 이미지를 다시 렌더링하거나 열화시켜 만들었다.
-- **test 이미지**: 어떤 학습에도 쓰지 않았다. 의사 라벨, test로 맞춘 스케일러, test 통계로 정한 기준값은 없다. test 이미지는 학습이 끝난 모델의 예측에만 쓰였다.
+- **test 이미지**: 어떤 학습에도 쓰지 않았다. 의사 라벨이나 test로 맞춘 스케일러는 없고, test 이미지는 이미지마다 따로 계산하는 특징 추출과 학습이 끝난 모델의 예측에만 쓰였다. 제출 전 점검으로 test 예측 변화의 크기를 train과 비교한 단계는 있었지만(미리 정한 기준), 그 결과로 값을 맞추지는 않았다.
 - **사전학습 가중치**: timm이 GitHub에 공개한 Apache-2.0 가중치만 썼다(resnet18, EfficientNetV2-S/M/L, EfficientNet B3~B8의 Noisy Student와 AdvProp, RegNetY, ResNet50-D 등).
 - **원격 API 모델**: 쓰지 않았다. 모든 모델은 로컬(클라우드 CPU, 노트북 GPU)에서 실행했다.
 - **공개 저장소**: 대회 기간에는 대회 데이터, 정답 사본, test 예측, 대회 이미지가 담긴 그림, 모델 가중치를 저장소에 올리지 않았다. 저장소에 섞여 들어갔던 test 예측은 10-06에 히스토리에서 제거했다. 대회가 끝난 뒤 보고서 이해를 돕기 위해 train 이미지 예시 그림(`docs/images/`)만 추가했다. 그림에는 test 이미지와 정답값이 들어 있지 않다.

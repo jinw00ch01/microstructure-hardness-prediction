@@ -1,0 +1,43 @@
+N4 / clean : clean-row and LV-row mixing weights of blend_v29g, re-chosen honestly. PRE-DECLARED OPTION SET AND PROCEDURE
+Written 2026-10-11 (~13:25 KST) BEFORE any label number of this folder was computed (only label-free checks so far: file
+presence, train.csv/folds.csv row order). Label numbers already known before this folder (so the set is NOT blind):
+impl_C4 build_u1 stdout: clean rows C2 (w=0.5) nested 8.3609 vs v28n 9.1014, W1 8.4176; LV rows (u=0.5) nested 9.496
+vs v28n 10.522 (n=21); v29g all-500 nested 10.6176. Task note: on v25 the public-optimal clean mix was 0.66 vs train
+0.56 (public numbers are NOT used here for anything). No number for any w != 0.5, u != 0.5 or s != 1 was seen.
+
+Rows (raw features_v3): clean = ic_noise < 9.5 (267 train / 519 test); LV = 9.5 <= ic_noise < 12 and ic_ridge_snr >= 0.5
+(21 train / 42 test). All other rows (T-CP 7/19 included) stay = v29g (OOF and test) in every option.
+Components (exactly impl_C4/build_u1.py; every fitted quantity fitted on CLEAN train rows of the fitting folds):
+  half_s = v21base OOF/test + s * off_V4,  off_V4 = OLS of (y - v21base OOF) on [1, V4, N_eff^0.25]
+  f8_C2  = log-y OLS on F8 with het4 <- V4, fd_area <- FD6t, logN_eff <- N_eff^0.25; exp(p + s2/2), s2 = np.var(train resid)
+  f7V4   = OLS of y on F7 with het4 <- V4 (fitted on clean rows), applied to LV rows (V4 from s28_V4_LV_*)
+Option (w, s, u):  clean rows = (1-w) * half_s + w * f8_C2 ;  LV rows = (1-u) * v25 + u * f7V4
+  w in {0.25, 0.5, 0.75, 1.0}; s in {1.0, 1.25} (s has no effect at w = 1.0, so only s = 1.0 there); u in {0.5, 0.75, 1.0}
+  -> 7 clean variants x 3 LV variants = 21 options.
+List order (ties -> earlier): O0 = (w 0.5, s 1.0, u 0.5) = v29g (no change; must reproduce v29g OOF and test exactly on
+  clean+LV rows); then w ascending (outer), s ascending, u ascending (inner), skipping O0's combination.
+Mechanism: the 0.5/0.5 weights were set by convention, not fitted; f8_C2 (log-y formula with V4 het + FD6t + N^0.25) and
+  f7V4 carry the grid-het signal that the v21base/v25 chains lack; s = 1.25 partly restores the het-offset strength that the
+  half mix dilutes. A larger w/u/s is a bias-variance trade on n = 267 / 21 rows.
+
+PROCEDURE (selection-honest nested; outer folds = data/folds.csv): for outer fold k, every option is scored by inner CV on
+  the outer-training rows only: inner folds = the 4 other outer folds; for inner fold j every fit (off_V4, f8_C2, f7V4)
+  uses clean rows of folds not in {j, k}; score = SSE of the v29g-mapped candidate over all outer-training rows (only
+  clean+LV rows differ between options). Pick = argmin (ties -> earlier in list order). The pick then predicts fold k
+  with fits on clean rows of folds != k (the fixed-option nested recipe). Joint argmin over the product grid (equivalent
+  to separate clean / LV argmins since the row sets are disjoint).
+Convention (stated, not honest beyond this layer): the base OOFs v21base and v25 are the fixed nested OOFs of their own
+  chains (built on data/folds.csv), as in build_u1 and every earlier blend layer.
+Reported: n4lib.vs29 of the honest OOF (all-500 dMSE, folds_better, fold_dsse, sign-flip p, drop-top-3), per-fold picks;
+  IN-SAMPLE (fixed option, no selection) vs29 of every option, labelled in-sample; 40 stratified re-splits
+  (lib_l4.strat_split, rng seed 20261015) of the whole nested procedure, each vs O0 rebuilt under the same split
+  (base OOFs fixed), mean / sd / P(>= 0); plus the mean fixed-option dMSE vs O0 over the re-splits (descriptive).
+Full-data pick (test file): argmin over the 21 options of the fixed-option 5-fold nested OOF SSE on all 500 rows
+  (data/folds.csv) -> test rows: all fits on the 267 clean train rows -> n4lib.write('clean', ...).
+If the full-data pick is O0: 'clean' = v29g (nothing to submit), and the best non-O0 option by the same full-data score
+  is ALSO written as 'clean_bold'; its numbers: fixed-option nested (forced option, in-sample about the choice) and the
+  forced-change selection-honest nested (same procedure over the 20 non-O0 options), the latter used for its tier.
+Tier (N4): SAFE if honest all-500 dMSE vs v29g < 0 and folds_better >= 3; BOLD if honest dMSE <= +0.5 with the mechanism
+  above and a large test change; else FAIL.
+No test prediction is read to choose anything; test rows enter only via label-free per-image features (V4, N_eff, FD6t,
+  LV feats; same functions as train) and the fixed base test files (v21base, v25, v29g).

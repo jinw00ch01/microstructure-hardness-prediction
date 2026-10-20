@@ -1,0 +1,136 @@
+PLAN_N4 - 2026-10-11 slots 2-5 (v29g took slot 1). Written 2026-10-11 ~13:50 KST by the slate subagent.
+Builder: /mnt/project-files/work/hardness-cache/scripts/d1011/N4/slate/build_slate.py (numbers: slate_result.json)
+
+1. CRITERION N4 (replaces the old multi-bar rule)
+  1 Base blend_v29g (public 10.0564, nested OOF 10.6176). Every file = v29g + deltas, scored by n4lib on all 500 train rows, data/folds.csv.
+  2 HONEST = every fit for fold-k OOF rows uses other folds only; every choice (weight, strength, estimator set) is made by inner CV in the
+    training folds; the option set includes v29g (no change); the test file applies the same procedure to all 500 rows.
+  3 SAFE = honest all-500 dMSE < 0 and folds_better >= 3, with no post hoc piece.
+  4 BOLD = honest dMSE <= +0.5 (expected private cost <= ~0.02 RMSE), a stated mechanism and a large test change; at most 2 BOLD files per day.
+  5 Public readings choose only which pre-built pieces go into a file (the sign of a split). They never set a weight or strength. No test
+    prediction or test statistic chooses anything.
+  6 In-sample (fixed-option) numbers, re-split means and post hoc status are reported next to the honest number.
+
+2. PIECES (each a delta on v29g; G/S and C change disjoint rows)
+  G  N4/g1 (replace_A3/0.75)  SAFE. Honest -2.396, 4/5 folds [-150.6 -432.9 -191.9 -801.7 +379.0], sign-flip p 0.088, drop-top-3 -0.940.
+     In-sample -2.668 (4/5). Re-splits -0.519 (P>=0 0.28). Changes all G1 rows (208 train, 433 test). Mechanism: A3 het reader + stretch 0.75.
+     TEST PENDING: the A3 (ev2s_locK_real5) test het is not ingested yet.
+  S  N4/g1/g1_stretch (LOC/0.75)  SAFE by the letter. Honest -0.360, 3/5 [-256.4 -239.9 +226.8 +92.1 -2.4], p 0.345, drop-top-3 +0.372.
+     Re-splits +0.040 (P>=0 0.38). Changes 167 test G1hi low-half rows. It is G's LOC-only sub-procedure. G and S change the same rows, so
+     they are never summed (public-noise corr 0.35).
+  C  N4/clean/posthoc_clean_only (w0.75)  BOLD (POST HOC: the LV knob was dropped after the joint result). Honest -0.507, 4/5
+     [-24.8 -129.8 -98.0 -141.9 +141.0], p 0.280, drop-top-3 +0.182. Re-splits +0.211 (P>=0 0.75). Changes the 519 clean test rows.
+  NOT USED: cnn (FAIL, honest +1.066); clean joint w+LV u (honest +0.146, and LV-only is +0.653, so it is dominated by C; the LV knob is closed).
+  Unions are exact. Rows are disjoint and both procedures pick by inner CV on the same 4 other outer folds with an additive loss. So
+  v29g + dX + dC is exactly the selection-honest nested result of the product option set (ties aside), and its public MSE change is
+  exactly dX + dC.
+
+3. SLATE (letters follow the PRIMARY slot order; e is fallback only). Public dMSE is vs v29g (MSE 101.13). Lines are public RMSE.
+   Hypotheses: full = CV gain carries in full; half = half the CV gain carries (how v29g's own reading read), with the same sd.
+   P10 / P9 = P(public <= 10.0) / P(public <= 9.0) under half, normal approximation.
+ file      slot           pieces tier  md5        honest dMSE folds  full RMSE  half RMSE  sd     P10   P9      keep <=  close >=
+ blend_v30a 2 (primary)   G+C    BOLD  PENDING    -2.903     4/5    9.9147     9.9858     0.128  0.54  7e-14   10.0563  10.2015*
+ blend_v30b 3 (primary)   G      SAFE  PENDING    -2.396     4/5    9.9395     9.9982     0.115  0.51  5e-17   10.0563  10.1505*
+ blend_v30c 4 (branch)    C      BOLD  4877dedc.. -0.507     4/5    10.0319    10.0442    0.055  0.21  1e-73   10.0563  10.1079
+ blend_v30d 4/5 (branch)  S      SAFE  63dbb249.. -0.360     3/5    10.0382    10.0473    0.057  0.20  8e-69   10.0563  10.0734
+ blend_v30e 2 (fallback)  S+C    BOLD  a8b77970.. -0.867     3/5    10.0136    10.0351    0.079  0.33  8e-36   10.0563  10.1248
+   * G files: public numbers use proxy test rows (all 433 G1 test rows change; the null size comes from the train change rms) until
+     --with-g1 builds the real test. The real numbers are then appended below and written to slate_result_with_g1.json.
+   v30a and v30e reach the SAFE numbers but carry the post hoc piece C, so they are BOLD.
+   In-sample fixed picks (labelled in-sample): a -3.175, b -2.668, c -0.507, d -0.360, e -0.867.
+   Re-split sums: a -0.31, b -0.52, c +0.21, d +0.04, e +0.25.
+   Test change: c 519 rows (rms 1.41 on changed rows, max 5.93), d 167 rows (1.43, 5.08), e 686 rows (1.42, 5.93); a and b pending
+   (expected a 952 rows, b 433 rows). Diversity: G/S and C overlap 0 rows (corr 0.00). G and S share 167 rows.
+   Reading lines per file: keep = public <= 10.0563 (better than v29g); hold = from 10.0564 up to the close line; close = the
+   no-signal expectation or worse.
+
+4. ORDER AND BRANCH RULE (mechanical: python build_slate.py --next v30a=<R> v30b=<R> ... prints the next file)
+   Split arithmetic, in public MSE (R^2): dX = M(file with X alone) - 101.1318; dC = M(X+C) - M(X).
+   A piece is confirmed if d < -0.002, which is beyond the 4-decimal rounding.
+   Close a piece's family if d >= its null: G +1.90 (proxy), S +0.34, C +1.04.
+   PRIMARY (blend_v30a.csv exists when slot 2 is submitted):
+     slot 2 v30a G+C   (highest expected)
+     slot 3 v30b G     (splits dG / dC)
+     slot 4 if dC confirmed and dG not -> v30c C (BOLD 2; its public is exactly v29g + dC)
+            elif dG not confirmed       -> v30d S (SAFE; the other G1-row reader)
+            else (dG confirmed)         -> EMPTY (a or b is already best; nothing left can beat it without re-tuning)
+     slot 5 if slot 4 was v30c          -> v30d S. If S confirms, S+C (v30e) goes first on 10-12, because the BOLD budget is used.
+            else                         -> EMPTY
+   FALLBACK (g1 test not built when slot 2 is due; recommended: wait for laptop section 15 until 22:00 KST, since the submissions are instant):
+     slot 2 v30e S+C
+     slot 3 v30d S     (splits dS / dC)
+     slot 4 if the g1 test is built by now   -> run --with-g1, then v30b G (SAFE)
+            elif dC confirmed and dS not     -> v30c C (BOLD 2)
+            else                              -> EMPTY
+     slot 5 (only after v30b) if dC and dG confirmed and dG < dS - 0.002 -> v30a G+C (BOLD 2; public exactly v29g + dG + dC)
+            elif only C confirmed            -> v30c C (BOLD 2)
+            else                              -> EMPTY
+   Never padded. On average 2.1-2.9 of the 4 slots are used (simulation). Any slot the rule leaves EMPTY stays empty.
+
+5. HONEST ODDS (normal approximation; Monte Carlo 40k draws of the branch rule; best = min(v29g, submitted))
+   Goal public <= 9.0: needs about -20.1 MSE vs v29g. The largest file (G+C) carries -2.8 at full CV gain.
+     P(<= 9.0) < 1e-13 for every file and is 0.000 for the slate under every hypothesis. This slate cannot reach 9.
+   Public <= 10.0 (needs about -1.13 MSE), P(best of the slate <= 10.0):
+       hypothesis        primary   fallback (no g1 today)
+       full CV gain       0.83      0.53
+       half CV gain       0.67      0.43
+       re-split means     0.52      0.29
+       no signal (null)   0.12      0.08
+   Per file under half: a 0.54, b 0.51, e 0.33, c 0.21, d 0.20.
+   Expected best public RMSE (half): primary 9.944, fallback 10.000.
+   Selection caveat: taking the best of 2-4 public readings uses public noise. The private expectation of whichever file ends up final is
+   its honest CV gain (half-gain G+C: about -1.4 MSE), not its public reading.
+
+6. TO FINISH G (orchestrator; repo root /home/claude/microstructure-hardness-prediction)
+   a. The user runs laptop section 15 and sends four texts. Save real5 c1 and c2 as
+      /mnt/project-files/work/hardness-cache/laptop-gpu-2026-10-11/ev2s_locK_real5_c1.txt and ev2s_locK_real5_c2.txt.
+   b. python -m src.het_cnn --ingest ev2s_locK_real5 <..>/ev2s_locK_real5_c0.txt <..>/ev2s_locK_real5_c1.txt <..>/ev2s_locK_real5_c2.txt
+   c. nice -n 10 timeout 1800 python /mnt/project-files/work/hardness-cache/scripts/d1011/N4/g1/build_g1_test.py   (exit 0, not 3)
+   d. nice -n 10 timeout 1800 python /mnt/project-files/work/hardness-cache/scripts/d1011/N4/slate/build_slate.py --with-g1
+      This asserts g1/oof.csv equals the honest OOF used here, g1/result.json full_pick replace_A3/0.75 and its md5. It writes
+      blend_v30a.csv and v30b.csv (+ .json; it replaces only its own PENDING placeholder .json), keeps c/d/e, and appends the real numbers
+      below. Look at the report-only offset-SD line in g1/result.json[test_rule]; it is a sanity check and chooses nothing.
+
+7. CAVEATS
+   - G's -2.40 is honest only within its 18-option set, which earlier label results (C1-C3, the 13-option post hoc check -0.58) shaped.
+     The 39-option superset gives -0.21; re-splits give -0.52. Treat the half or re-split row as the sober one.
+   - In every G file fold 4 is worse (+379 to +520 SSE), and midLF rows are worse (+2.25 per row): the gain is all G1hi.
+   - C and S have re-split means >= 0 (+0.21, +0.04). Their fixed-fold honest numbers come from a favourable split. They are lottery
+     tickets with small expected private cost, not evidence.
+   - Monte Carlo assumptions: normal public dMSE per piece; C independent of G/S (disjoint rows); G-S corr 0.35 (train dSE model);
+     the same sd under every mean hypothesis.
+   - Nothing in the repo was edited and nothing was committed. Test predictions were used to choose nothing. Files written: N4/slate/
+     (build_slate.py, slate_result.json, C/, S/, SC/) and submissions/blend_v30c,d,e.csv + .json, plus the placeholders
+     blend_v30a.json and blend_v30b.json.
+
+========================================================================================================================
+ADDENDUM 2026-10-11 14:40 KST (orchestrator; supersedes sections 3-5 where they differ). Adopted from the two reviews
+(N4/verify: rebuild OK, 17/17 md5; critic: FIX_NEEDED, 5 major). Written before any 10-11 afternoon public reading.
+
+A. SAFE tightened: honest dMSE < 0 AND folds >= 3 AND 40-re-split mean < 0 AND drop-top-3 < 0, option set declared before the
+   relevant label numbers (G's set was shaped by C1-C3 results: disclosed). G: strict honest -2.20 (4/5; fits fully fold-free),
+   re-split -0.52, drop-top-3 -0.94 -> SAFE, headline -0.5 (re-split), -2.2 as the in-set upper bound. S: re-split +0.04, drop-top-3
+   +0.37 -> BOLD. C: post hoc, re-split +0.21 -> BOLD with expected private cost >= 0.
+
+B. Public expectation recalibrated: E = null + f (cv - null), f = 0.47 (v29g 0.47, v28n 0.45, v26r 0.49 for post hoc / selection-heavy
+   changes; pre-registered single tests carried f 0.73-1.29). Under f 0.47: v30b (G) public ~10.052 (P<=10 0.32), v30a (G+C) ~10.068
+   (0.29), v30c +0.32 MSE, v30d +0.01, v30e +0.33. P(public <= 9) < 0.001 for every file and every path.
+
+C. SLATE FOR 10-11 (replaces section 4):
+     slot 2 v30b = G      (SAFE file first)
+     slot 3 v30a = G+C    (C reaches the auto-final only if its exact split M(a) - M(b) reads below 0)
+     slots 4-5 EMPTY.     v30c, v30d, v30e are NOT submitted (expected private 0 or worse; the critic's Monte Carlo: adding them raises
+                          P(best public <= 10) 0.40 -> 0.48 but P(auto-final worse than v29g on private) 0.23 -> 0.37).
+     No FALLBACK lottery: if the G test is not built by 23:30 KST, 10-11 gets no more files and the G slate moves to 10-12.
+   Expected value of the slate: P(best public <= 10.0) ~0.40 (f 0.47); private gain of the final ~ -0.25 MSE (~ -0.012 RMSE).
+   Reading: 'read better' (not 'confirmed') = public below v29g's 10.0564; G family closes if v30b >= 10.1505 (dG >= +1.90 MSE).
+
+D. G build gate (label-free, pre-registered now, chooses nothing among options; failing it = no G file):
+   1. laptop c0_again '# sums' line equals the stored c0 (het_cnn 85.3587 logN_cnn 2747.2417 bmean_cnn 2776.8410): same fold models.
+   2. ingest checks pass (IDs, sums); build_g1_test.py asserts the honest OOF unchanged.
+   3. A3 offset SD on test G1 rows / on train G1 rows in [0.80, 1.25] (LOC reference 0.97).
+   4. Under 2% of test G1 offsets beyond the train max |offset|.
+   Then an independent rebuild of v30a/v30b (md5) before hand-over.
+
+E. Framing for the user: this slate is at best a public <= 10 lottery (~0.4) with ~0.01 RMSE private value. 9 needs a new lever worth
+   more than 15 MSE; none is known.

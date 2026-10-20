@@ -6,9 +6,11 @@
   report states the goal was reached. No reading of 10-19 files 4-5 was reported.
 - Private vs public: +0.675 RMSE; private vs the honest nested OOF of the final rule (10.4395): +0.179. The 300-image public subset was
   easier than average (10-10 forecast: our public reading about 2 sd lucky).
-- Wrap-up: README.md rewritten as the project report (trial and error from 10-05 to 10-19); the code that built the final file copied
-  byte-identical into pipeline/ (see pipeline/README.md); records closed (CLAUDE.md, LEADERBOARD.md). No further submissions, GPU runs or
-  slots. Caches stay in /mnt/project-files/work/hardness-cache/.
+- Wrap-up: README.md rewritten as the project report (trial and error from 10-05 to 10-19). JINWOO 14:42 KST 10-20 asked for dataset
+  images and the 30th-place leaderboard screenshot in it: docs/images/ (8 TRAIN sample images, het4 and reader figures from
+  tools/readme_figures.py; no labels, no test images). The 115 scripts on the final file's path were copied from the cache scripts/ into
+  pipeline/ (113 byte-identical; 2 with one test-row note removed; MANIFEST.tsv, pipeline/README.md). Records closed (CLAUDE.md,
+  LEADERBOARD.md). No further submissions, GPU runs or slots. Caches stay in /mnt/project-files/work/hardness-cache/.
 
 Goal: public LB RMSE in the 8s, below 9.0 (user, 2026-10-15 12:56 KST; was <= 9 from 2026-10-10 16:11 KST, <= 10 before). Deadline 2026-10-19 10:00 KST. The final is picked
 automatically: the submission with the best public score (user, 16:12 KST). There is no manual choice of two finals, so

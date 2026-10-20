@@ -1,0 +1,42 @@
+d1011 / bold / impl_C4 - READING lines for U1 (pre-registered; written BEFORE any submission of this file)
+Written 2026-10-11 ~03:10 KST (2026-10-10 ~18:10 UTC) by the C4 implementer (subagent). No public score of U1 exists yet.
+
+FILE
+- impl_C4/test.csv, md5 496f5cc978c2e4298775e992455dbeac (1000 rows, sample_submission order).
+- = blend_v28n (md5 396a52f2...) with 580 rows changed: 519 clean (C2 = W1 + riders), 42 LV (C1 V4_lv), 19 T-CP (C3).
+  The other 420 rows are bit-identical to v28n (as values and as text).
+- Built by impl_C4/build_u1.py. It was rebuilt from scratch once, with FD6t recomputed from the test images, and the
+  md5 matched (test.csv and oof.csv). An independent rebuild by a second agent is still owed (TRIAGE C4 step 7).
+- The orchestrator copies it to submissions/ as blend_v29g.csv. That uses 1 slot on 10/11; the other 4 slots stay
+  unused.
+
+TRAIN EVIDENCE (nested, data/folds.csv; all 500 rows)
+- U1 (LV rows nested with the V4 rule): 10.6176 vs v28n 10.9913, dMSE -8.08.
+  * 3/5 folds better; sign-flip p 0.0005; drop-top-3 dMSE -5.24.
+  * 100 re-splits: mean -8.04, P(>=0) 0.00.
+- U1 recipe convention (LV rows = v28n): 10.6581, dMSE -7.21.
+- qualify.py at M = 36: lane DANGER, ratio 2.34, delta -0.367, sd_tr 0.119, sd_pub 0.153, bias 0.170.
+  strict_gate_pass is TRUE.
+
+EXPECTATION (public, 300 rows)
+- v28n 10.0712 (MSE 101.43).
+- The train dMSE, re-weighted to the test group shares, is about -8.0 MSE:
+  * undiscounted public about 9.67;
+  * with the forking discount (bias 0.17 x 22, about 3.7 MSE), about 9.85.
+- Triage's central estimate is 9.82 (range 9.60-9.95). The paired public sd is about 0.15-0.20.
+
+READING LINES (fixed now; no change after the score is seen)
+- CARRIED      public <= 9.90.
+  U1 becomes the base for every later file: GPU-A/B files are built on U1, and U2 only per C5's bar.
+- REFUTED      public >= 10.24.
+  Close the clean grid-het re-measurement family: no V4/W1/C5-U2 descendants on public. v28n stays the base.
+  Record it in hardness-null-results.
+- INCONCLUSIVE 9.90 < public < 10.24.
+  No public follow-ups, no strength grids, no near-copies, no half-step hedges. U1 stays a potential final under
+  the auto-pick only if it is the best public. Further work proceeds from train evidence alone.
+- In every case: no row-level probing and no knob re-fit on public (L7-3 stays "never").
+
+WHAT U1 CANNOT SHOW
+- The riders (about -0.02) and T-CP (about -0.01) are below one reading's resolution. The reading tests the W1 core.
+- P(public <= 9) < 0.05 even if carried. The G1hi noise constant and the coarse-row share of the noisy rows are
+  untouched; only GPU-A can reach them.

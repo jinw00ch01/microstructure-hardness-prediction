@@ -1,0 +1,10 @@
+# Data outputs of these scripts never go into the public repository.
+*.csv
+*.parquet
+*.npz
+*.npy
+*.json
+*.pt
+*.pth
+*.log
+__pycache__/

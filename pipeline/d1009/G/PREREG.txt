@@ -1,0 +1,79 @@
+d1009 G: localized het CNN for line-free noisy images. Written 2026-10-08 ~20:45 KST, BEFORE any screen result or label
+use with the new options (src/het_cnn.py at 92d6ebc).
+
+STAGE 1 (label-free design pick; CPU screen, resnet18, fold 0, 16 epochs, 4 renders, --screen; runs scr_base, scr_fpn,
+scr_mos (--mosaic 0.5 --mosaic-dlogn 0.5), scr_zoom (--zoom 1.0 1.4), scr_within (--lambda-within 1), scr_all (all four)).
+Metrics on held-out renders of fold 0's clean images: pcorr_het_given_logN (P), corr_block_within (W); also P on the
+55 held-out real clean images (R, domain check).
+Rule: a design qualifies for GPU if P >= P_base + 0.10 OR W >= W_base + 0.10, and R is not below R_base - 0.10.
+Among qualifiers pick the highest P (ties within 0.03: higher W). If the fpn head qualifies, its het from the block
+head (pcorr_het_given_logN) is the estimator unless pcorr_het_cell is higher by >= 0.05 (then the cell aggregate).
+If none qualifies: no GPU run for this route; report that the localization options did not help.
+A fold-1 confirmation run of the pick and the base follows if CPU time allows; the pick stands unless fold 1 reverses
+the sign of its P gain.
+
+STAGE 2 (labels; run once per estimator, on the GPU 5-fold output, seeds as available when the test is started):
+Rows: G1 = raw ic_noise >= 9.5 and ic_ridge_snr < 0.5 (208 train). Keep rows (ic_noise >= 12, ridge >= 0.5) keep v22b.
+Base: blend_v21 nested OOF. Offset: beta * (h - g(lnN)), g linear in lnN_cnn, beta no intercept, both cross-fitted by
+data/folds.csv (identical to build_v23.py with het_new / logN_new in place of the old seed average).
+Comparison: blend_v23 nested OOF (old het CNN, same gate), G1 RMSE 13.7695.
+PASS requires all of:
+ (a) G1 RMSE <= 13.6695 (>= 0.10 better than v23);
+ (b) >= 4/5 folds better than v23 on G1;
+ (c) permutation p < 0.05: het_new shuffled within G1 (logN_new kept), full cross-fit per shuffle, 2000 shuffles,
+     statistic G1 RMSE;
+ (d) robustness: after dropping the single G1 row with the largest SSE gain vs v23 (no refit), the G1 gain is still
+     >= 0.05.
+If PASS: build blend_v24 = v21 + new offset on G1 test rows (v22b on keep rows), report the Track E probe vs v22, and
+it becomes the bold 10/09 file. Secondary (report only, never a pass): two-estimator offset [h_old_res, h_new_res].
+If FAIL: no file; v23 stays the safe file.
+
+AMENDMENT (written ~20:55 KST, before any screen result): to use the GPU while the CPU screen runs, laptop section 11
+trains the COMBINED design first (11a: --head fpn --mosaic 0.5 --mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1,
+effnetv2-s, 32 epochs, 4 renders, seed 0). Section 11c (second GPU run) is set after the CPU screen: the stage-1 pick
+if it differs from the combined design, else seed 1 of the combined design.
+Stage-1 gate for a GPU run (5 folds, held-out renders of all 267 clean images, from its score.json): it goes to stage 2
+only if P >= P_old + 0.10 or W >= W_old + 0.10, where P_old / W_old are the pooled values of ev2s_e32r4 seed 0
+(P_old 0.25 as recorded in RESUME), and its real held-out clean P is not below the old run's by more than 0.10.
+If two GPU runs of the same design exist when stage 2 starts, het/logN are averaged over them (as v22b).
+
+STAGE-1 RESULT (CPU screen, fold 0, recorded ~21:05 KST, no label read): P / W / R (held-out renders partial | logN,
+within-image block corr, real held-out clean partial):
+  base 0.200 / 0.411 / -0.012;  fpn 0.127 / 0.461 / 0.294 (cell aggregate 0.293);  mos 0.086 / 0.333 / 0.046;
+  zoom 0.127 / 0.384 / 0.271;   within 0.492 / 0.587 / 0.569;   all 0.466 / 0.638 / 0.643 (cell aggregate 0.404).
+Qualifiers (P >= 0.300 or W >= 0.511; R >= -0.112): within, all. Highest P: within 0.492 vs all 0.466 (difference
+0.026 < 0.03, a tie) -> higher W -> PICK = all (the combined design = GPU 11a). Block head, not the cell aggregate
+(0.404 < 0.466). So 11c stays seed 1 of the combined design.
+
+AMENDMENT 2 (~21:10 KST, before any label use with the new options): because the laptop is off (user moving), the
+cloud CPU also trains the pick on all 5 folds: resnet18, 16 epochs, 4 renders, seed 0, --head fpn --mosaic 0.5
+--mosaic-dlogn 0.5 --zoom 1.0 1.4 --lambda-within 1, out cpu_loc_r18_e16. Its fold 1 doubles as the fold-1
+confirmation (vs a base fold-1 screen run). Stage 2 runs once on this CPU estimator with the bar above, except that
+the permutation bar is p < 0.025 (two estimators in the family: this CPU one and the later GPU one, each tested once
+with p < 0.025). If both exist when a file is built, the file uses the GPU estimator only if it passes its own test;
+averaging CPU and GPU estimators is a third variant and is NOT tested.
+
+STAGE-2 SCRIPT fixed ~21:25 KST before any new-estimator output exists: g_test.py sha256 576f4c1de629bd0192794f1652cf666a3d95a7a7a687fdb7a41ce1527e2c3f0d
+(mechanics checked on the old 2-fold pilot_r18 parquet with 20 shuffles; output discarded; it FAILS as the earlier null did).
+CPU estimator test: python g_test.py --het <repo>/data/het_cnn/cpu_loc_r18_e16 --name cpu_loc (p bar 0.025).
+
+FOLD-1 CONFIRMATION (~22:40 KST, label-free): all (fold 1 of cpu_loc_r18_e16) P 0.108 / W 0.576 / R 0.069 vs base fold 1
+P 0.082 / W 0.330 / R 0.276. The P gain keeps its sign (+0.026), so the pick stands by the rule. Note: fold 1 is
+weak for every design (the earlier pilot had fold-1 P 0.02); W rises a lot more than P, which can come from a
+systematic block pattern (border truncation) that does not vary with het4, so P is the metric that matters.
+Expectation for stage 2 tempered accordingly.
+
+STAGE-2 RESULT, CPU estimator cpu_loc_r18_e16 (run once, 2026-10-09 00:15 KST; cpu_loc_result.json): FAIL.
+  G1 13.7695 (v23) -> 13.8477; folds better 2/5; perm p 0.0210; drop-top gain -0.120; all 11.6532 -> 11.6917; corr of het residuals with the old GPU estimator 0.77; two-estimator (report only) 13.8124. Render pooled pc 0.351 (old GPU 0.25 / 0.14) did not carry to labels: the estimator carries signal (p 0.02) but less than the old GPU effnetv2-s one. No file. The GPU run of the same design (laptop 11a) stays a separate pre-registered test.
+GPU STAGE 1 (13:25 KST 2026-10-09, from the laptop's 11a score.json; no label used): ev2s_loc_e32r4 seed 0 pooled P 0.4906
+(old ev2s_e32r4 0.2534, bar 0.35) PASS; W 0.7067 (old 0.4255, bar 0.5255) PASS; real held-out clean pcorr per fold
+0.861/0.701/0.705/0.631/0.690 (mean 0.718) vs old 0.386/0.239/0.241/0.425/0.157 (mean 0.289): not lower, PASS.
+pcorr_het_cell 0.5109 - 0.4906 = 0.020 < 0.05, so the block head (het_cnn) is the estimator (rule above).
+DECISION before any label use: 11c (seed 1, same design) started 13:23 KST; stage 2 waits for it and runs ONCE on the
+seed 0+1 average (line "If two GPU runs ... averaged"), with g_test.py --het ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --name gpu_loc
+(p bar 0.025). If 11c fails to finish today, stage 2 runs once on seed 0 alone instead. No single-seed test before that.
+GPU STAGE 2 RESULT (04:44 UTC = 13:44 KST 2026-10-09, run once, g_test.py sha as above, --het ev2s_loc_e32r4 ev2s_loc_e32r4_s1 --name gpu_loc):
+  G1 13.7695 (v23) -> 13.3846 (gain 0.385 >= 0.10: a PASS); folds better 4/5 (b PASS; fold 1 15.13 -> 15.24); perm p 0.0005 (c PASS,
+  bar 0.025); drop-top-row (TRAIN_000467) gain left 0.298 (d PASS). PASS. all 500: 11.6532 -> 11.4651. G1 <12: 10.489 -> 10.498,
+  G1 >=12: 14.589 -> 14.116. fold betas 103-139. Residual corr with the old GPU estimator 0.67. Two-estimator (report only) 13.412.
+  -> build blend_v24 = v21 + the new offset on G1 (keep rows v22b) with g_build.py from the same two dirs.

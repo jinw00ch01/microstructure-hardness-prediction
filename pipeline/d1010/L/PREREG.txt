@@ -1,0 +1,40 @@
+d1010 L: unchanged clean formula7 applied to the LINE-VISIBLE mid-noise rows. Pre-registered 2026-10-10 00:15 KST by the
+orchestrator, before any label of these rows has been looked at for this purpose (the d1010 C synthesis used only
+label-free gmm_sep facts about them; v25's OOF RMSE 12.1 on them was reported descriptively).
+
+ROWS (label-free, fixed): LV = 9.5 <= raw features_v3 ic_noise < 12 AND ic_ridge_snr >= 0.5 (expected 21 train / 42
+test; the run asserts the counts it finds and reports them; any other count is reported, not re-gated). Report only:
+the 4 train / 6 test rows with ic_noise >= 12 and ridge >= 0.5 (same procedure, never part of the bar or the file).
+FEATURES: the formula7 terms [fd_area, pore_frac, logasp_aw, S_align, log N_eff, het4, bd_frac] computed with the SAME
+clean pipeline that produced J/cleanhead feats_C (src.het_blocks.segment sigma 1.0, per-image GMM phase threshold,
+pores gn < 0.68 & area < 600, N_eff = N_in + 0.5 N_bd), unchanged, on the LV train and test images. Label-free
+fidelity report first: gmm_sep / phase-gap of LV vs clean rows, share of images where the GMM rule falls back, and the
+train-vs-test distribution of each term on LV rows.
+MODEL (no refit on LV rows, no selection): formula7 coefficients fitted on the 267 clean train rows only. OOF: for each
+outer fold k of data/folds.csv, fit formula7 on the clean train rows with fold != k and predict the LV train rows with
+fold == k. Test: fit on all 267 clean train rows, predict the LV test rows. Mix FIXED w = 0.5:
+new = 0.5 * blend_v25 + 0.5 * f7 on LV rows (blend_v25 = blend_v24 there); every other row = blend_v25 bit-identical.
+BAR (all required; run ONCE): on the LV train rows, (a) nested RMSE gain vs blend_v25 OOF >= 0.40; (b) RMSE lower in
+at least 3 of the 5 folds (folds with no LV row count as not better); (c) paired sign-flip p < 0.20 (one-sided,
+20000 flips, seed 20261010, d_i = (new_i - y_i)^2 - (v25_i - y_i)^2); (d) after dropping the single row with the
+largest SSE gain (no refit) the gain is still >= 0.20. Report: all-500 nested RMSE, per-fold numbers, row count per
+fold, w = 0.25 / 0.75 rows (report only, never selectable).
+FILE (only on PASS): blend_v26L = blend_v25 with the LV test rows replaced as above; OOF likewise; json with train-side
+stats only. Expected public (synthesis): about -0.03, up to -0.12.
+READING (vs blend_v25 public 10.2394, delta = v26L - v25): <= -0.03 carried (v26L becomes the first final, v25 second);
+-0.03 to +0.03 inconclusive (finals stay v25 first, v24 second; v26L never a final); > +0.03 refuted (drop; no LV
+extension again). No re-weighting on public at any reading.
+RULES: labels are read once by the stage-2 script on the LV train rows; test images only predicted; nothing fitted on
+test; repo public: nothing of this goes into the repo except a LEADERBOARD line with train-side numbers.
+
+CORRECTION (orchestrator, 2026-10-10): the header time "00:15 KST" was an estimate written into the text; the file was
+actually written at 00:03 KST (15:03 UTC), before lv_feats, l_test (15:08 UTC) and the build (15:10 UTC). Order unchanged.
+RESULT (l_test.py sha256 030e51b1..., run once): LV train 21 rows 12.1146 -> 10.5221 (gain 1.592), 4/5 folds, sign-flip
+p 0.044, drop-top 1.231: PASS. All-500 nested 11.2631 -> 11.1957. blend_v26L built (csv md5 5e47b2fd...), reproduced byte
+for byte by an independent reviewer. Caveats on record: [one test-row note removed for the public repository]; the gain rests on a few rows (drop top 5 -> -0.51); LV was chosen knowing v25's descriptive RMSE 12.1
+there, so the central expectation stays -0.03.
+
+PUBLIC READING (user, 2026-10-10 09:23 KST): blend_v26L 10.1302 (delta -0.1092 vs v25 10.2394; public MSE -2.225).
+Bin: <= 10.2094 -> CARRIED. v26L is the first final, v25 second. No re-weighting on public. Public per-LV-row SSE
+gain (about 13 public LV rows assumed) is about 51, vs 36 per row on the 21 LV train rows: transfer at least as strong
+as on train. The "as built" scenario (-0.074) was exceeded.

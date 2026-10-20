@@ -1,0 +1,37 @@
+d1016/g1mix6 : G1-row reader-family averages on top of blend_v30b around the new best blend_v35xn (= g1mix4 XN).
+Written 2026-10-16 14:54 KST by the main thread, after the blend_v35xn public reading (9.9721726754, user 14:51 KST 10-16; new best and
+automatic final while best) and BEFORE any new reader below exists: NS seeds 1-2 and B8 (all seeds) are not trained yet (laptop
+section 23, not yet written); B7 seed 0 (21-3) is still training and B7 seeds 1-2 are section 22 (queued).
+Same recipe, step (0.75), fits, mapping and honest comparisons as d1016/g1mix4 and g1mix5; only the reader lists, the reference
+and the bars differ.
+
+Reader families (equal-weight mean of the seeds present at build time):
+  A3f = ev2s_locK_real5 (+ _s1.._s4)        health-gate reference only
+  B1f = ev2s_locK_fsim (+ _s1 _s2)           B1 recipe (fsim), effnetv2-s
+  B4f = ev2m_locK_real5 (+ _s1)              A3 recipe, effnetv2-m
+  NSf = b5ns_locK_real5 (+ _s1 _s2)          A3 recipe, EfficientNet-B5 Noisy Student (seeds 1-2: section 23)
+  B7f = ev2l_locK_fsim (+ _s1 _s2)           B1 recipe, effnetv2-l (21-3, section 22)
+  B8f = b5ns_locK_fsim (+ _s1 _s2)           B1 recipe, EfficientNet-B5 Noisy Student (section 23)
+Health gate as before (corr with A3f on the 208 G1 train rows >= 0.80).
+
+Options (equal weight per LISTED family):
+  XN8  = [B1f, B4f, NSf, B8f]        v35xn families plus the B1-recipe NS reader
+  XN7  = [B1f, B4f, NSf, B7f]        v35xn families plus the B1-recipe effnetv2-l reader
+  XN78 = [B1f, B4f, NSf, B7f, B8f]   both
+  X8   = [B1f, B4f, B8f]             v33xb families plus the B1-recipe NS reader (NS recipe swapped)
+  N2   = [NSf, B8f]                  v33xb's two-recipe structure (B1 recipe + A3 recipe) moved to the NS backbone
+Diagnostics only (never submitted): XNf = [B1f, B4f, NSf] (a seed variant of v35xn), NSf alone, B8f alone.
+
+References: XNfixed = the exact v35xn rule ([B1f 3 seeds, B4f 2 seeds, NS seed 0]; its test md5 d1eab1318577e0b8f962e253632b9e8d
+is asserted), XB4fixed (v33xb's rule) and A3fixed (v30b's rule).
+Public model: kriging18 = kriging17 plus the v35xn reading (scripts/d1016/pub/kriging18.py).
+
+Slate rule (fixed now; from now on it also replaces the v33xb-relative bars of g1mix4/g1mix5 for any file not yet submitted):
+  SAFE = vs XNfixed OOF dMSE < 0 with >= 3/5 folds better and 40-split P(>=0) <= 0.5, AND kriging18 rmse < 9.9722 (v35xn).
+  BOLD = vs XNfixed OOF dMSE <= +0.42 AND kriging18 rmse <= 9.9854 (v35xn + 0.0132, the margin the v33xb rule allowed) AND
+         G1-row test change vs v35xn rms >= 0.5; at most 2 bold files per day (v35xn is 10-16's first).
+  Skip a file whose G1-row rms vs any submitted file is < 0.25. Order of bold files: lowest kriging18 rmse first; within 0.002,
+  the better vs-XNfixed OOF dMSE.
+  Seeds: an option is built only once every seed of its families is in (NSf, B7f, B8f: 3 each); fallback as in
+  g1mix5/ADDENDUM_B7seeds.txt (seeds present by 2026-10-18 12:00 KST, never a later seed variant).
+  Never two files that differ only by seeds of the same readers. Public picks pieces, never weights, steps or seeds.

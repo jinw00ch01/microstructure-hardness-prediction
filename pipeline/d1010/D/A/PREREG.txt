@@ -1,0 +1,109 @@
+REGISTERED 2026-10-10 13:46 KST by the orchestrator (main thread), from D/synth/PREREG_A_DRAFT.txt unchanged below except this
+header. Test script: D/A/a_test.py (sha256 recorded in D/A/a_test.sha256 before its single run). Builder:
+D/A/a_build.py (runs only on PASS; writes blend_v28n to hardness-cache/submissions). Independent rebuild: D/A/verify/.
+FINALS RULE: both options in the FINALS section are pre-stated; the user picks one by decision card before any
+public reading of blend_v28n, and the pick is appended here before the reading. Until then the finals stay v26L + v27u.
+User's instruction (12:08 KST): the last two 10/10 submissions must be made after careful review.
+
+d1010 D / FILE A (DRAFT - not registered): blend_v28n = blend_v27u with a half-step slope stretch on the LOW-NOISE half
+of the G1hi rows. Drafted 2026-10-10 13:45 KST by the D synthesis (subagent) from the mech / hist / second lenses and the
+mechanism / history / rules skeptics (scripts/d1010/D/*, design numbers in D/synth/y1-y3). The orchestrator registers it
+(adds the registration time, fixes the script name) before the test script is written. Nothing below has been run as the
+registered test; no file has been built.
+
+WHY (train-side only): on the 161 train G1hi rows, the slope of y on the blend_v27u nested OOF depends on image noise:
+1.49 (HC1 SE 0.16) on the 80 rows below the train G1hi median raw ic_noise, 0.94 (0.13) on the 81 above; continuous
+p x noise interaction t = -2.76 (with the v21 cell in the model, -2.78). Hypothesis H (fold/seed averaging makes test
+predictions flat) is refuted (train-only inner-CV averaging ratio rho 0.98; the same fixed fold models are already flat
+on the test rows; CNN seed noise 1.3 of 32 HV^2). This file does NOT depend on H. The form was found post hoc (first
+seen in D/mech m9; about 45 forms compared; a 42-form split-search null reaches the observed gain in 31% of draws), so
+the train bar below guards the protocol and the build; it is not evidence against selection. The public reading is the
+out-of-sample test.
+
+ROWS (label-free, fixed): G1hi = raw features_v3 ic_noise >= 12 AND ic_ridge_snr < 0.5 (assert 161 train / 320 test).
+m = median raw ic_noise over the 161 train G1hi rows (assert 16.280704 +- 1e-6). File rows: G1hi AND ic_noise < m
+(assert 80 train / 167 test). All other rows (420 train / 833 test) stay bit-identical to blend_v27u.
+INPUTS (md5-pinned): hardness-cache submissions/blend_v27u.csv 97a7cf2bbec5e90a65f8f7e388f4819f and blend_v27u_oof.csv
+c0a2cda36bfc0e0394bb332f2ee54338; repo data/folds.csv, data/features_v3.parquet, src.common.load_train().
+FACTOR (train only; one fixed rule, the same rule as File B): over the file's train rows
+  c = mean of the blend_v27u nested OOF (assert 192.9155),
+  b = OLS slope, with intercept, of y on that OOF (assert 1.4922),
+  rho = 0.9795141681843882 (fixed constant: D/mech m4, train-only inner-CV ratio, variance of the 5-inner-model mean /
+        variance of one inner model on outer held-out G1hi rows; it turns the single-fold OOF slope into the slope of
+        fold-mean test predictions; the 0.78 test/OOF variance ratio is composition and is NOT used),
+  k = 1 + 0.5 * (b / rho - 1) (assert 1.26171): half of the train-implied step, because b has SE 0.16 and was found post hoc.
+  new = c + k * (p - c), p = blend_v27u, on the file rows. No test-prediction statistic (test mean, test variance, the
+  H slope 1.51, kappa, c_hat, q) enters m, c, b, rho or k. The gate applies train-derived thresholds to each test
+  image's own label-free features (per-row inference, not fitting).
+  Report only, never selectable: LOO-EB k 1.2567 (skeptic-rules r7), B_lo_eb k 1.3549, full step b/rho 1.5234.
+NESTED BAR (run ONCE by the registered test script; its sha256 is recorded before the run; labels read once):
+  Nested OOF: for each outer fold f of data/folds.csv, recompute m_f, the low-half rows, c_f, b_f and k_f from the rows
+  with fold != f only (rho fixed), and set new = c_f + k_f (p - c_f) on the fold-f rows with G1hi and ic_noise < m_f.
+  Required (all five):
+  (a) all-500 nested MSE change vs the blend_v27u OOF <= -1.00;
+  (b) SSE lower on the changed held-out rows in >= 3 of the 5 folds (a fold with no changed row counts as not better);
+  (c) paired sign-flip p < 0.20 (one-sided, 20000 flips, seed 20261010, d_i = (new_i - y_i)^2 - (p_i - y_i)^2 over the
+      changed rows);
+  (d) after dropping the 3 rows with the largest SSE gain (no refit), the all-500 MSE change is still <= 0;
+  (e) 300 stratified 5-fold re-splits (seed 20261010; strata clean / LV / midLF / HLV / G1hi; same nested procedure):
+      mean all-500 MSE change <= -0.50 and P(change >= 0) <= 0.10.
+  Report only: per-fold m_f, k_f and changed-row counts; the in-sample all-500 change; the LOO-EB and B_lo_eb factors
+  under the same harness; splits at the train G1hi 40% / 60% noise quantiles (never selectable).
+  What the design audits already show (so the bar is a guard, not news): the LOO-EB form of this file -3.07 all-500,
+  4/5 folds, re-split mean -2.60, P(>= 0) 0.003 (skeptic-rules r7); the halves half-step -2.57, 4/5, re-split -2.41
+  (skeptic-mechanism s5). The selection-honest estimate for this family is about -1.46 all-500 (second b7).
+  A FAIL on any of (a)-(e): no file, slot A stays empty; File B is unaffected.
+FILE (only on PASS): blend_v28n.csv = blend_v27u with the 167 file test rows set to c + k (p - c) with the full-data c, k
+  above; blend_v28n_oof.csv = the nested OOF of the bar. Builder checks: md5 pins on inputs; 1000 finite rows in sample
+  order; the 833 other rows bit-identical to v27u; the 167 rows equal c + k (p - c) to 1e-9; refuse to overwrite; read
+  back after 10 s; record the md5. blend_v28n.json (tracked in the public repo): counts and train-side numbers only (no
+  test change statistics, no test variances, no test sums).
+EXPECTATION (vs v27u 10.1041; D/synth y1, 20000 random public sets, scenarios state the TRUE test slope of the low /
+  high half; weights are judgement; description only, nothing here sets a factor):
+  size on test (description only, never in the repo): 167 rows, rms change 2.86, mean +0.17, max |change| 10.2.
+  central about -0.03: balanced mixture -0.043, skeptic mixture -0.006. Sd of one reading 0.084 within a scenario.
+  by scenario: null 1 / 1 +0.068; pooled 1.13 +0.001; pooled 1.1755 -0.023; halves 1.25 / 0.97 -0.061;
+  halves 1.35 / 0.95 -0.114; in-sample 1.49 / 0.94 -0.187; H 1.55 / 1.54 (refuted) -0.219.
+  P(public <= 10.0000): 0.28 balanced, 0.17 skeptic, 0.02 null, 0.89 H. Private (700 rows) mean change about the same
+  as public; its sd about 1.1 MSE (0.055 RMSE) per scenario.
+READING (delta = v28n - v27u 10.1041; lines fixed now):
+  <= 10.0641 (delta <= -0.04): CARRIED. P: null 0.10, pooled 0.31-0.41, halves 0.59-0.95; mixtures 0.49 / 0.35.
+  10.0641 - 10.1441: INCONCLUSIVE. Mixtures 0.28 / 0.30.
+  > 10.1441 (delta > +0.04): REFUTED. P: null 0.63, pooled 0.23-0.32, halves 0.00-0.11; mixtures 0.23 / 0.34. Close
+  the noise-dependent stretch / recalibration family on G1hi for good (already on the 10-07 null list for blend_v16;
+  this test overrides that closure once because base and rows differ); no further G1hi slope files.
+  > 10.3541 (delta > +0.25; P 0.015 under null): BUILD CHECK first (md5, ID order, gates). Finals stay v26L + v27u.
+  Meaning for the G1hi question is read jointly with File B (table in PREREG_B). No re-weighting, re-scaling or second
+  dose on public at any reading.
+FINALS (assumes DACON ranks by the better private score of the two chosen finals; changing the finals needs the user's
+  OK, since the user set v26L + v27u at 12:06 KST):
+  Recommended rule: finals = v27u + v28n at every reading up to 10.3541 (v26L leaves the finals), except: if File B
+  reads R_B <= R_A - 0.06, finals = v27u + v28p. Above 10.3541: v26L + v27u.
+  Why: v27u covers v28n's downside, and v26L's own cover over v27u is small (it differs from v27u only by the ringall
+  term, which train and public both rate positive: about -0.05 private MSE, -0.002 RMSE; -0.22 MSE even if that term's
+  uncertainty is doubled). Expected private best-of-two vs v27u alone, MSE (balanced / skeptic): v26L + v27u -0.05;
+  v27u + v28n -1.23 / -0.73 (about -0.06 / -0.04 RMSE); with the B switch -1.23 / -0.75. By A's bin: carried
+  -1.78 / -1.29, inconclusive -0.89 / -0.58, refuted -0.46 / -0.30 - better than v26L + v27u (-0.05) in every bin.
+  Conventional alternative, if the user prefers a reading gate: v28n replaces v26L only on CARRIED (-0.90 / -0.49).
+  If DACON scores one final only (not best of two), use the conventional rule.
+RULES: train labels read once by the registered script on the 161 G1hi rows; test images only predicted; nothing fitted
+on test rows; no pseudo-labels, no external data; CPU, one process, OMP/BLAS threads 1; repo public: only a LEADERBOARD
+line and the json with train-side numbers; the test change vector and its statistics stay in the cache.
+LABEL-LOOK HISTORY (for the reviewer): all 161 G1hi train labels were read many times in the D design stage (mech m6-m11,
+second b1-b8, three skeptics). The noise-half form was chosen after those looks. The LV add-on (k_LV 1.23) is excluded:
+it would re-weight L's fixed w = 0.5 toward formula7 on rows public already rewarded (L/PREREG: no re-weighting at any
+reading). The cell-level correction (skeptic-mechanism s4) is excluded: its support is the same low-half signal (the 40
+out-of-cell low-noise rows are under-predicted by 6.5 HV) and it was found in the same analysis.
+
+FINALS RULE CHOSEN (user, decision card, 2026-10-10 14:17 KST, before any public reading of blend_v28n / blend_v28p): "always include".
+Finals = v27u + v28n at every reading of blend_v28n up to 10.3541; switch to v27u + v28p only if R_B <= R_A - 0.06;
+above 10.3541 build check first and finals v26L + v27u. If blend_v28n is never submitted: finals stay v26L + v27u.
+
+PUBLIC READING (user, 2026-10-10 14:20 KST): blend_v28n 10.0712 (delta -0.0329 vs v27u 10.1041; public MSE -0.664).
+Bin: 10.0641 - 10.1441 -> INCONCLUSIVE (missed carried by 0.007). Finals per the chosen rule: v27u + v28n. File B is
+submitted next as registered; switch to v27u + v28p only if R_B <= 10.0112. No re-scaling or second dose.
+
+PUBLIC READING (user, 2026-10-10 14:21 KST): blend_v28p 10.0796 (delta -0.0245 vs v27u; public MSE -0.497).
+Bin: 10.0741 - 10.1241 -> INCONCLUSIVE (by 0.0055). Joint with A (10.0712, inconclusive): D = R_A - R_B = -0.0084;
+row "anything else": no conclusion on structure vs pooled; no further stretch files. Switch rule not met (needs <= 10.0112):
+finals stay v27u + v28n.

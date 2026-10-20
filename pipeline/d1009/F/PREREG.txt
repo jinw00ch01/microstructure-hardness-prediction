@@ -1,0 +1,13 @@
+Track F (written 2026-10-08 ~19:10 KST, before any result of this split was computed).
+Motivation (label-free): track D's calibration found the 9.5-12 band is a mix of 21 line-visible clean-preset-like train
+images (features_v3 ic_ridge_snr >= 0.5) and 47 noisy-preset-like ones. Gate by preset type instead of by noise level.
+Base: blend_v22b nested OOF (r = y - OOF). Shared folds.
+P1 (het_cnn offset on all noisy-preset-like images): G1 = ic_noise >= 9.5 and ic_ridge_snr < 0.5. Offset = beta*(het_cnn -
+  g(logN_cnn)), g linear and beta (no intercept) cross-fitted on G1 rows of the other folds (same form as v22/v22b), seeds
+  0+1 averaged. Replaces v22b's >=12 offset on G1 rows; rows with ic_noise >= 12 and ic_ridge_snr >= 0.5 (if any) keep v22b.
+  Compared on all 500 rows against v22b. BAR: nested CV(all) improves by >= 0.02; G1 rows with 9.5 <= ic_noise < 12 do not get
+  worse; >= 4/5 folds better on G1; permutation p < 0.05 (het_cnn shuffled within G1, 1000x).
+P2 (measured het4 on line-visible mid images): G2 = 9.5 <= ic_noise < 12 and ic_ridge_snr >= 0.5. het4 and N_eff from
+  src.het_blocks.one on those images; offset = the v19/v21 clean offset coefficients (fitted on the clean rows only, no refit:
+  zero-fit transfer), i.e. a + b*het4 + c*N_eff^0.25 with [a,b,c] from the cross-fitted clean fit of the same outer fold.
+  BAR: G2 RMSE improves by >= 0.3 and >= 3 of the folds that contain G2 rows improve; report n.
